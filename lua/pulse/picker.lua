@@ -21,9 +21,64 @@ local modules = {
 }
 
 local kind_icons = {
-  command = "",
-  symbol = "󰙅",
-  workspace_symbol = "󰘦",
+  Command = "",
+  File = "󰈔",
+  Module = "󰆧",
+  Namespace = "󰌗",
+  Package = "󰏗",
+  Class = "󰠱",
+  Method = "󰆧",
+  Property = "󰜢",
+  Field = "󰜢",
+  Constructor = "󰆧",
+  Enum = "󰕘",
+  Interface = "󰕘",
+  Function = "󰊕",
+  Variable = "󰀫",
+  Constant = "󰏿",
+  String = "󰀬",
+  Number = "󰎠",
+  Boolean = "󰨙",
+  Array = "󰅪",
+  Object = "󰅩",
+  Key = "󰌋",
+  Null = "󰟢",
+  EnumMember = "󰕘",
+  Struct = "󰙅",
+  Event = "󱐋",
+  Operator = "󰆕",
+  TypeParameter = "󰬛",
+  Symbol = "󰘧",
+}
+
+local symbol_kind_hl = {
+  File = "Directory",
+  Module = "Include",
+  Namespace = "Include",
+  Package = "Include",
+  Class = "Type",
+  Method = "Function",
+  Property = "Identifier",
+  Field = "Identifier",
+  Constructor = "Function",
+  Enum = "Type",
+  Interface = "Type",
+  Function = "Function",
+  Variable = "Identifier",
+  Constant = "Constant",
+  String = "String",
+  Number = "Number",
+  Boolean = "Boolean",
+  Array = "Type",
+  Object = "Type",
+  Key = "Identifier",
+  Null = "Constant",
+  EnumMember = "Constant",
+  Struct = "Type",
+  Event = "PreProc",
+  Operator = "Operator",
+  TypeParameter = "Type",
+  Symbol = "Identifier",
 }
 
 local function close_existing_telescope_windows()
@@ -51,13 +106,23 @@ local function devicon_for(path)
   return icon or "", hl or "TelescopeResultsComment"
 end
 
+local function symbol_parts(item)
+  local kind = item.symbol_kind_name or "Symbol"
+  local icon = kind_icons[kind] or kind_icons.Symbol
+  local hl = symbol_kind_hl[kind] or "Identifier"
+  local depth = math.max(item.depth or 0, 0)
+  local indent = string.rep("  ", depth)
+  local name = item.symbol or ""
+  return indent, icon, name, kind, hl
+end
+
 local function entry_maker(item)
   local displayer = entry_display.create({
     separator = " ",
     items = {
       { width = 2 },
       { remaining = true },
-      { width = 28 },
+      { width = 22 },
     },
   })
 
@@ -92,13 +157,14 @@ local function entry_maker(item)
       ordinal = ":" .. item.command,
       kind = "command",
       display = function()
-        return displayer({ { kind_icons.command, "TelescopeResultsIdentifier" }, { ":" .. item.command, "Normal" }, { item.source, "Comment" } })
+        return displayer({ { kind_icons.Command, "TelescopeResultsIdentifier" }, { ":" .. item.command, "Normal" }, { item.source, "Comment" } })
       end,
     }
   end
 
   local filename = item.filename or ""
   local rel = filename ~= "" and vim.fn.fnamemodify(filename, ":.") or ""
+  local indent, icon, name, kind, kind_hl = symbol_parts(item)
   return {
     value = item,
     ordinal = ((item.kind == "workspace_symbol") and "#" or "@") .. " " .. string.format("%s %s %s", item.symbol or "", rel, item.container or ""),
@@ -107,12 +173,11 @@ local function entry_maker(item)
     col = item.col,
     kind = item.kind,
     display = function()
-      local icon = item.kind == "workspace_symbol" and kind_icons.workspace_symbol or kind_icons.symbol
-      local right = rel
-      if item.container and item.container ~= "" then
-        right = item.container .. " " .. rel
+      local right = kind
+      if item.kind == "workspace_symbol" and item.container and item.container ~= "" then
+        right = kind .. "  " .. item.container
       end
-      return displayer({ { icon, "TelescopeResultsIdentifier" }, { item.symbol or "", "Normal" }, { right, "Comment" } })
+      return displayer({ { indent .. icon, kind_hl }, { name, "Normal" }, { right, "Comment" } })
     end,
   }
 end
@@ -137,8 +202,6 @@ function M.open(opts)
   end
 
   local picker
-  local current_mode = "files"
-
   local function refresh_no_prompt_reset()
     if picker then
       pcall(picker.refresh, picker, picker.finder, { reset_prompt = false })
@@ -152,12 +215,9 @@ function M.open(opts)
     workspace_symbol = modules.workspace_symbol.seed({ on_update = refresh_no_prompt_reset }),
   }
 
-  states.workspace_symbol.on_update = refresh_no_prompt_reset
-
   local function build_items(prompt)
     local mode, query = common.parse_mode(prompt or "")
-    current_mode = mode
-    return modules[mode].items(states[mode], query)
+    return modules[mode].items(states[mode], query), mode
   end
 
   picker = pickers.new(picker_opts, {
@@ -165,11 +225,15 @@ function M.open(opts)
     results_title = false,
     finder = finders.new_dynamic({
       fn = function(prompt)
-        local mode, _ = common.parse_mode(prompt or "")
-        if picker and picker.prompt_title ~= modules[mode].title() then
-          picker.prompt_title = modules[mode].title()
+        local items, mode = build_items(prompt)
+        local new_title = modules[mode].title()
+        if picker and picker.prompt_title ~= new_title then
+          picker.prompt_title = new_title
+          if picker.prompt_border and picker.prompt_border.change_title then
+            pcall(picker.prompt_border.change_title, picker.prompt_border, new_title)
+          end
         end
-        return build_items(prompt)
+        return items
       end,
       entry_maker = entry_maker,
     }),
@@ -184,6 +248,13 @@ function M.open(opts)
     sorting_strategy = picker_opts.sorting_strategy,
     border = picker_opts.border,
     attach_mappings = function(prompt_bufnr)
+      vim.schedule(function()
+        local p = action_state.get_current_picker(prompt_bufnr)
+        if p and p.results_win and vim.api.nvim_win_is_valid(p.results_win) then
+          vim.api.nvim_set_option_value("winhl", "Normal:Normal,CursorLine:CursorLine", { win = p.results_win })
+        end
+      end)
+
       actions.select_default:replace(function()
         local selection = action_state.get_selected_entry()
         if not selection or selection.kind == "header" then

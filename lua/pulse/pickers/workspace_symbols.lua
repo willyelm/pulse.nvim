@@ -6,6 +6,21 @@ function M.title()
   return "Workspace Symbols"
 end
 
+local SymbolKind = vim.lsp.protocol.SymbolKind or {}
+
+local function kind_name(kind)
+  return SymbolKind[kind] or "Symbol"
+end
+
+local function depth_from_container(container)
+  if not container or container == "" then
+    return 0
+  end
+  local c = container:gsub("::", ".")
+  local parts = vim.split(c, ".", { plain = true, trimempty = true })
+  return math.max(#parts - 1, 0)
+end
+
 local function fetch_async(query, cb)
   local params = { query = query or "" }
   local acc = {}
@@ -18,11 +33,14 @@ local function fetch_async(query, cb)
         for _, item in ipairs(result or {}) do
           local filename = item.location and item.location.uri and vim.uri_to_fname(item.location.uri) or ""
           local pos = item.location and item.location.range and item.location.range.start or {}
+          local container = item.containerName or ""
           table.insert(acc, {
             kind = "workspace_symbol",
             symbol = item.name or "",
             symbol_kind = item.kind or 0,
-            container = item.containerName or "",
+            symbol_kind_name = kind_name(item.kind or 0),
+            container = container,
+            depth = depth_from_container(container),
             filename = filename,
             lnum = (pos.line or 0) + 1,
             col = (pos.character or 0) + 1,
@@ -45,13 +63,14 @@ function M.seed(ctx)
   local state = {
     symbols = {},
     queried = {},
+    on_update = ctx and ctx.on_update or nil,
   }
 
   fetch_async("", function(items)
     state.symbols = items
     state.queried[""] = true
-    if ctx and type(ctx.on_update) == "function" then
-      vim.schedule(ctx.on_update)
+    if state.on_update then
+      vim.schedule(state.on_update)
     end
   end)
 
@@ -64,7 +83,7 @@ function M.items(state, query)
   if q ~= "" and not state.queried[q] then
     state.queried[q] = true
     fetch_async(q, function(items)
-      if #items > #state.symbols then
+      if #items >= #state.symbols then
         state.symbols = items
       end
       if state.on_update then
@@ -79,7 +98,7 @@ function M.items(state, query)
 
   local out = {}
   for _, s in ipairs(state.symbols or {}) do
-    local hay = table.concat({ s.symbol or "", s.container or "", s.filename or "" }, " ")
+    local hay = table.concat({ s.symbol or "", s.symbol_kind_name or "", s.container or "", s.filename or "" }, " ")
     if common.has_ci(hay, q) then
       table.insert(out, s)
     end

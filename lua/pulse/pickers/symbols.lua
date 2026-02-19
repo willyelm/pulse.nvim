@@ -6,6 +6,12 @@ function M.title()
   return "Symbols"
 end
 
+local SymbolKind = vim.lsp.protocol.SymbolKind or {}
+
+local function kind_name(kind)
+  return SymbolKind[kind] or "Symbol"
+end
+
 local function symbol_kind_for_node(node_type)
   if node_type:find("function") or node_type:find("method") then
     return 12
@@ -39,45 +45,50 @@ local function collect_treesitter_symbols(bufnr)
   local out = {}
   local root = tree:root()
 
-  local function walk(node)
+  local function walk(node, depth)
     if not node then
       return
     end
     local t = node:type() or ""
     if t:find("function") or t:find("method") or t:find("class") or t:find("interface") or t:find("struct") or t:find("enum") then
-      local sr, sc, er, ec = node:range()
+      local sr, sc = node:range()
       local text = vim.treesitter.get_node_text(node, bufnr) or ""
       local first = vim.split(text, "\n", { plain = true })[1] or ""
       first = vim.trim(first)
       if first ~= "" then
+        local sk = symbol_kind_for_node(t)
         table.insert(out, {
           kind = "symbol",
           symbol = first,
-          symbol_kind = symbol_kind_for_node(t),
+          symbol_kind = sk,
+          symbol_kind_name = kind_name(sk),
+          depth = depth,
           lnum = sr + 1,
           col = sc + 1,
           filename = vim.api.nvim_buf_get_name(bufnr),
         })
       end
-      if #out > 300 then
+      if #out > 400 then
         return
       end
+      depth = depth + 1
     end
 
     for child in node:iter_children() do
-      walk(child)
-      if #out > 300 then
+      walk(child, depth)
+      if #out > 400 then
         return
       end
     end
   end
 
-  walk(root)
+  walk(root, 0)
   return out
 end
 
-local function flatten_lsp_symbols(items, out)
+local function flatten_lsp_symbols(items, out, depth)
   out = out or {}
+  depth = depth or 0
   for _, item in ipairs(items or {}) do
     local name = item.name or ""
     local kind = item.kind or 0
@@ -87,6 +98,8 @@ local function flatten_lsp_symbols(items, out)
         kind = "symbol",
         symbol = name,
         symbol_kind = kind,
+        symbol_kind_name = kind_name(kind),
+        depth = depth,
         lnum = (range.start.line or 0) + 1,
         col = (range.start.character or 0) + 1,
         filename = vim.api.nvim_buf_get_name(0),
@@ -96,13 +109,15 @@ local function flatten_lsp_symbols(items, out)
         kind = "symbol",
         symbol = name,
         symbol_kind = kind,
+        symbol_kind_name = kind_name(kind),
+        depth = depth,
         lnum = (item.location.range.start.line or 0) + 1,
         col = (item.location.range.start.character or 0) + 1,
         filename = vim.uri_to_fname(item.location.uri),
       })
     end
     if item.children then
-      flatten_lsp_symbols(item.children, out)
+      flatten_lsp_symbols(item.children, out, depth + 1)
     end
   end
   return out
@@ -131,7 +146,7 @@ function M.seed(ctx)
     if not result then
       return
     end
-    local merged = vim.list_extend(vim.deepcopy(state.symbols), flatten_lsp_symbols(result, {}))
+    local merged = vim.list_extend(vim.deepcopy(state.symbols), flatten_lsp_symbols(result, {}, 0))
     state.symbols = dedupe(merged)
     if ctx and type(ctx.on_update) == "function" then
       vim.schedule(ctx.on_update)
@@ -148,7 +163,7 @@ function M.items(state, query)
   end
   local out = {}
   for _, s in ipairs(symbols) do
-    local hay = table.concat({ s.symbol or "", s.container or "", s.filename or "" }, " ")
+    local hay = table.concat({ s.symbol or "", s.symbol_kind_name or "", s.filename or "" }, " ")
     if common.has_ci(hay, query) then
       table.insert(out, s)
     end
