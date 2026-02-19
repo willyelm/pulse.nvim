@@ -21,83 +21,22 @@ local modules = {
 }
 
 local kind_icons = {
-  Command = "",
-  File = "󰈔",
-  Module = "󰆧",
-  Namespace = "󰌗",
-  Package = "󰏗",
-  Class = "󰠱",
-  Method = "󰆧",
-  Property = "󰆼",
-  Field = "󰆼",
-  Constructor = "󰆧",
-  Enum = "󰕘",
-  Interface = "󰕘",
-  Function = "󰊕",
-  Variable = "󰀫",
-  Constant = "󰏿",
-  String = "󰀬",
-  Number = "󰎠",
-  Boolean = "󰨙",
-  Array = "󰅪",
-  Object = "󰅩",
-  Key = "󰌋",
-  Null = "󰟢",
-  EnumMember = "󰕘",
-  Struct = "󰙅",
-  Event = "󱐋",
-  Operator = "󰆕",
-  TypeParameter = "󰬛",
+  Command = "", File = "󰈔", Module = "󰆧", Namespace = "󰌗", Package = "󰏗", Class = "󰠱",
+  Method = "󰆧", Property = "󰆼", Field = "󰆼", Constructor = "󰆧", Enum = "󰕘",
+  Interface = "󰕘", Function = "󰊕", Variable = "󰀫", Constant = "󰏿", String = "󰀬",
+  Number = "󰎠", Boolean = "󰨙", Array = "󰅪", Object = "󰅩", Key = "󰌋", Null = "󰟢",
+  EnumMember = "󰕘", Struct = "󰙅", Event = "󱐋", Operator = "󰆕", TypeParameter = "󰬛",
   Symbol = "󰘧",
 }
 
 local symbol_kind_hl = {
-  File = "Directory",
-  Module = "Include",
-  Namespace = "Include",
-  Package = "Include",
-  Class = "Type",
-  Method = "Function",
-  Property = "Identifier",
-  Field = "Identifier",
-  Constructor = "Function",
-  Enum = "Type",
-  Interface = "Type",
-  Function = "Function",
-  Variable = "Identifier",
-  Constant = "Constant",
-  String = "String",
-  Number = "Number",
-  Boolean = "Boolean",
-  Array = "Type",
-  Object = "Type",
-  Key = "Identifier",
-  Null = "Constant",
-  EnumMember = "Constant",
-  Struct = "Type",
-  Event = "PreProc",
-  Operator = "Operator",
-  TypeParameter = "Type",
-  Symbol = "Identifier",
+  File = "Directory", Module = "Include", Namespace = "Include", Package = "Include", Class = "Type",
+  Method = "Function", Property = "Identifier", Field = "Identifier", Constructor = "Function",
+  Enum = "Type", Interface = "Type", Function = "Function", Variable = "Identifier",
+  Constant = "Constant", String = "String", Number = "Number", Boolean = "Boolean", Array = "Type",
+  Object = "Type", Key = "Identifier", Null = "Constant", EnumMember = "Constant", Struct = "Type",
+  Event = "PreProc", Operator = "Operator", TypeParameter = "Type", Symbol = "Identifier",
 }
-
-local function current_right_width()
-  local win = vim.api.nvim_get_current_win()
-  local width = vim.api.nvim_win_is_valid(win) and vim.api.nvim_win_get_width(win) or 80
-  return math.max(10, math.floor(width * 0.24))
-end
-
-local function make_displayer()
-  local rw = current_right_width()
-  return entry_display.create({
-    separator = " ",
-    items = {
-      { width = 2 },
-      { remaining = true },
-      { width = rw, right_justify = true },
-    },
-  })
-end
 
 local function filetype_for(path)
   local ft = vim.filetype.match({ filename = path })
@@ -125,13 +64,20 @@ local function symbol_parts(item)
   local kind = item.symbol_kind_name or "Symbol"
   local icon = kind_icons[kind] or kind_icons.Symbol
   local hl = symbol_kind_hl[kind] or "Identifier"
-  local depth = math.max(item.depth or 0, 0)
-  local indent = string.rep("  ", depth)
-  local name = item.symbol or ""
-  return indent, icon, name, kind, hl
+  local indent = string.rep("  ", math.max(item.depth or 0, 0))
+  return indent, icon, item.symbol or "", kind, hl
 end
 
 local function make_entry_maker()
+  local displayer = entry_display.create({
+    separator = " ",
+    items = {
+      { width = 2 },
+      { remaining = true },
+      { width = 22 },
+    },
+  })
+
   return function(item)
     if item.kind == "header" then
       return {
@@ -139,7 +85,6 @@ local function make_entry_maker()
         ordinal = item.label,
         kind = "header",
         display = function()
-          local displayer = make_displayer()
           return displayer({ { "", "Normal" }, { item.label, "Comment" }, { "", "Comment" } })
         end,
       }
@@ -154,9 +99,7 @@ local function make_entry_maker()
         kind = "file",
         path = item.path,
         display = function()
-          local displayer = make_displayer()
-          local ft = filetype_for(item.path)
-          return displayer({ { icon, icon_hl }, { rel, "Normal" }, { ft, "Comment" } })
+          return displayer({ { icon, icon_hl }, { rel, "Normal" }, { filetype_for(item.path), "Comment" } })
         end,
       }
     end
@@ -167,12 +110,7 @@ local function make_entry_maker()
         ordinal = ":" .. item.command,
         kind = "command",
         display = function()
-          local displayer = make_displayer()
-          return displayer({
-            { kind_icons.Command, "TelescopeResultsIdentifier" },
-            { ":" .. item.command, "Normal" },
-            { item.source, "Comment" },
-          })
+          return displayer({ { kind_icons.Command, "TelescopeResultsIdentifier" }, { ":" .. item.command, "Normal" }, { item.source, "Comment" } })
         end,
       }
     end
@@ -180,11 +118,9 @@ local function make_entry_maker()
     local filename = item.filename or ""
     local rel = filename ~= "" and vim.fn.fnamemodify(filename, ":.") or ""
     local indent, icon, name, kind, kind_hl = symbol_parts(item)
-
     return {
       value = item,
-      ordinal = ((item.kind == "workspace_symbol") and "#" or "@")
-        .. " " .. string.format("%s %s %s", item.symbol or "", rel, item.container or ""),
+      ordinal = ((item.kind == "workspace_symbol") and "#" or "@") .. " " .. string.format("%s %s %s", item.symbol or "", rel, item.container or ""),
       filename = filename,
       lnum = item.lnum,
       col = item.col,
@@ -194,12 +130,7 @@ local function make_entry_maker()
         if item.kind == "workspace_symbol" and item.container and item.container ~= "" then
           right = kind .. "  " .. item.container
         end
-        local displayer = make_displayer()
-        return displayer({
-          { icon, kind_hl },
-          { indent .. name, "Normal" },
-          { right, "Comment" },
-        })
+        return displayer({ { icon, kind_hl }, { indent .. name, "Normal" }, { right, "Comment" } })
       end,
     }
   end
@@ -207,14 +138,8 @@ end
 
 function M.open(opts)
   opts = opts or {}
-
   local picker_opts = vim.tbl_deep_extend("force", {
-    layout_config = {
-      width = 0.70,
-      height = 0.45,
-      prompt_position = "top",
-      anchor = "N",
-    },
+    layout_config = { width = 0.70, height = 0.45, prompt_position = "top", anchor = "N" },
     border = true,
   }, opts)
 
@@ -224,8 +149,8 @@ function M.open(opts)
   end
 
   local entry_maker = make_entry_maker()
-  local picker
 
+  local picker
   local function refresh_no_prompt_reset()
     if picker then
       pcall(picker.refresh, picker, picker.finder, { reset_prompt = false })
@@ -279,11 +204,37 @@ function M.open(opts)
         end
       end)
 
+      local function move_until_selectable(step)
+        local guard = 0
+        repeat
+          step(prompt_bufnr)
+          guard = guard + 1
+          local s = action_state.get_selected_entry()
+          if not s or s.kind ~= "header" then
+            break
+          end
+        until guard > 200
+      end
+
+      local function move_next()
+        move_until_selectable(actions.move_selection_next)
+      end
+
+      local function move_prev()
+        move_until_selectable(actions.move_selection_previous)
+      end
+
       local function preview_selection()
         local selection = action_state.get_selected_entry()
-        if not selection or selection.kind == "header" then
+        if not selection then
           return
         end
+
+        if selection.kind == "header" then
+          move_next()
+          return
+        end
+
         if selection.kind ~= "symbol" and selection.kind ~= "workspace_symbol" and selection.kind ~= "file" then
           return
         end
@@ -299,7 +250,6 @@ function M.open(opts)
             vim.cmd.edit(vim.fn.fnameescape(selection.path))
             return
           end
-
           if selection.filename and selection.filename ~= "" then
             vim.cmd.edit(vim.fn.fnameescape(selection.filename))
           end
@@ -309,6 +259,14 @@ function M.open(opts)
         end)
       end
 
+      map("i", "<Down>", move_next)
+      map("i", "<C-n>", move_next)
+      map("i", "<Up>", move_prev)
+      map("i", "<C-p>", move_prev)
+      map("n", "j", move_next)
+      map("n", "<Down>", move_next)
+      map("n", "k", move_prev)
+      map("n", "<Up>", move_prev)
       map("i", "<Tab>", preview_selection)
       map("n", "<Tab>", preview_selection)
 
@@ -317,20 +275,16 @@ function M.open(opts)
         if not selection or selection.kind == "header" then
           return
         end
-
         actions.close(prompt_bufnr)
-
         if selection.kind == "file" then
           vim.cmd.edit(vim.fn.fnameescape(selection.path))
           return
         end
-
         if selection.kind == "command" then
           local keys = vim.api.nvim_replace_termcodes(":" .. selection.value.command, true, false, true)
           vim.api.nvim_feedkeys(keys, "n", false)
           return
         end
-
         if selection.filename and selection.filename ~= "" then
           vim.cmd.edit(vim.fn.fnameescape(selection.filename))
         end
