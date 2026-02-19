@@ -1,34 +1,27 @@
 local M = {}
 
 M.defaults = {
-	cmdline = false,
-	keymaps = {
-		open = "<leader>p",
-		-- commands = "<leader>p:",
-		-- workspace_symbol = "<leader>p#",
-		-- symbol = "<leader>p@",
-	},
-	telescope = {
-		initial_mode = "insert",
-		prompt_prefix = "",
-		selection_caret = " ",
-		entry_prefix = " ",
-		layout_strategy = "vertical",
-		sorting_strategy = "ascending",
-		layout_config = {
-      anchor = "N",
+  cmdline = false,
+  telescope = {
+    initial_mode = "insert",
+    prompt_prefix = "",
+    selection_caret = " ",
+    entry_prefix = " ",
+    sorting_strategy = "ascending",
+    layout_config = {
+      width = 0.50,
+      height = 0.45,
       prompt_position = "top",
-			height = 0.40,
-			width = 0.70,
-			preview_height = 0.45,
-		},
-	},
+      anchor = "N",
+    },
+    border = true,
+  },
 }
 
 M.options = vim.deepcopy(M.defaults)
 
 function M.setup(opts)
-	M.options = vim.tbl_deep_extend("force", vim.deepcopy(M.defaults), opts or {})
+  M.options = vim.tbl_deep_extend("force", vim.deepcopy(M.defaults), opts or {})
 end
 
 return M

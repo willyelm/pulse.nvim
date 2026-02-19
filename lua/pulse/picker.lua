@@ -5,7 +5,20 @@ local entry_display = require("telescope.pickers.entry_display")
 local finders = require("telescope.finders")
 local pickers = require("telescope.pickers")
 
+local common = require("pulse.pickers.common")
+local files_picker = require("pulse.pickers.files")
+local commands_picker = require("pulse.pickers.commands")
+local symbols_picker = require("pulse.pickers.symbols")
+local workspace_symbols_picker = require("pulse.pickers.workspace_symbols")
+
 local M = {}
+
+local modules = {
+  files = files_picker,
+  commands = commands_picker,
+  symbol = symbols_picker,
+  workspace_symbol = workspace_symbols_picker,
+}
 
 local kind_icons = {
   command = "",
@@ -27,39 +40,6 @@ local function close_existing_telescope_windows()
   end
 end
 
-local function has_ci(haystack, needle)
-  if needle == "" then
-    return true
-  end
-  return string.find(string.lower(haystack or ""), string.lower(needle), 1, true) ~= nil
-end
-
-local function parse_mode(prompt)
-  if vim.startswith(prompt, ":") then
-    return "commands", prompt:sub(2)
-  end
-  if vim.startswith(prompt, "#") then
-    return "workspace_symbol", prompt:sub(2)
-  end
-  if vim.startswith(prompt, "@") then
-    return "symbol", prompt:sub(2)
-  end
-  return "files", prompt
-end
-
-local function normalize_path(path)
-  return vim.fn.fnamemodify(path, ":p")
-end
-
-local function in_project(path, root)
-  local p = normalize_path(path)
-  local r = normalize_path(root)
-  if r:sub(-1) ~= "/" then
-    r = r .. "/"
-  end
-  return p:sub(1, #r) == r
-end
-
 local function devicon_for(path)
   local ok, devicons = pcall(require, "nvim-web-devicons")
   if not ok then
@@ -69,248 +49,6 @@ local function devicon_for(path)
   local ext = vim.fn.fnamemodify(path, ":e")
   local icon, hl = devicons.get_icon(name, ext, { default = true })
   return icon or "", hl or "TelescopeResultsComment"
-end
-
-local function opened_buffers()
-  local out = {}
-  for _, buf in ipairs(vim.api.nvim_list_bufs()) do
-    if vim.api.nvim_buf_is_valid(buf) and vim.bo[buf].buflisted then
-      local p = vim.api.nvim_buf_get_name(buf)
-      if p ~= "" and vim.fn.filereadable(p) == 1 then
-        table.insert(out, p)
-      end
-    end
-  end
-  table.sort(out)
-  return out
-end
-
-local function recent_files(root)
-  local out = {}
-  local seen = {}
-  for _, p in ipairs(vim.v.oldfiles or {}) do
-    if p ~= "" and vim.fn.filereadable(p) == 1 and in_project(p, root) then
-      local abs = normalize_path(p)
-      if not seen[abs] then
-        seen[abs] = true
-        table.insert(out, abs)
-      end
-    end
-  end
-  return out
-end
-
-local function repo_files()
-  local files = vim.fn.systemlist({ "rg", "--files", "--hidden", "-g", "!.git" })
-  if vim.v.shell_error ~= 0 then
-    return {}
-  end
-  return files
-end
-
-local function command_history()
-  local out = {}
-  local seen = {}
-  local last = vim.fn.histnr(":")
-  for i = last, math.max(1, last - 250), -1 do
-    local c = vim.fn.histget(":", i)
-    if c ~= "" and not seen[c] then
-      seen[c] = true
-      table.insert(out, c)
-    end
-  end
-  return out
-end
-
-local function all_commands()
-  local out = {}
-  local seen = {}
-  for _, c in ipairs(vim.fn.getcompletion("", "command")) do
-    if c ~= "" and not seen[c] then
-      seen[c] = true
-      table.insert(out, c)
-    end
-  end
-  table.sort(out)
-  return out
-end
-
-local function flatten_document_symbols(items, out)
-  out = out or {}
-  for _, item in ipairs(items or {}) do
-    local name = item.name or ""
-    local kind = item.kind or 0
-    local range = item.selectionRange or item.range
-    if range and range.start then
-      table.insert(out, {
-        kind = "symbol",
-        symbol = name,
-        symbol_kind = kind,
-        lnum = (range.start.line or 0) + 1,
-        col = (range.start.character or 0) + 1,
-        filename = vim.api.nvim_buf_get_name(0),
-      })
-    elseif item.location and item.location.range and item.location.range.start then
-      table.insert(out, {
-        kind = "symbol",
-        symbol = name,
-        symbol_kind = kind,
-        lnum = (item.location.range.start.line or 0) + 1,
-        col = (item.location.range.start.character or 0) + 1,
-        filename = vim.uri_to_fname(item.location.uri),
-      })
-    end
-    if item.children then
-      flatten_document_symbols(item.children, out)
-    end
-  end
-  return out
-end
-
-local function document_symbols()
-  local params = { textDocument = vim.lsp.util.make_text_document_params() }
-  local resp = vim.lsp.buf_request_sync(0, "textDocument/documentSymbol", params, 1000)
-  local out = {}
-  if not resp then
-    return out
-  end
-  for _, r in pairs(resp) do
-    if r.result then
-      flatten_document_symbols(r.result, out)
-    end
-  end
-  return out
-end
-
-local function workspace_symbols(query)
-  local params = { query = query or "" }
-  local resp = vim.lsp.buf_request_sync(0, "workspace/symbol", params, 1500)
-  local out = {}
-  if not resp then
-    return out
-  end
-  for _, r in pairs(resp) do
-    for _, item in ipairs(r.result or {}) do
-      local filename = item.location and item.location.uri and vim.uri_to_fname(item.location.uri) or ""
-      local pos = item.location and item.location.range and item.location.range.start or {}
-      table.insert(out, {
-        kind = "workspace_symbol",
-        symbol = item.name or "",
-        symbol_kind = item.kind or 0,
-        container = item.containerName or "",
-        filename = filename,
-        lnum = (pos.line or 0) + 1,
-        col = (pos.character or 0) + 1,
-      })
-    end
-  end
-  return out
-end
-
-local function ensure_repo_files(data)
-  if not data.files then
-    data.files = repo_files()
-  end
-  return data.files
-end
-
-local function ensure_document_symbols(data)
-  if not data.symbols then
-    data.symbols = document_symbols()
-  end
-  return data.symbols
-end
-
-local function ensure_workspace_symbols(data)
-  if not data.workspace_symbols then
-    data.workspace_symbols = workspace_symbols("")
-  end
-  return data.workspace_symbols
-end
-
-local function build_file_items(data, query)
-  local items = {}
-  local seen = {}
-
-  if query == "" then
-    table.insert(items, { kind = "header", label = "Opened Buffers" })
-    for _, p in ipairs(data.opened) do
-      if not seen[p] then
-        seen[p] = true
-        table.insert(items, { kind = "file", path = p })
-      end
-    end
-
-    table.insert(items, { kind = "header", label = "Recent Files" })
-    for _, p in ipairs(data.recent) do
-      if not seen[p] then
-        seen[p] = true
-        table.insert(items, { kind = "file", path = p })
-      end
-    end
-    return items
-  end
-
-  for _, p in ipairs(ensure_repo_files(data)) do
-    if has_ci(p, query) then
-      table.insert(items, { kind = "file", path = p })
-    end
-  end
-
-  return items
-end
-
-local function build_command_items(data, query)
-  local items = {}
-  local seen = {}
-
-  for _, c in ipairs(data.history) do
-    if has_ci(c, query) then
-      seen[c] = true
-      table.insert(items, { kind = "command", command = c, source = "history" })
-    end
-  end
-
-  for _, c in ipairs(data.commands) do
-    if not seen[c] and has_ci(c, query) then
-      table.insert(items, { kind = "command", command = c, source = "completion" })
-    end
-  end
-
-  return items
-end
-
-local function filter_symbols(items, query)
-  if query == "" then
-    return items
-  end
-  local out = {}
-  for _, s in ipairs(items) do
-    local hay = table.concat({ s.symbol or "", s.container or "", s.filename or "" }, " ")
-    if has_ci(hay, query) then
-      table.insert(out, s)
-    end
-  end
-  return out
-end
-
-local function build_items(data, prompt)
-  local mode, query = parse_mode(prompt or "")
-  if mode == "files" then
-    return build_file_items(data, query)
-  end
-  if mode == "commands" then
-    return build_command_items(data, query)
-  end
-  if mode == "symbol" then
-    return filter_symbols(ensure_document_symbols(data), query)
-  end
-
-  local ws = ensure_workspace_symbols(data)
-  if #ws == 0 and query ~= "" then
-    ws = workspace_symbols(query)
-  end
-  return filter_symbols(ws, query)
 end
 
 local function entry_maker(item)
@@ -383,34 +121,68 @@ function M.open(opts)
   opts = opts or {}
   close_existing_telescope_windows()
 
-  local data = {
-    opened = opened_buffers(),
-    recent = recent_files(vim.fn.getcwd()),
-    history = command_history(),
-    commands = all_commands(),
-    files = nil,
-    symbols = nil,
-    workspace_symbols = nil,
+  local picker_opts = vim.tbl_deep_extend("force", {
+    layout_config = {
+      width = 0.70,
+      height = 0.45,
+      prompt_position = "top",
+      anchor = "N",
+    },
+    border = true,
+  }, opts)
+
+  local ok, themes = pcall(require, "telescope.themes")
+  if ok and type(themes.get_dropdown) == "function" then
+    picker_opts = themes.get_dropdown(picker_opts)
+  end
+
+  local picker
+  local current_mode = "files"
+
+  local function refresh_no_prompt_reset()
+    if picker then
+      pcall(picker.refresh, picker, picker.finder, { reset_prompt = false })
+    end
+  end
+
+  local states = {
+    files = modules.files.seed(vim.fn.getcwd()),
+    commands = modules.commands.seed(),
+    symbol = modules.symbol.seed({ on_update = refresh_no_prompt_reset }),
+    workspace_symbol = modules.workspace_symbol.seed({ on_update = refresh_no_prompt_reset }),
   }
 
-  local picker = pickers.new(opts, {
-    prompt_title = "Pulse  (: commands | # workspace | @ symbols)",
+  states.workspace_symbol.on_update = refresh_no_prompt_reset
+
+  local function build_items(prompt)
+    local mode, query = common.parse_mode(prompt or "")
+    current_mode = mode
+    return modules[mode].items(states[mode], query)
+  end
+
+  picker = pickers.new(picker_opts, {
+    prompt_title = modules.files.title(),
     results_title = false,
     finder = finders.new_dynamic({
       fn = function(prompt)
-        return build_items(data, prompt)
+        local mode, _ = common.parse_mode(prompt or "")
+        if picker and picker.prompt_title ~= modules[mode].title() then
+          picker.prompt_title = modules[mode].title()
+        end
+        return build_items(prompt)
       end,
       entry_maker = entry_maker,
     }),
-    sorter = conf.generic_sorter(opts),
+    sorter = conf.generic_sorter(picker_opts),
     previewer = false,
-    initial_mode = opts.initial_mode,
-    prompt_prefix = opts.prompt_prefix,
-    selection_caret = opts.selection_caret,
-    entry_prefix = opts.entry_prefix,
-    layout_strategy = opts.layout_strategy,
-    layout_config = opts.layout_config,
-    sorting_strategy = opts.sorting_strategy,
+    initial_mode = picker_opts.initial_mode,
+    prompt_prefix = picker_opts.prompt_prefix,
+    selection_caret = picker_opts.selection_caret,
+    entry_prefix = picker_opts.entry_prefix,
+    layout_strategy = picker_opts.layout_strategy,
+    layout_config = picker_opts.layout_config,
+    sorting_strategy = picker_opts.sorting_strategy,
+    border = picker_opts.border,
     attach_mappings = function(prompt_bufnr)
       actions.select_default:replace(function()
         local selection = action_state.get_selected_entry()
@@ -442,8 +214,8 @@ function M.open(opts)
     end,
   })
 
-  if opts.initial_prompt and opts.initial_prompt ~= "" then
-    picker:find({ default_text = opts.initial_prompt })
+  if picker_opts.initial_prompt and picker_opts.initial_prompt ~= "" then
+    picker:find({ default_text = picker_opts.initial_prompt })
   else
     picker:find()
   end

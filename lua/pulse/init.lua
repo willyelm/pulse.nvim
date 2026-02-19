@@ -21,11 +21,11 @@ local function pulse_command(opts)
     open_smart("")
     return
   end
-  if mode == "symbol" then
+  if mode == "symbol" or mode == "symbols" then
     open_smart("@")
     return
   end
-  if mode == "workspace_symbol" then
+  if mode == "workspace_symbol" or mode == "workspace_symbols" then
     open_smart("#")
     return
   end
@@ -37,49 +37,27 @@ local function pulse_command(opts)
   vim.notify("Pulse: unknown mode '" .. mode .. "'", vim.log.levels.ERROR)
 end
 
-function M.files()
-  open_smart("")
-end
-
-function M.commands()
-  open_smart(":")
-end
-
-function M.workspace_symbol()
-  open_smart("#")
-end
-
-function M.symbol()
-  open_smart("@")
-end
-
 function M.setup(opts)
   config.setup(opts)
 
   vim.api.nvim_create_user_command("Pulse", pulse_command, {
     nargs = "?",
     complete = function()
-      return { "files", "symbol", "workspace_symbol", "commands", "smart" }
+      return {
+        "files",
+        "symbol",
+        "symbols",
+        "workspace_symbol",
+        "workspace_symbols",
+        "commands",
+        "smart",
+      }
     end,
   })
 
-  local km = config.options.keymaps or {}
-  if km.open and km.open ~= "" then
-    vim.keymap.set("n", km.open, M.files, { desc = "Pulse" })
-  end
-  if km.commands and km.commands ~= "" then
-    vim.keymap.set("n", km.commands, M.commands, { desc = "Pulse Commands" })
-  end
-  if km.workspace_symbol and km.workspace_symbol ~= "" then
-    vim.keymap.set("n", km.workspace_symbol, M.workspace_symbol, { desc = "Pulse Workspace Symbols" })
-  end
-  if km.symbol and km.symbol ~= "" then
-    vim.keymap.set("n", km.symbol, M.symbol, { desc = "Pulse Symbols" })
-  end
-
   if config.options.cmdline then
     vim.keymap.set("n", ":", function()
-      M.commands()
+      open_smart(":")
     end, { noremap = true, silent = true, desc = "Pulse Cmdline" })
   end
 end

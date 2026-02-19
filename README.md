@@ -10,57 +10,19 @@ Telescope-powered smart panel for files, commands, and symbols.
 
 ## Behavior
 
-- One panel only: opening Pulse closes any previous Pulse/Telescope panel first.
-- Starts in Insert mode.
-- No default `>` marker characters.
-- Top prompt title shows mode help: `: commands | # workspace | @ symbols`.
-
-Prefixes:
 - `:` -> command history + all available commands, filtered as you type.
-- `#` -> workspace symbols for project, filtered as you type.
-- `@` -> current buffer symbols, filtered as you type.
+- `#` -> workspace symbols for project (LSP async), filtered as you type.
+- `@` -> current buffer symbols (Treesitter immediate + LSP async), filtered as you type.
 - empty -> files mode.
 
-Files mode:
-- Empty prompt shows opened buffers first, then recent files.
-- Typing filters file results.
+## Commands API
 
-## Commands
+- `:Pulse` -> open empty (files mode)
+- `:Pulse commands` -> open with `:`
+- `:Pulse symbols` -> open with `@`
+- `:Pulse workspace_symbols` -> open with `#`
 
-- `:Pulse` (smart mode)
-- `:Pulse files`
-- `:Pulse symbol` (opens with `@` prefilled)
-- `:Pulse workspace_symbol` (opens with `#` prefilled)
-- `:Pulse commands` (opens with `:` prefilled)
-
-## Default config
-
-```lua
-require("pulse").setup({
-  cmdline = false, -- when true, maps ':' in normal mode to open Pulse with ':' prefilled
-  keymaps = {
-    open = "<leader>p",
-    commands = "<leader>p:",
-    workspace_symbol = "<leader>p#",
-    symbol = "<leader>p@",
-  },
-  telescope = {
-    initial_mode = "insert",
-    prompt_prefix = "",
-    selection_caret = " ",
-    entry_prefix = " ",
-    layout_strategy = "vertical",
-    sorting_strategy = "ascending",
-    layout_config = {
-      anchor = "N",
-      prompt_position = "top",
-      height = 0.40,
-      width = 0.70,
-      preview_height = 0.45,
-    },
-  },
-})
-```
+Aliases also supported: `symbol`, `workspace_symbol`, `files`, `smart`.
 
 ## Install (lazy.nvim)
 
@@ -71,6 +33,36 @@ require("pulse").setup({
     "nvim-telescope/telescope.nvim",
     "nvim-tree/nvim-web-devicons",
   },
-  opts = {},
+  opts = {
+    cmdline = false,
+  },
+  keys = {
+    { "<leader>p", "<cmd>Pulse<cr>", desc = "Pulse Files" },
+    { "<leader>p:", "<cmd>Pulse commands<cr>", desc = "Pulse Commands" },
+    { "<leader>p@", "<cmd>Pulse symbols<cr>", desc = "Pulse Symbols" },
+    { "<leader>p#", "<cmd>Pulse workspace_symbols<cr>", desc = "Pulse Workspace Symbols" },
+  },
 }
+```
+
+## Default config
+
+```lua
+require("pulse").setup({
+  cmdline = false, -- when true, maps ':' in normal mode to open Pulse with ':' prefilled
+  telescope = {
+    initial_mode = "insert",
+    prompt_prefix = "",
+    selection_caret = " ",
+    entry_prefix = " ",
+    sorting_strategy = "ascending",
+    layout_config = {
+      width = 0.50,
+      height = 0.45,
+      prompt_position = "top",
+      anchor = "N",
+    },
+    border = true,
+  },
+})
 ```
