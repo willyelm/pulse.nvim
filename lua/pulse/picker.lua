@@ -81,6 +81,35 @@ local symbol_kind_hl = {
   Symbol = "Identifier",
 }
 
+local function current_right_width()
+  local win = vim.api.nvim_get_current_win()
+  local width = vim.api.nvim_win_is_valid(win) and vim.api.nvim_win_get_width(win) or 80
+  return math.max(10, math.floor(width * 0.24))
+end
+
+local function make_displayer()
+  local rw = current_right_width()
+  return entry_display.create({
+    separator = " ",
+    items = {
+      { width = 2 },
+      { remaining = true },
+      { width = rw, right_justify = true },
+    },
+  })
+end
+
+local function filetype_for(path)
+  local ft = vim.filetype.match({ filename = path })
+  if not ft or ft == "" then
+    ft = vim.fn.fnamemodify(path, ":e")
+  end
+  if not ft or ft == "" then
+    ft = "file"
+  end
+  return ft
+end
+
 local function devicon_for(path)
   local ok, devicons = pcall(require, "nvim-web-devicons")
   if not ok then
@@ -102,70 +131,78 @@ local function symbol_parts(item)
   return indent, icon, name, kind, hl
 end
 
-local function entry_maker(item)
-  local displayer = entry_display.create({
-    separator = " ",
-    items = {
-      { width = 2 },
-      { remaining = true },
-      { width = 22 },
-    },
-  })
+local function make_entry_maker()
+  return function(item)
+    if item.kind == "header" then
+      return {
+        value = item,
+        ordinal = item.label,
+        kind = "header",
+        display = function()
+          local displayer = make_displayer()
+          return displayer({ { "", "Normal" }, { item.label, "Comment" }, { "", "Comment" } })
+        end,
+      }
+    end
 
-  if item.kind == "header" then
+    if item.kind == "file" then
+      local icon, icon_hl = devicon_for(item.path)
+      local rel = vim.fn.fnamemodify(item.path, ":.")
+      return {
+        value = item,
+        ordinal = rel,
+        kind = "file",
+        path = item.path,
+        display = function()
+          local displayer = make_displayer()
+          local ft = filetype_for(item.path)
+          return displayer({ { icon, icon_hl }, { rel, "Normal" }, { ft, "Comment" } })
+        end,
+      }
+    end
+
+    if item.kind == "command" then
+      return {
+        value = item,
+        ordinal = ":" .. item.command,
+        kind = "command",
+        display = function()
+          local displayer = make_displayer()
+          return displayer({
+            { kind_icons.Command, "TelescopeResultsIdentifier" },
+            { ":" .. item.command, "Normal" },
+            { item.source, "Comment" },
+          })
+        end,
+      }
+    end
+
+    local filename = item.filename or ""
+    local rel = filename ~= "" and vim.fn.fnamemodify(filename, ":.") or ""
+    local indent, icon, name, kind, kind_hl = symbol_parts(item)
+
     return {
       value = item,
-      ordinal = item.label,
-      kind = "header",
+      ordinal = ((item.kind == "workspace_symbol") and "#" or "@")
+        .. " " .. string.format("%s %s %s", item.symbol or "", rel, item.container or ""),
+      filename = filename,
+      lnum = item.lnum,
+      col = item.col,
+      kind = item.kind,
       display = function()
-        return displayer({ { "", "Normal" }, { item.label, "Comment" }, { "", "Comment" } })
+        local right = kind
+        if item.kind == "workspace_symbol" and item.container and item.container ~= "" then
+          right = kind .. "  " .. item.container
+        end
+        local displayer = make_displayer()
+        return displayer({
+          { icon, kind_hl },
+          { indent .. name, "Normal" },
+          { right, "Comment" },
+        })
       end,
     }
   end
-
-  if item.kind == "file" then
-    local icon, icon_hl = devicon_for(item.path)
-    local rel = vim.fn.fnamemodify(item.path, ":.")
-    return {
-      value = item,
-      ordinal = rel,
-      kind = "file",
-      path = item.path,
-      display = function()
-        return displayer({ { icon, icon_hl }, { rel, "Normal" }, { "file", "Comment" } })
-      end,
-    }
-  end
-
-  if item.kind == "command" then
-    return {
-      value = item,
-      ordinal = ":" .. item.command,
-      kind = "command",
-      display = function()
-        return displayer({ { kind_icons.Command, "TelescopeResultsIdentifier" }, { ":" .. item.command, "Normal" }, { item.source, "Comment" } })
-      end,
-    }
-  end
-
-  local filename = item.filename or ""
-  local rel = filename ~= "" and vim.fn.fnamemodify(filename, ":.") or ""
-  local indent, icon, name, kind, kind_hl = symbol_parts(item)
-  return {
-    value = item,
-    ordinal = ((item.kind == "workspace_symbol") and "#" or "@") .. " " .. string.format("%s %s %s", item.symbol or "", rel, item.container or ""),
-    filename = filename,
-    lnum = item.lnum,
-    col = item.col,
-    kind = item.kind,
-    display = function()
-      local right = kind
-      if item.kind == "workspace_symbol" and item.container and item.container ~= "" then
-        right = kind .. "  " .. item.container
-      end
-      return displayer({ { icon, kind_hl }, { indent .. name, "Normal" }, { right, "Comment" } })
-    end,
-  }
 end
 
 function M.open(opts)
@@ -186,7 +223,9 @@ function M.open(opts)
     picker_opts = themes.get_dropdown(picker_opts)
   end
 
+  local entry_maker = make_entry_maker()
   local picker
+
   local function refresh_no_prompt_reset()
     if picker then
       pcall(picker.refresh, picker, picker.finder, { reset_prompt = false })
@@ -232,7 +271,7 @@ function M.open(opts)
     layout_config = picker_opts.layout_config,
     sorting_strategy = picker_opts.sorting_strategy,
     border = picker_opts.border,
-    attach_mappings = function(prompt_bufnr)
+    attach_mappings = function(prompt_bufnr, map)
       vim.schedule(function()
         local p = action_state.get_current_picker(prompt_bufnr)
         if p and p.results_win and vim.api.nvim_win_is_valid(p.results_win) then
@@ -245,7 +284,7 @@ function M.open(opts)
         if not selection or selection.kind == "header" then
           return
         end
-        if selection.kind ~= "symbol" and selection.kind ~= "workspace_symbol" then
+        if selection.kind ~= "symbol" and selection.kind ~= "workspace_symbol" and selection.kind ~= "file" then
           return
         end
 
@@ -256,6 +295,11 @@ function M.open(opts)
         end
 
         vim.api.nvim_win_call(target_win, function()
+          if selection.kind == "file" and selection.path then
+            vim.cmd.edit(vim.fn.fnameescape(selection.path))
+            return
+          end
+
           if selection.filename and selection.filename ~= "" then
             vim.cmd.edit(vim.fn.fnameescape(selection.filename))
           end
@@ -265,8 +309,8 @@ function M.open(opts)
         end)
       end
 
-      vim.keymap.set("i", "<Tab>", preview_selection, { buffer = prompt_bufnr, silent = true })
-      vim.keymap.set("n", "<Tab>", preview_selection, { buffer = prompt_bufnr, silent = true })
+      map("i", "<Tab>", preview_selection)
+      map("n", "<Tab>", preview_selection)
 
       actions.select_default:replace(function()
         local selection = action_state.get_selected_entry()
@@ -294,6 +338,7 @@ function M.open(opts)
           vim.api.nvim_win_set_cursor(0, { selection.lnum, math.max((selection.col or 1) - 1, 0) })
         end
       end)
+
       return true
     end,
   })
