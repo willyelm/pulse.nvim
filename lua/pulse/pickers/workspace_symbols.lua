@@ -21,6 +21,18 @@ local function depth_from_container(container)
   return math.max(#parts - 1, 0)
 end
 
+local function sort_items(items)
+  table.sort(items, function(a, b)
+    if a.filename == b.filename then
+      if a.lnum == b.lnum then
+        return a.col < b.col
+      end
+      return a.lnum < b.lnum
+    end
+    return a.filename < b.filename
+  end)
+end
+
 local function fetch_async(query, cb)
   local params = { query = query or "" }
   local acc = {}
@@ -34,7 +46,8 @@ local function fetch_async(query, cb)
           local filename = item.location and item.location.uri and vim.uri_to_fname(item.location.uri) or ""
           local pos = item.location and item.location.range and item.location.range.start or {}
           local container = item.containerName or ""
-          table.insert(acc, {
+
+          acc[#acc + 1] = {
             kind = "workspace_symbol",
             symbol = item.name or "",
             symbol_kind = item.kind or 0,
@@ -44,10 +57,12 @@ local function fetch_async(query, cb)
             filename = filename,
             lnum = (pos.line or 0) + 1,
             col = (pos.character or 0) + 1,
-          })
+          }
         end
+
         pending = pending - 1
         if pending <= 0 and cb then
+          sort_items(acc)
           cb(acc)
         end
       end, 0)
@@ -62,13 +77,18 @@ end
 function M.seed(ctx)
   local state = {
     symbols = {},
-    queried = {},
+    request_id = 0,
+    last_query = nil,
     on_update = ctx and ctx.on_update or nil,
   }
 
+  state.request_id = state.request_id + 1
+  local rid = state.request_id
   fetch_async("", function(items)
+    if rid ~= state.request_id then
+      return
+    end
     state.symbols = items
-    state.queried[""] = true
     if state.on_update then
       vim.schedule(state.on_update)
     end
@@ -80,12 +100,16 @@ end
 function M.items(state, query)
   local q = query or ""
 
-  if q ~= "" and not state.queried[q] then
-    state.queried[q] = true
+  if state.last_query ~= q then
+    state.last_query = q
+    state.request_id = state.request_id + 1
+    local rid = state.request_id
+
     fetch_async(q, function(items)
-      if #items >= #state.symbols then
-        state.symbols = items
+      if rid ~= state.request_id then
+        return
       end
+      state.symbols = items
       if state.on_update then
         vim.schedule(state.on_update)
       end
@@ -100,7 +124,7 @@ function M.items(state, query)
   for _, s in ipairs(state.symbols or {}) do
     local hay = table.concat({ s.symbol or "", s.symbol_kind_name or "", s.container or "", s.filename or "" }, " ")
     if common.has_ci(hay, q) then
-      table.insert(out, s)
+      out[#out + 1] = s
     end
   end
   return out

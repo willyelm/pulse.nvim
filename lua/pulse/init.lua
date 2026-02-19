@@ -3,6 +3,16 @@ local picker = require("pulse.picker")
 
 local M = {}
 
+local PREFIX_BY_MODE = {
+  files = "",
+  smart = "",
+  symbol = "@",
+  symbols = "@",
+  workspace_symbol = "#",
+  workspace_symbols = "#",
+  commands = ":",
+}
+
 local function open_smart(initial_prompt)
   local t = config.options.telescope
   picker.open(vim.tbl_deep_extend("force", {
@@ -12,29 +22,15 @@ local function open_smart(initial_prompt)
 end
 
 local function pulse_command(opts)
-  local mode = "smart"
-  if opts and opts.args and opts.args ~= "" then
-    mode = opts.args
-  end
+  local mode = (opts and opts.args and opts.args ~= "") and opts.args or "smart"
+  local prefix = PREFIX_BY_MODE[mode]
 
-  if mode == "smart" or mode == "files" then
-    open_smart("")
-    return
-  end
-  if mode == "symbol" or mode == "symbols" then
-    open_smart("@")
-    return
-  end
-  if mode == "workspace_symbol" or mode == "workspace_symbols" then
-    open_smart("#")
-    return
-  end
-  if mode == "commands" then
-    open_smart(":")
+  if prefix == nil then
+    vim.notify("Pulse: unknown mode '" .. mode .. "'", vim.log.levels.ERROR)
     return
   end
 
-  vim.notify("Pulse: unknown mode '" .. mode .. "'", vim.log.levels.ERROR)
+  open_smart(prefix)
 end
 
 function M.setup(opts)

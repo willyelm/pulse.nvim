@@ -1,9 +1,9 @@
-local conf = require("telescope.config").values
 local actions = require("telescope.actions")
 local action_state = require("telescope.actions.state")
 local entry_display = require("telescope.pickers.entry_display")
 local finders = require("telescope.finders")
 local pickers = require("telescope.pickers")
+local sorters = require("telescope.sorters")
 
 local common = require("pulse.pickers.common")
 local files_picker = require("pulse.pickers.files")
@@ -28,8 +28,8 @@ local kind_icons = {
   Package = "󰏗",
   Class = "󰠱",
   Method = "󰆧",
-  Property = "󰜢",
-  Field = "󰜢",
+  Property = "󰆼",
+  Field = "󰆼",
   Constructor = "󰆧",
   Enum = "󰕘",
   Interface = "󰕘",
@@ -80,20 +80,6 @@ local symbol_kind_hl = {
   TypeParameter = "Type",
   Symbol = "Identifier",
 }
-
-local function close_existing_telescope_windows()
-  for _, win in ipairs(vim.api.nvim_list_wins()) do
-    if vim.api.nvim_win_is_valid(win) then
-      local buf = vim.api.nvim_win_get_buf(win)
-      if vim.api.nvim_buf_is_valid(buf) then
-        local ft = vim.bo[buf].filetype
-        if ft == "TelescopePrompt" or ft == "TelescopeResults" or ft == "TelescopePreview" then
-          pcall(vim.api.nvim_win_close, win, true)
-        end
-      end
-    end
-  end
-end
 
 local function devicon_for(path)
   local ok, devicons = pcall(require, "nvim-web-devicons")
@@ -177,14 +163,13 @@ local function entry_maker(item)
       if item.kind == "workspace_symbol" and item.container and item.container ~= "" then
         right = kind .. "  " .. item.container
       end
-      return displayer({ { indent .. icon, kind_hl }, { name, "Normal" }, { right, "Comment" } })
+      return displayer({ { icon, kind_hl }, { indent .. name, "Normal" }, { right, "Comment" } })
     end,
   }
 end
 
 function M.open(opts)
   opts = opts or {}
-  close_existing_telescope_windows()
 
   local picker_opts = vim.tbl_deep_extend("force", {
     layout_config = {
@@ -237,7 +222,7 @@ function M.open(opts)
       end,
       entry_maker = entry_maker,
     }),
-    sorter = conf.generic_sorter(picker_opts),
+    sorter = sorters.empty(),
     previewer = false,
     initial_mode = picker_opts.initial_mode,
     prompt_prefix = picker_opts.prompt_prefix,
@@ -254,6 +239,34 @@ function M.open(opts)
           vim.api.nvim_set_option_value("winhl", "Normal:Normal,CursorLine:CursorLine", { win = p.results_win })
         end
       end)
+
+      local function preview_selection()
+        local selection = action_state.get_selected_entry()
+        if not selection or selection.kind == "header" then
+          return
+        end
+        if selection.kind ~= "symbol" and selection.kind ~= "workspace_symbol" then
+          return
+        end
+
+        local p = action_state.get_current_picker(prompt_bufnr)
+        local target_win = p and p.original_win_id or nil
+        if not target_win or not vim.api.nvim_win_is_valid(target_win) then
+          return
+        end
+
+        vim.api.nvim_win_call(target_win, function()
+          if selection.filename and selection.filename ~= "" then
+            vim.cmd.edit(vim.fn.fnameescape(selection.filename))
+          end
+          if selection.lnum then
+            vim.api.nvim_win_set_cursor(0, { selection.lnum, math.max((selection.col or 1) - 1, 0) })
+          end
+        end)
+      end
+
+      vim.keymap.set("i", "<Tab>", preview_selection, { buffer = prompt_bufnr, silent = true })
+      vim.keymap.set("n", "<Tab>", preview_selection, { buffer = prompt_bufnr, silent = true })
 
       actions.select_default:replace(function()
         local selection = action_state.get_selected_entry()
