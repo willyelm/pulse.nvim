@@ -1,7 +1,7 @@
 local M = {}
 
 function M.title()
-  return "Diagnostics"
+  return "Workspace Diagnostics"
 end
 
 local function ci(h, n)
@@ -20,18 +20,21 @@ local severity_name = {
 
 function M.seed(ctx)
   local bufnr = (ctx and ctx.bufnr) or vim.api.nvim_get_current_buf()
-  return { bufnr = bufnr }
+  return { current_bufnr = bufnr }
 end
 
 function M.items(state, query)
-  local bufnr = state.bufnr or vim.api.nvim_get_current_buf()
+  local current_bufnr = state.current_bufnr or vim.api.nvim_get_current_buf()
   local out = {}
-  for _, d in ipairs(vim.diagnostic.get(bufnr)) do
+  for _, d in ipairs(vim.diagnostic.get(nil)) do
     local name = severity_name[d.severity] or "INFO"
+    local bufnr = d.bufnr or current_bufnr
     local filename = vim.api.nvim_buf_get_name(bufnr)
     local msg = tostring(d.message or ""):gsub("\n.*$", "")
     local item = {
       kind = "diagnostic",
+      bufnr = bufnr,
+      in_current = bufnr == current_bufnr,
       filename = filename,
       lnum = (d.lnum or 0) + 1,
       col = (d.col or 0) + 1,
@@ -47,11 +50,17 @@ function M.items(state, query)
   end
 
   table.sort(out, function(a, b)
+    if a.in_current ~= b.in_current then
+      return a.in_current
+    end
     if a.severity == b.severity then
-      if a.lnum == b.lnum then
-        return a.col < b.col
+      if a.filename == b.filename then
+        if a.lnum == b.lnum then
+          return a.col < b.col
+        end
+        return a.lnum < b.lnum
       end
-      return a.lnum < b.lnum
+      return (a.filename or "") < (b.filename or "")
     end
     return (a.severity or 99) < (b.severity or 99)
   end)

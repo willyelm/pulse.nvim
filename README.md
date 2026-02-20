@@ -15,7 +15,7 @@ Telescope-powered smart panel for files, commands, symbols, grep, and git status
 - `@` -> current buffer symbols (Treesitter immediate + LSP async), filtered as you type.
 - `$` -> live grep in project files (`rg --vimgrep`) with Telescope grep preview in the same panel.
 - `~` -> git changed files (`git status --porcelain`) with Telescope diff preview in the same panel.
-- `!` -> current buffer diagnostics (errors, warnings, info, hints).
+- `!` -> workspace diagnostics (errors, warnings, info, hints), with current buffer diagnostics shown first.
 - empty -> files mode.
 
 ## Commands API
