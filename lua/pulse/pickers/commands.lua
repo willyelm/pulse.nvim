@@ -1,9 +1,14 @@
-local common = require("pulse.pickers.common")
-
 local M = {}
 
 function M.title()
   return "Commands"
+end
+
+local function has_ci(haystack, needle)
+  if needle == "" then
+    return true
+  end
+  return string.find(string.lower(haystack or ""), string.lower(needle), 1, true) ~= nil
 end
 
 function M.seed()
@@ -11,19 +16,19 @@ function M.seed()
   local seen = {}
   local last = vim.fn.histnr(":")
   for i = last, math.max(1, last - 250), -1 do
-    local c = vim.fn.histget(":", i)
-    if c ~= "" and not seen[c] then
-      seen[c] = true
-      table.insert(history, c)
+    local cmd = vim.fn.histget(":", i)
+    if cmd ~= "" and not seen[cmd] then
+      seen[cmd] = true
+      history[#history + 1] = cmd
     end
   end
 
   local commands = {}
   seen = {}
-  for _, c in ipairs(vim.fn.getcompletion("", "command")) do
-    if c ~= "" and not seen[c] then
-      seen[c] = true
-      table.insert(commands, c)
+  for _, cmd in ipairs(vim.fn.getcompletion("", "command")) do
+    if cmd ~= "" and not seen[cmd] then
+      seen[cmd] = true
+      commands[#commands + 1] = cmd
     end
   end
   table.sort(commands)
@@ -32,19 +37,18 @@ function M.seed()
 end
 
 function M.items(state, query)
-  local items = {}
-  local seen = {}
+  local items, seen = {}, {}
 
-  for _, c in ipairs(state.history) do
-    if common.has_ci(c, query) then
-      seen[c] = true
-      table.insert(items, { kind = "command", command = c, source = "history" })
+  for _, cmd in ipairs(state.history) do
+    if has_ci(cmd, query) then
+      seen[cmd] = true
+      items[#items + 1] = { kind = "command", command = cmd, source = "history" }
     end
   end
 
-  for _, c in ipairs(state.commands) do
-    if not seen[c] and common.has_ci(c, query) then
-      table.insert(items, { kind = "command", command = c, source = "completion" })
+  for _, cmd in ipairs(state.commands) do
+    if not seen[cmd] and has_ci(cmd, query) then
+      items[#items + 1] = { kind = "command", command = cmd, source = "completion" }
     end
   end
 

@@ -1,5 +1,3 @@
-local common = require("pulse.pickers.common")
-
 local M = {}
 
 function M.title()
@@ -7,6 +5,13 @@ function M.title()
 end
 
 local SymbolKind = vim.lsp.protocol.SymbolKind or {}
+
+local function has_ci(haystack, needle)
+  if needle == "" then
+    return true
+  end
+  return string.find(string.lower(haystack or ""), string.lower(needle), 1, true) ~= nil
+end
 
 local function kind_name(kind)
   if type(kind) == "number" then
@@ -18,27 +23,74 @@ local function kind_name(kind)
   return "Symbol"
 end
 
-local function map_loclist_items(items)
-  local out = {}
-  for _, it in ipairs(items or {}) do
-    local text = tostring(it.text or "")
-    local name = vim.trim(text:gsub("^%b[]%s*", ""))
-    if name == "" then
-      name = text
+local function sort_by_line(items)
+  table.sort(items, function(a, b)
+    if (a.lnum or 0) == (b.lnum or 0) then
+      return (a.col or 0) < (b.col or 0)
     end
+    return (a.lnum or 0) < (b.lnum or 0)
+  end)
+  return items
+end
 
-    out[#out + 1] = {
-      kind = "symbol",
-      symbol = name,
-      symbol_kind = tonumber(it.kind) or 0,
-      symbol_kind_name = kind_name(it.kind),
-      depth = 0,
-      lnum = it.lnum or 1,
-      col = it.col or 1,
-      filename = it.filename or (it.bufnr and vim.api.nvim_buf_get_name(it.bufnr)) or "",
-    }
+local function flatten_document_symbols(result, bufnr)
+  local out = {}
+  local filename = vim.api.nvim_buf_get_name(bufnr)
+
+  local function walk(nodes, depth)
+    for _, s in ipairs(nodes or {}) do
+      local r = s.selectionRange or s.range
+      if r and r.start and s.name and s.name ~= "" then
+        out[#out + 1] = {
+          kind = "symbol",
+          symbol = tostring(s.name):gsub("\n.*$", ""),
+          symbol_kind = s.kind or 0,
+          symbol_kind_name = kind_name(s.kind or 0),
+          depth = depth,
+          lnum = (r.start.line or 0) + 1,
+          col = (r.start.character or 0) + 1,
+          filename = filename,
+        }
+        walk(s.children, depth + 1)
+      else
+        walk(s.children, depth)
+      end
+    end
   end
-  return out
+
+  walk(result, 0)
+  return sort_by_line(out)
+end
+
+local function flatten_symbol_information(result)
+  local out = {}
+  for _, s in ipairs(result or {}) do
+    local loc = s.location
+    local start = loc and loc.range and loc.range.start
+    if start and s.name and s.name ~= "" then
+      out[#out + 1] = {
+        kind = "symbol",
+        symbol = tostring(s.name):gsub("\n.*$", ""),
+        symbol_kind = s.kind or 0,
+        symbol_kind_name = kind_name(s.kind or 0),
+        depth = 0,
+        lnum = (start.line or 0) + 1,
+        col = (start.character or 0) + 1,
+        filename = loc.uri and vim.uri_to_fname(loc.uri) or "",
+      }
+    end
+  end
+  return sort_by_line(out)
+end
+
+local function lsp_symbols(bufnr, result)
+  if type(result) ~= "table" or #result == 0 then
+    return {}
+  end
+  if result[1] and result[1].location then
+    return flatten_symbol_information(result)
+  end
+  return flatten_document_symbols(result, bufnr)
 end
 
 local function treesitter_fallback(bufnr)
@@ -92,38 +144,23 @@ local function treesitter_fallback(bufnr)
   end
 
   walk(root)
-  table.sort(out, function(a, b)
-    if a.lnum == b.lnum then
-      return (a.col or 0) < (b.col or 0)
-    end
-    return (a.lnum or 0) < (b.lnum or 0)
-  end)
-  return out
+  return sort_by_line(out)
 end
 
 function M.seed(ctx)
   local bufnr = vim.api.nvim_get_current_buf()
   local state = { symbols = treesitter_fallback(bufnr) }
 
-  vim.lsp.buf.document_symbol({
-    on_list = function(o)
-      local items = o and o.items or {}
-      table.sort(items, function(a, b)
-        if (a.lnum or 0) == (b.lnum or 0) then
-          return (a.col or 0) < (b.col or 0)
-        end
-        return (a.lnum or 0) < (b.lnum or 0)
-      end)
-
-      local mapped = map_loclist_items(items)
-      if #mapped > 0 then
-        state.symbols = mapped
-        if ctx and type(ctx.on_update) == "function" then
-          vim.schedule(ctx.on_update)
-        end
+  local params = { textDocument = vim.lsp.util.make_text_document_params() }
+  vim.lsp.buf_request(bufnr, "textDocument/documentSymbol", params, function(_, result)
+    local mapped = lsp_symbols(bufnr, result)
+    if #mapped > 0 then
+      state.symbols = mapped
+      if ctx and type(ctx.on_update) == "function" then
+        vim.schedule(ctx.on_update)
       end
-    end,
-  })
+    end
+  end)
 
   return state
 end
@@ -137,7 +174,7 @@ function M.items(state, query)
   local out = {}
   for _, s in ipairs(symbols) do
     local hay = table.concat({ s.symbol or "", s.symbol_kind_name or "", s.filename or "" }, " ")
-    if common.has_ci(hay, query) then
+    if has_ci(hay, query) then
       out[#out + 1] = s
     end
   end

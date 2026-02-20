@@ -1,5 +1,3 @@
-local common = require("pulse.pickers.common")
-
 local M = {}
 
 function M.title()
@@ -7,6 +5,13 @@ function M.title()
 end
 
 local SymbolKind = vim.lsp.protocol.SymbolKind or {}
+
+local function has_ci(haystack, needle)
+  if needle == "" then
+    return true
+  end
+  return string.find(string.lower(haystack or ""), string.lower(needle), 1, true) ~= nil
+end
 
 local function kind_name(kind)
   return SymbolKind[kind] or "Symbol"
@@ -16,8 +21,7 @@ local function depth_from_container(container)
   if not container or container == "" then
     return 0
   end
-  local c = container:gsub("::", ".")
-  local parts = vim.split(c, ".", { plain = true, trimempty = true })
+  local parts = vim.split(container:gsub("::", "."), ".", { plain = true, trimempty = true })
   return math.max(#parts - 1, 0)
 end
 
@@ -35,8 +39,8 @@ end
 
 local function fetch_async(query, cb)
   local params = { query = query or "" }
-  local acc = {}
   local pending = 0
+  local acc = {}
 
   for _, client in ipairs(vim.lsp.get_active_clients()) do
     if client.supports_method and client.supports_method("workspace/symbol") then
@@ -61,7 +65,7 @@ local function fetch_async(query, cb)
         end
 
         pending = pending - 1
-        if pending <= 0 and cb then
+        if pending == 0 and cb then
           sort_items(acc)
           cb(acc)
         end
@@ -77,8 +81,8 @@ end
 function M.seed(ctx)
   local state = {
     symbols = {},
-    request_id = 0,
     last_query = nil,
+    request_id = 0,
     on_update = ctx and ctx.on_update or nil,
   }
 
@@ -121,10 +125,9 @@ function M.items(state, query)
   end
 
   local out = {}
-  for _, s in ipairs(state.symbols or {}) do
-    local hay = table.concat({ s.symbol or "", s.symbol_kind_name or "", s.container or "", s.filename or "" }, " ")
-    if common.has_ci(hay, q) then
-      out[#out + 1] = s
+  for _, item in ipairs(state.symbols or {}) do
+    if has_ci(table.concat({ item.symbol or "", item.symbol_kind_name or "", item.container or "", item.filename or "" }, " "), q) then
+      out[#out + 1] = item
     end
   end
   return out

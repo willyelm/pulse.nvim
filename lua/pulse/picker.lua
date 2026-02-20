@@ -5,7 +5,6 @@ local finders = require("telescope.finders")
 local pickers = require("telescope.pickers")
 local sorters = require("telescope.sorters")
 
-local common = require("pulse.pickers.common")
 local files_picker = require("pulse.pickers.files")
 local commands_picker = require("pulse.pickers.commands")
 local symbols_picker = require("pulse.pickers.symbols")
@@ -22,20 +21,19 @@ local modules = {
 
 local kind_icons = {
   Command = "", File = "󰈔", Module = "󰆧", Namespace = "󰌗", Package = "󰏗", Class = "󰠱",
-  Method = "󰆧", Property = "󰆼", Field = "󰆼", Constructor = "󰆧", Enum = "󰕘",
-  Interface = "󰕘", Function = "󰊕", Variable = "󰀫", Constant = "󰏿", String = "󰀬",
-  Number = "󰎠", Boolean = "󰨙", Array = "󰅪", Object = "󰅩", Key = "󰌋", Null = "󰟢",
-  EnumMember = "󰕘", Struct = "󰙅", Event = "󱐋", Operator = "󰆕", TypeParameter = "󰬛",
-  Symbol = "󰘧",
+  Method = "󰆧", Property = "󰆼", Field = "󰆼", Constructor = "󰆧", Enum = "󰕘", Interface = "󰕘",
+  Function = "󰊕", Variable = "󰀫", Constant = "󰏿", String = "󰀬", Number = "󰎠", Boolean = "󰨙",
+  Array = "󰅪", Object = "󰅩", Key = "󰌋", Null = "󰟢", EnumMember = "󰕘", Struct = "󰙅",
+  Event = "󱐋", Operator = "󰆕", TypeParameter = "󰬛", Symbol = "󰘧",
 }
 
 local symbol_kind_hl = {
   File = "Directory", Module = "Include", Namespace = "Include", Package = "Include", Class = "Type",
-  Method = "Function", Property = "Identifier", Field = "Identifier", Constructor = "Function",
-  Enum = "Type", Interface = "Type", Function = "Function", Variable = "Identifier",
-  Constant = "Constant", String = "String", Number = "Number", Boolean = "Boolean", Array = "Type",
-  Object = "Type", Key = "Identifier", Null = "Constant", EnumMember = "Constant", Struct = "Type",
-  Event = "PreProc", Operator = "Operator", TypeParameter = "Type", Symbol = "Identifier",
+  Method = "Function", Property = "Identifier", Field = "Identifier", Constructor = "Function", Enum = "Type",
+  Interface = "Type", Function = "Function", Variable = "Identifier", Constant = "Constant", String = "String",
+  Number = "Number", Boolean = "Boolean", Array = "Type", Object = "Type", Key = "Identifier",
+  Null = "Constant", EnumMember = "Constant", Struct = "Type", Event = "PreProc", Operator = "Operator",
+  TypeParameter = "Type", Symbol = "Identifier",
 }
 
 local function filetype_for(path)
@@ -60,10 +58,18 @@ local function devicon_for(path)
   return icon or "", hl or "TelescopeResultsComment"
 end
 
+local function kind_hl(kind)
+  local pulse_hl = "Pulse" .. tostring(kind or "Symbol")
+  if vim.fn.hlexists(pulse_hl) == 1 then
+    return pulse_hl
+  end
+  return symbol_kind_hl[kind] or "Identifier"
+end
+
 local function symbol_parts(item)
   local kind = item.symbol_kind_name or "Symbol"
   local icon = kind_icons[kind] or kind_icons.Symbol
-  local hl = symbol_kind_hl[kind] or "Identifier"
+  local hl = kind_hl(kind)
   local indent = string.rep("  ", math.max(item.depth or 0, 0))
   return indent, icon, item.symbol or "", kind, hl
 end
@@ -110,7 +116,11 @@ local function make_entry_maker()
         ordinal = ":" .. item.command,
         kind = "command",
         display = function()
-          return displayer({ { kind_icons.Command, "TelescopeResultsIdentifier" }, { ":" .. item.command, "Normal" }, { item.source, "Comment" } })
+          return displayer({
+            { kind_icons.Command, "TelescopeResultsIdentifier" },
+            { ":" .. item.command, "Normal" },
+            { item.source, "Comment" },
+          })
         end,
       }
     end
@@ -118,9 +128,11 @@ local function make_entry_maker()
     local filename = item.filename or ""
     local rel = filename ~= "" and vim.fn.fnamemodify(filename, ":.") or ""
     local indent, icon, name, kind, kind_hl = symbol_parts(item)
+
     return {
       value = item,
-      ordinal = ((item.kind == "workspace_symbol") and "#" or "@") .. " " .. string.format("%s %s %s", item.symbol or "", rel, item.container or ""),
+      ordinal = ((item.kind == "workspace_symbol") and "#" or "@")
+        .. " " .. string.format("%s %s %s", item.symbol or "", rel, item.container or ""),
       filename = filename,
       lnum = item.lnum,
       col = item.col,
@@ -136,6 +148,47 @@ local function make_entry_maker()
   end
 end
 
+local function jump_to_selection(selection)
+  if selection.kind == "file" then
+    vim.cmd.edit(vim.fn.fnameescape(selection.path))
+    return
+  end
+
+  if selection.kind == "command" then
+    local keys = vim.api.nvim_replace_termcodes(":" .. selection.value.command, true, false, true)
+    vim.api.nvim_feedkeys(keys, "n", false)
+    return
+  end
+
+  if selection.filename and selection.filename ~= "" then
+    vim.cmd.edit(vim.fn.fnameescape(selection.filename))
+  end
+  if selection.lnum then
+    vim.api.nvim_win_set_cursor(0, { selection.lnum, math.max((selection.col or 1) - 1, 0) })
+  end
+end
+
+local function move_until_selectable(prompt_bufnr, step)
+  local guard = 0
+  repeat
+    step(prompt_bufnr)
+    guard = guard + 1
+    local selected = action_state.get_selected_entry()
+    if not selected or selected.kind ~= "header" then
+      break
+    end
+  until guard > 200
+end
+
+local function set_results_winhl(prompt_bufnr)
+  vim.schedule(function()
+    local p = action_state.get_current_picker(prompt_bufnr)
+    if p and p.results_win and vim.api.nvim_win_is_valid(p.results_win) then
+      vim.api.nvim_set_option_value("winhl", "Normal:Normal,CursorLine:CursorLine", { win = p.results_win })
+    end
+  end)
+end
+
 function M.open(opts)
   opts = opts or {}
   local picker_opts = vim.tbl_deep_extend("force", {
@@ -149,8 +202,8 @@ function M.open(opts)
   end
 
   local entry_maker = make_entry_maker()
-
   local picker
+
   local function refresh_no_prompt_reset()
     if picker then
       pcall(picker.refresh, picker, picker.finder, { reset_prompt = false })
@@ -165,8 +218,17 @@ function M.open(opts)
   }
 
   local function build_items(prompt)
-    local mode, query = common.parse_mode(prompt or "")
-    return modules[mode].items(states[mode], query), mode
+    prompt = prompt or ""
+    if vim.startswith(prompt, ":") then
+      return modules.commands.items(states.commands, prompt:sub(2)), "commands"
+    end
+    if vim.startswith(prompt, "#") then
+      return modules.workspace_symbol.items(states.workspace_symbol, prompt:sub(2)), "workspace_symbol"
+    end
+    if vim.startswith(prompt, "@") then
+      return modules.symbol.items(states.symbol, prompt:sub(2)), "symbol"
+    end
+    return modules.files.items(states.files, prompt), "files"
   end
 
   picker = pickers.new(picker_opts, {
@@ -197,31 +259,14 @@ function M.open(opts)
     sorting_strategy = picker_opts.sorting_strategy,
     border = picker_opts.border,
     attach_mappings = function(prompt_bufnr, map)
-      vim.schedule(function()
-        local p = action_state.get_current_picker(prompt_bufnr)
-        if p and p.results_win and vim.api.nvim_win_is_valid(p.results_win) then
-          vim.api.nvim_set_option_value("winhl", "Normal:Normal,CursorLine:CursorLine", { win = p.results_win })
-        end
-      end)
-
-      local function move_until_selectable(step)
-        local guard = 0
-        repeat
-          step(prompt_bufnr)
-          guard = guard + 1
-          local s = action_state.get_selected_entry()
-          if not s or s.kind ~= "header" then
-            break
-          end
-        until guard > 200
-      end
+      set_results_winhl(prompt_bufnr)
 
       local function move_next()
-        move_until_selectable(actions.move_selection_next)
+        move_until_selectable(prompt_bufnr, actions.move_selection_next)
       end
 
       local function move_prev()
-        move_until_selectable(actions.move_selection_previous)
+        move_until_selectable(prompt_bufnr, actions.move_selection_previous)
       end
 
       local function preview_selection()
@@ -235,28 +280,17 @@ function M.open(opts)
           return
         end
 
-        if selection.kind ~= "symbol" and selection.kind ~= "workspace_symbol" and selection.kind ~= "file" then
-          return
-        end
-
-        local p = action_state.get_current_picker(prompt_bufnr)
-        local target_win = p and p.original_win_id or nil
-        if not target_win or not vim.api.nvim_win_is_valid(target_win) then
-          return
-        end
-
-        vim.api.nvim_win_call(target_win, function()
-          if selection.kind == "file" and selection.path then
-            vim.cmd.edit(vim.fn.fnameescape(selection.path))
+        if selection.kind == "symbol" or selection.kind == "workspace_symbol" or selection.kind == "file" then
+          local p = action_state.get_current_picker(prompt_bufnr)
+          local target_win = p and p.original_win_id or nil
+          if not target_win or not vim.api.nvim_win_is_valid(target_win) then
             return
           end
-          if selection.filename and selection.filename ~= "" then
-            vim.cmd.edit(vim.fn.fnameescape(selection.filename))
-          end
-          if selection.lnum then
-            vim.api.nvim_win_set_cursor(0, { selection.lnum, math.max((selection.col or 1) - 1, 0) })
-          end
-        end)
+
+          vim.api.nvim_win_call(target_win, function()
+            jump_to_selection(selection)
+          end)
+        end
       end
 
       map("i", "<Down>", move_next)
@@ -276,21 +310,7 @@ function M.open(opts)
           return
         end
         actions.close(prompt_bufnr)
-        if selection.kind == "file" then
-          vim.cmd.edit(vim.fn.fnameescape(selection.path))
-          return
-        end
-        if selection.kind == "command" then
-          local keys = vim.api.nvim_replace_termcodes(":" .. selection.value.command, true, false, true)
-          vim.api.nvim_feedkeys(keys, "n", false)
-          return
-        end
-        if selection.filename and selection.filename ~= "" then
-          vim.cmd.edit(vim.fn.fnameescape(selection.filename))
-        end
-        if selection.lnum then
-          vim.api.nvim_win_set_cursor(0, { selection.lnum, math.max((selection.col or 1) - 1, 0) })
-        end
+        jump_to_selection(selection)
       end)
 
       return true
