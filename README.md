@@ -10,7 +10,7 @@ Telescope-powered smart panel for files, commands, and symbols.
 
 ## Behavior
 
-- `:` -> command history + all available commands, filtered as you type.
+- `:` -> command history + all available commands when empty; when typing, only available commands are shown.
 - `#` -> workspace symbols for project (LSP async), filtered as you type.
 - `@` -> current buffer symbols (Treesitter immediate + LSP async), filtered as you type.
 - empty -> files mode.
@@ -37,7 +37,7 @@ Aliases also supported: `symbol`, `workspace_symbol`, `files`, `smart`.
     cmdline = false,
   },
   keys = {
-    { "<leader>p", "<cmd>Pulse<cr>", desc = "Pulse Files" },
+    { "<leader>p", "<cmd>Pulse<cr>", desc = "Pulse" },
     { "<leader>p:", "<cmd>Pulse commands<cr>", desc = "Pulse Commands" },
     { "<leader>p@", "<cmd>Pulse symbols<cr>", desc = "Pulse Symbols" },
     { "<leader>p#", "<cmd>Pulse workspace_symbols<cr>", desc = "Pulse Workspace Symbols" },

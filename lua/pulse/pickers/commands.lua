@@ -38,11 +38,14 @@ end
 
 function M.items(state, query)
   local items, seen = {}, {}
+  local show_history = query == nil or query == ""
 
-  for _, cmd in ipairs(state.history) do
-    if has_ci(cmd, query) then
-      seen[cmd] = true
-      items[#items + 1] = { kind = "command", command = cmd, source = "history" }
+  if show_history then
+    for _, cmd in ipairs(state.history) do
+      if has_ci(cmd, query) then
+        seen[cmd] = true
+        items[#items + 1] = { kind = "command", command = cmd, source = "history" }
+      end
     end
   end
 
