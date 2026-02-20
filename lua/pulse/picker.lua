@@ -10,6 +10,9 @@ local modules = {
 	commands = require("pulse.pickers.commands"),
 	symbol = require("pulse.pickers.symbols"),
 	workspace_symbol = require("pulse.pickers.workspace_symbols"),
+	live_grep = require("pulse.pickers.live_grep"),
+	git_status = require("pulse.pickers.git_status"),
+	diagnostics = require("pulse.pickers.diagnostics"),
 }
 
 local M = {}
@@ -18,6 +21,9 @@ local MODE_PREFIX = {
 	[":"] = { mode = "commands", strip = 2 },
 	["#"] = { mode = "workspace_symbol", strip = 2 },
 	["@"] = { mode = "symbol", strip = 2 },
+	["$"] = { mode = "live_grep", strip = 2 },
+	["~"] = { mode = "git_status", strip = 2 },
+	["!"] = { mode = "diagnostics", strip = 2 },
 }
 
 local KIND_ICON = {
@@ -80,6 +86,15 @@ local KIND_HL = {
 	TypeParameter = "Type",
 	Symbol = "Identifier",
 }
+local DIAG_ICON = {
+	ERROR = "",
+	WARN = "",
+	INFO = "",
+	HINT = "󰌵",
+}
+
+local preview_ns = vim.api.nvim_create_namespace("pulse_preview")
+local preview_state = { win = nil, buf = nil }
 
 local function filetype_for(path)
 	local ft = vim.filetype.match({ filename = path })
@@ -145,6 +160,145 @@ local function execute_command(cmd)
 	end
 end
 
+local function close_external_preview()
+	if preview_state.win and vim.api.nvim_win_is_valid(preview_state.win) then
+		pcall(vim.api.nvim_win_close, preview_state.win, true)
+	end
+	preview_state.win = nil
+	preview_state.buf = nil
+end
+
+local function resolve_path(path)
+	if not path or path == "" then
+		return nil
+	end
+	if vim.fn.filereadable(path) == 1 then
+		return path
+	end
+	local abs = vim.fn.fnamemodify(path, ":p")
+	if vim.fn.filereadable(abs) == 1 then
+		return abs
+	end
+	return nil
+end
+
+local function ensure_external_preview(prompt_bufnr)
+	local p = action_state.get_current_picker(prompt_bufnr)
+	if not p or not p.results_win or not vim.api.nvim_win_is_valid(p.results_win) then
+		return nil
+	end
+	local results_cfg = vim.api.nvim_win_get_config(p.results_win)
+	if not results_cfg or results_cfg.relative == "" then
+		return nil
+	end
+
+	local row = math.floor(tonumber(results_cfg.row) or 0) + (tonumber(results_cfg.height) or 0) + 1
+	local col = math.floor(tonumber(results_cfg.col) or 0)
+	local width = math.max((tonumber(results_cfg.width) or 50), 20)
+	local height = math.max(math.min(math.floor(vim.o.lines * 0.22), 14), 8)
+
+	if preview_state.win and vim.api.nvim_win_is_valid(preview_state.win) then
+		vim.api.nvim_win_set_config(preview_state.win, {
+			relative = "editor",
+			row = row,
+			col = col,
+			width = width,
+			height = height,
+		})
+		return preview_state.buf
+	end
+
+	local buf = vim.api.nvim_create_buf(false, true)
+	local win = vim.api.nvim_open_win(buf, false, {
+		relative = "editor",
+		row = row,
+		col = col,
+		width = width,
+		height = height,
+		style = "minimal",
+		border = "single",
+		noautocmd = true,
+	})
+	vim.api.nvim_set_option_value("winhl", "Normal:Normal,FloatBorder:FloatBorder", { win = win })
+	preview_state.win = win
+	preview_state.buf = buf
+	return buf
+end
+
+local function write_preview(buf, lines, ft)
+	if not buf or not vim.api.nvim_buf_is_valid(buf) then
+		return
+	end
+	vim.bo[buf].modifiable = true
+	vim.api.nvim_buf_clear_namespace(buf, preview_ns, 0, -1)
+	vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
+	vim.bo[buf].modifiable = false
+	vim.bo[buf].bufhidden = "wipe"
+	vim.bo[buf].filetype = ft or "text"
+	if preview_state.win and vim.api.nvim_win_is_valid(preview_state.win) then
+		pcall(vim.api.nvim_win_set_cursor, preview_state.win, { 1, 0 })
+	end
+end
+
+local function refresh_external_preview(prompt_bufnr)
+	local line = action_state.get_current_line() or ""
+	local mode = parse_prompt(line)
+	if mode ~= "live_grep" and mode ~= "git_status" then
+		close_external_preview()
+		return
+	end
+
+	local sel = action_state.get_selected_entry()
+	if not sel or sel.kind == "header" then
+		close_external_preview()
+		return
+	end
+
+	local item = sel.value or sel
+	local buf = ensure_external_preview(prompt_bufnr)
+	if not buf then
+		return
+	end
+
+	if item.kind == "git_status" then
+		local path = item.path or item.filename
+		local diff = vim.fn.systemlist({ "git", "--no-pager", "diff", "--", path })
+		if vim.v.shell_error ~= 0 or #diff == 0 then
+			diff = { "No git diff for " .. tostring(path) }
+		end
+		write_preview(buf, diff, "diff")
+		return
+	end
+
+	local path = resolve_path(item.path or item.filename)
+	if not path then
+		write_preview(buf, { "File not found: " .. tostring(item.path or item.filename) }, "text")
+		return
+	end
+
+	local lines = vim.fn.readfile(path)
+	local lnum = math.max(item.lnum or 1, 1)
+	local start_l = lnum
+	local end_l = math.min(#lines, lnum + 9)
+	local out = {}
+	for i = start_l, end_l do
+		local marker = (i == lnum) and ">" or " "
+		out[#out + 1] = string.format("%s %5d  %s", marker, i, lines[i] or "")
+	end
+	write_preview(buf, out, filetype_for(path))
+
+	local q = item.query or ""
+	if q ~= "" then
+		local text = lines[lnum] or ""
+		local from = text:lower():find(q:lower(), 1, true)
+		if from then
+			local line_idx = lnum - start_l
+			local prefix_len = 9
+			vim.api.nvim_buf_add_highlight(buf, preview_ns, "Search", line_idx, prefix_len + from - 1, prefix_len + from - 1 + #q)
+		end
+	end
+end
+
 local function make_entry_maker()
 	local displayer = entry_display.create({
 		separator = " ",
@@ -175,7 +329,7 @@ local function make_entry_maker()
 		end
 
 		if item.kind == "file" then
-			local icon, icon_hl = devicon_for(item.path)
+			local icon = devicon_for(item.path)
 			local rel = vim.fn.fnamemodify(item.path, ":.")
 			return {
 				value = item,
@@ -205,22 +359,74 @@ local function make_entry_maker()
 			}
 		end
 
+		if item.kind == "live_grep" then
+			local rel = vim.fn.fnamemodify(item.path, ":.")
+			local pos = string.format("%d:%d", item.lnum or 1, item.col or 1)
+			return {
+				value = item,
+				ordinal = string.format("%s %s %s", rel, pos, item.text or ""),
+				kind = "live_grep",
+				filename = item.path,
+				lnum = item.lnum,
+				col = item.col,
+				display = function()
+					return displayer({
+						{ "󰱼 " .. rel .. " " .. (item.text or ""), "Normal" },
+						{ right_pad(pos), "Comment" },
+					})
+				end,
+			}
+		end
+
+		if item.kind == "git_status" then
+			local rel = vim.fn.fnamemodify(item.path, ":.")
+			return {
+				value = item,
+				ordinal = string.format("%s %s", item.code or "", rel),
+				kind = "git_status",
+				filename = item.path,
+				display = function()
+					return displayer({
+						{ "󰊢 " .. rel, "Normal" },
+						{ right_pad(item.code or ""), "Comment" },
+					})
+				end,
+			}
+		end
+
+		if item.kind == "diagnostic" then
+			local rel = vim.fn.fnamemodify(item.filename or "", ":.")
+			local pos = string.format("%d:%d", item.lnum or 1, item.col or 1)
+			local icon = DIAG_ICON[item.severity_name or "INFO"] or ""
+			local msg = (item.message or ""):gsub("\n.*$", "")
+			return {
+				value = item,
+				ordinal = string.format("%s %s %s", rel, item.severity_name or "", msg),
+				kind = "diagnostic",
+				filename = item.filename,
+				lnum = item.lnum,
+				col = item.col,
+				display = function()
+					return displayer({
+						{ icon .. " " .. rel .. " " .. msg, "Normal" },
+						{ right_pad((item.severity_name or "INFO") .. " " .. pos), "Comment" },
+					})
+				end,
+			}
+		end
+
 		local kind = item.symbol_kind_name or "Symbol"
 		local icon = KIND_ICON[kind] or KIND_ICON.Symbol
-		local hl = symbol_hl(kind)
 		local depth = math.max(item.depth or 0, 0)
 		local indent = string.rep(" ", depth * 2)
 		local filename = item.filename or ""
 		local rel = filename ~= "" and vim.fn.fnamemodify(filename, ":.") or ""
-		local right = (item.kind == "workspace_symbol" and item.container and item.container ~= "")
-				and (kind .. "  " .. item.container)
+		local right = (item.kind == "workspace_symbol" and item.container and item.container ~= "") and (kind .. "  " .. item.container)
 			or kind
 
 		return {
 			value = item,
-			ordinal = ((item.kind == "workspace_symbol") and "#" or "@")
-				.. " "
-				.. string.format("%s %s %s", item.symbol or "", rel, item.container or ""),
+			ordinal = ((item.kind == "workspace_symbol") and "#" or "@") .. " " .. string.format("%s %s %s", item.symbol or "", rel, item.container or ""),
 			filename = filename,
 			lnum = item.lnum,
 			col = item.col,
@@ -274,7 +480,7 @@ end
 
 function M.open(opts)
 	local picker_opts = vim.tbl_deep_extend("force", {
-		layout_config = { width = 0.70, height = 0.45, prompt_position = "top", anchor = "N" },
+		layout_config = { width = 0.70, height = 0.70, prompt_position = "top", anchor = "N" },
 		border = true,
 	}, opts or {})
 
@@ -347,9 +553,15 @@ function M.open(opts)
 
 			local function move_next()
 				skip_headers(prompt_bufnr, actions.move_selection_next)
+				vim.schedule(function()
+					refresh_external_preview(prompt_bufnr)
+				end)
 			end
 			local function move_prev()
 				skip_headers(prompt_bufnr, actions.move_selection_previous)
+				vim.schedule(function()
+					refresh_external_preview(prompt_bufnr)
+				end)
 			end
 
 			local function preview_selection()
@@ -361,7 +573,7 @@ function M.open(opts)
 					move_next()
 					return
 				end
-				if s.kind == "symbol" or s.kind == "workspace_symbol" or s.kind == "file" then
+				if s.kind == "symbol" or s.kind == "workspace_symbol" or s.kind == "file" or s.kind == "live_grep" then
 					local p = action_state.get_current_picker(prompt_bufnr)
 					local target_win = p and p.original_win_id or nil
 					if target_win and vim.api.nvim_win_is_valid(target_win) then
@@ -383,12 +595,27 @@ function M.open(opts)
 			map("i", "<Tab>", preview_selection)
 			map("n", "<Tab>", preview_selection)
 
+			vim.api.nvim_create_autocmd({ "CursorMovedI", "TextChangedI", "CursorMoved" }, {
+				buffer = prompt_bufnr,
+				callback = function()
+					vim.schedule(function()
+						refresh_external_preview(prompt_bufnr)
+					end)
+				end,
+			})
+			vim.api.nvim_create_autocmd("BufWipeout", {
+				buffer = prompt_bufnr,
+				once = true,
+				callback = close_external_preview,
+			})
+
 			actions.select_default:replace(function()
 				local line = action_state.get_current_line() or ""
 				local mode, query = parse_prompt(line)
 				local s = action_state.get_selected_entry()
 
 				if mode == "commands" then
+					close_external_preview()
 					actions.close(prompt_bufnr)
 					if query ~= "" then
 						execute_command(query)
@@ -403,6 +630,7 @@ function M.open(opts)
 				if not s or s.kind == "header" then
 					return
 				end
+				close_external_preview()
 				actions.close(prompt_bufnr)
 				jump_to(s)
 			end)

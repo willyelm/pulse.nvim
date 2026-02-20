@@ -1,6 +1,6 @@
 # pulse.nvim
 
-Telescope-powered smart panel for files, commands, and symbols.
+Telescope-powered smart panel for files, commands, symbols, grep, and git status.
 
 ## Requirements
 
@@ -13,6 +13,9 @@ Telescope-powered smart panel for files, commands, and symbols.
 - `:` -> command history + all available commands when empty; when typing, only available commands are shown.
 - `#` -> workspace symbols for project (LSP async), filtered as you type.
 - `@` -> current buffer symbols (Treesitter immediate + LSP async), filtered as you type.
+- `$` -> live grep in project files (`rg --vimgrep`) with Telescope grep preview in the same panel.
+- `~` -> git changed files (`git status --porcelain`) with Telescope diff preview in the same panel.
+- `!` -> current buffer diagnostics (errors, warnings, info, hints).
 - empty -> files mode.
 
 ## Commands API
@@ -21,6 +24,9 @@ Telescope-powered smart panel for files, commands, and symbols.
 - `:Pulse commands` -> open with `:`
 - `:Pulse symbols` -> open with `@`
 - `:Pulse workspace_symbols` -> open with `#`
+- `:Pulse live_grep` -> open with `$`
+- `:Pulse git_status` -> open with `~`
+- `:Pulse diagnostics` -> open with `!`
 
 Aliases also supported: `symbol`, `workspace_symbol`, `files`, `smart`.
 
@@ -41,6 +47,9 @@ Aliases also supported: `symbol`, `workspace_symbol`, `files`, `smart`.
     { "<leader>p:", "<cmd>Pulse commands<cr>", desc = "Pulse Commands" },
     { "<leader>p@", "<cmd>Pulse symbols<cr>", desc = "Pulse Symbols" },
     { "<leader>p#", "<cmd>Pulse workspace_symbols<cr>", desc = "Pulse Workspace Symbols" },
+    { "<leader>p$", "<cmd>Pulse live_grep<cr>", desc = "Pulse Live Grep" },
+    { "<leader>p~", "<cmd>Pulse git_status<cr>", desc = "Pulse Git Status" },
+    { "<leader>p!", "<cmd>Pulse diagnostics<cr>", desc = "Pulse Diagnostics" },
   },
 }
 ```

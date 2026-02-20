@@ -8,9 +8,12 @@ local MODE_PREFIX = {
   symbols = "@",
   workspace_symbols = "#",
   commands = ":",
+  live_grep = "$",
+  git_status = "~",
+  diagnostics = "!",
 }
 
-local MODE_COMPLETIONS = { "files", "symbols", "workspace_symbols", "commands" }
+local MODE_COMPLETIONS = { "files", "symbols", "workspace_symbols", "commands", "live_grep", "git_status", "diagnostics" }
 
 local function open_panel(initial_prompt, extra_opts)
   local telescope_opts = config.options.telescope
