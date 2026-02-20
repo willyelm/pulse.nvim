@@ -2,19 +2,10 @@ local M = {}
 
 M.defaults = {
 	cmdline = false,
-	telescope = {
-		initial_mode = "insert",
-		prompt_prefix = "",
-		selection_caret = " ",
-		entry_prefix = " ",
-		sorting_strategy = "ascending",
-		layout_config = {
-			width = 0.70,
-			height = 0.50,
-			prompt_position = "top",
-			anchor = "N",
-		},
-		border = true,
+	ui = {
+		width = 0.70,
+		height = 0.50,
+		border = "rounded",
 	},
 }
 
