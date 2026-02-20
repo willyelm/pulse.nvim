@@ -12,11 +12,54 @@ local MODE_PREFIX = {
 
 local MODE_COMPLETIONS = { "files", "symbols", "workspace_symbols", "commands" }
 
-local function open_panel(initial_prompt)
+local function open_panel(initial_prompt, extra_opts)
   local telescope_opts = config.options.telescope
   picker.open(vim.tbl_deep_extend("force", {
     initial_prompt = initial_prompt or "",
-  }, telescope_opts))
+  }, telescope_opts, extra_opts or {}))
+end
+
+local function setup_cmdline_replacement()
+  local open_commands = function()
+    open_panel(":")
+  end
+
+  local apply_cmdline_ui = function()
+    vim.o.cmdheight = 0
+  end
+  apply_cmdline_ui()
+
+  vim.keymap.set({ "n", "x", "o" }, ":", open_commands, {
+    noremap = true,
+    silent = true,
+    desc = "Pulse Cmdline",
+  })
+  vim.keymap.set("n", "q:", open_commands, {
+    noremap = true,
+    silent = true,
+    desc = "Pulse Cmdline Window",
+  })
+
+  local group = vim.api.nvim_create_augroup("PulseCmdlineReplace", { clear = true })
+  vim.api.nvim_create_autocmd("VimEnter", {
+    group = group,
+    callback = apply_cmdline_ui,
+  })
+  vim.api.nvim_create_autocmd("CmdlineEnter", {
+    group = group,
+    pattern = ":",
+    callback = function()
+      vim.schedule(function()
+        if vim.fn.mode() ~= "c" or vim.fn.getcmdtype() ~= ":" then
+          return
+        end
+        local line = vim.fn.getcmdline()
+        local esc = vim.api.nvim_replace_termcodes("<C-c>", true, false, true)
+        vim.api.nvim_feedkeys(esc, "n", false)
+        open_panel(":" .. line)
+      end)
+    end,
+  })
 end
 
 local function pulse_command(opts)
@@ -40,9 +83,7 @@ function M.setup(opts)
   })
 
   if config.options.cmdline then
-    vim.keymap.set("n", ":", function()
-      open_panel(":")
-    end, { noremap = true, silent = true, desc = "Pulse Cmdline" })
+    setup_cmdline_replacement()
   end
 end
 

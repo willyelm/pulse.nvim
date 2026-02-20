@@ -90,6 +90,17 @@ local function jump_to(selection)
   end
 end
 
+local function execute_command(cmd)
+  local ex = vim.trim(cmd or "")
+  if ex == "" then
+    return
+  end
+  local ok, err = pcall(vim.cmd, ex)
+  if not ok then
+    vim.notify(tostring(err), vim.log.levels.ERROR)
+  end
+end
+
 local function make_entry_maker()
   local displayer = entry_display.create({
     separator = " ",
@@ -98,6 +109,10 @@ local function make_entry_maker()
       { width = 22, right_justify = true },
     },
   })
+
+  local function right_pad(text)
+    return ((text and text ~= "") and text or "") .. " "
+  end
 
   return function(item)
     if item.kind == "header" then
@@ -120,7 +135,7 @@ local function make_entry_maker()
         kind = "file",
         path = item.path,
         display = function()
-          return displayer({ { icon .. " " .. rel, "Normal" }, { filetype_for(item.path), "Comment" } })
+          return displayer({ { icon .. " " .. rel, "Normal" }, { right_pad(filetype_for(item.path)), "Comment" } })
         end,
       }
     end
@@ -131,7 +146,7 @@ local function make_entry_maker()
         ordinal = ":" .. item.command,
         kind = "command",
         display = function()
-          return displayer({ { KIND_ICON.Command .. " :" .. item.command, "Normal" }, { item.source, "Comment" } })
+          return displayer({ { KIND_ICON.Command .. " :" .. item.command, "Normal" }, { right_pad(item.source), "Comment" } })
         end,
       }
     end
@@ -153,7 +168,7 @@ local function make_entry_maker()
       col = item.col,
       kind = item.kind,
       display = function()
-        return displayer({ { indent .. icon .. " " .. (item.symbol or ""), "Normal" }, { right, "Comment" } })
+        return displayer({ { indent .. icon .. " " .. (item.symbol or ""), "Normal" }, { right_pad(right), "Comment" } })
       end,
     }
   end
@@ -304,7 +319,22 @@ function M.open(opts)
       map("n", "<Tab>", preview_selection)
 
       actions.select_default:replace(function()
+        local line = action_state.get_current_line() or ""
+        local mode, query = parse_prompt(line)
         local s = action_state.get_selected_entry()
+
+        if mode == "commands" then
+          actions.close(prompt_bufnr)
+          if query ~= "" then
+            execute_command(query)
+            return
+          end
+          if s and s.kind == "command" then
+            execute_command(s.value.command)
+          end
+          return
+        end
+
         if not s or s.kind == "header" then
           return
         end
@@ -318,6 +348,11 @@ function M.open(opts)
 
   if picker_opts.initial_prompt and picker_opts.initial_prompt ~= "" then
     picker:find({ default_text = picker_opts.initial_prompt })
+    vim.schedule(function()
+      pcall(function()
+        picker:set_prompt(picker_opts.initial_prompt)
+      end)
+    end)
   else
     picker:find()
   end
