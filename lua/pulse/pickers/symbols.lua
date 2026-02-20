@@ -148,10 +148,10 @@ local function treesitter_fallback(bufnr)
 end
 
 function M.seed(ctx)
-  local bufnr = vim.api.nvim_get_current_buf()
+  local bufnr = (ctx and ctx.bufnr) or vim.api.nvim_get_current_buf()
   local state = { symbols = treesitter_fallback(bufnr) }
 
-  local params = { textDocument = vim.lsp.util.make_text_document_params() }
+  local params = { textDocument = vim.lsp.util.make_text_document_params(bufnr) }
   vim.lsp.buf_request(bufnr, "textDocument/documentSymbol", params, function(_, result)
     local mapped = lsp_symbols(bufnr, result)
     if #mapped > 0 then

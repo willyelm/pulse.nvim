@@ -67,9 +67,9 @@ local function parse_prompt(prompt)
   return "files", prompt
 end
 
-local function build_items(states, prompt)
+local function build_items(ensure_state, prompt)
   local mode, query = parse_prompt(prompt)
-  return modules[mode].items(states[mode], query), mode
+  return modules[mode].items(ensure_state(mode), query), mode
 end
 
 local function jump_to(selection)
@@ -139,7 +139,8 @@ local function make_entry_maker()
     local kind = item.symbol_kind_name or "Symbol"
     local icon = KIND_ICON[kind] or KIND_ICON.Symbol
     local hl = symbol_hl(kind)
-    local indent = string.rep("  ", math.max(item.depth or 0, 0))
+    local depth = math.max(item.depth or 0, 0)
+    local indent = string.rep(" ", depth * 2)
     local filename = item.filename or ""
     local rel = filename ~= "" and vim.fn.fnamemodify(filename, ":.") or ""
     local right = (item.kind == "workspace_symbol" and item.container and item.container ~= "") and (kind .. "  " .. item.container) or kind
@@ -152,7 +153,7 @@ local function make_entry_maker()
       col = item.col,
       kind = item.kind,
       display = function()
-        return displayer({ { indent .. icon .. " " .. (item.symbol or ""), hl }, { right, "Comment" } })
+        return displayer({ { indent .. icon .. " " .. (item.symbol or ""), "Normal" }, { right, "Comment" } })
       end,
     }
   end
@@ -211,6 +212,7 @@ function M.open(opts)
     prompt_position = "top",
   })
 
+  local source_bufnr = vim.api.nvim_get_current_buf()
   local picker
   local function refresh_no_prompt_reset()
     if picker then
@@ -218,19 +220,30 @@ function M.open(opts)
     end
   end
 
-  local states = {
-    files = modules.files.seed(vim.fn.getcwd()),
-    commands = modules.commands.seed(),
-    symbol = modules.symbol.seed({ on_update = refresh_no_prompt_reset }),
-    workspace_symbol = modules.workspace_symbol.seed({ on_update = refresh_no_prompt_reset }),
-  }
+  local states = {}
+
+  local function ensure_state(mode)
+    if states[mode] then
+      return states[mode]
+    end
+
+    if mode == "files" then
+      states[mode] = modules.files.seed(vim.fn.getcwd())
+    elseif mode == "commands" then
+      states[mode] = modules.commands.seed()
+    else
+      states[mode] = modules[mode].seed({ on_update = refresh_no_prompt_reset, bufnr = source_bufnr })
+    end
+
+    return states[mode]
+  end
 
   picker = pickers.new(picker_opts, {
     prompt_title = modules.files.title(),
     results_title = false,
     finder = finders.new_dynamic({
       fn = function(prompt)
-        local items, mode = build_items(states, prompt)
+        local items, mode = build_items(ensure_state, prompt)
         local title = modules[mode].title()
         if picker and picker.prompt_title ~= title then
           picker.prompt_title = title
