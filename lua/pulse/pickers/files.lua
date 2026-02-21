@@ -64,20 +64,28 @@ function M.items(state, query)
 	local items, seen = {}, {}
 
 	if query == "" then
-		items[#items + 1] = { kind = "header", label = "Active" }
+		local active = {}
 		for _, path in ipairs(state.opened) do
 			if not seen[path] then
 				seen[path] = true
-				items[#items + 1] = { kind = "file", path = path }
+				active[#active + 1] = { kind = "file", path = path }
 			end
 		end
+		if #active > 0 then
+			items[#items + 1] = { kind = "header", label = "Active" }
+			vim.list_extend(items, active)
+		end
 
-		items[#items + 1] = { kind = "header", label = "Recent Files" }
+		local recent = {}
 		for _, path in ipairs(state.recent) do
 			if not seen[path] then
 				seen[path] = true
-				items[#items + 1] = { kind = "file", path = path }
+				recent[#recent + 1] = { kind = "file", path = path }
 			end
+		end
+		if #recent > 0 then
+			items[#items + 1] = { kind = "header", label = "Recent Files" }
+			vim.list_extend(items, recent)
 		end
 
 		return items

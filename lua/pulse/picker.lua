@@ -16,23 +16,9 @@ local modules = {
 }
 
 local M = {}
-local H_PADDING = 1
-local MOVE_MAPS = {
-	{ "j", 1 },
-	{ "k", -1 },
-}
 
 local function is_header(item)
 	return item and item.kind == "header"
-end
-
-local function first_non_header(items)
-	for _, item in ipairs(items or {}) do
-		if not is_header(item) then
-			return item
-		end
-	end
-	return nil
 end
 
 local function count_non_headers(items)
@@ -55,14 +41,10 @@ local function total_for_mode(mod, state, found)
 	return found
 end
 
-local function placeholder_for(mode_name, query)
-	local placeholder = mode.placeholder(mode_name)
-	return ((query or "") == "" and placeholder ~= "") and (" " .. placeholder) or nil
-end
-
 local function update_counter(input, mode_name, query, found, total)
-	input:set_prompt(mode.icon(mode_name) .. " ")
-	local ghost = placeholder_for(mode_name, query)
+	input:set_prompt(" " .. mode.icon(mode_name) .. " ")
+	local placeholder = mode.placeholder(mode_name)
+	local ghost = ((query or "") == "" and placeholder ~= "") and placeholder or nil
 	input:set_addons({
 		ghost = ghost,
 		right = { text = string.format("%d/%d", found, total), hl = "Comment" },
@@ -78,6 +60,20 @@ local function resolve_max_height(height_cfg)
 		return math.max(math.floor(height_cfg), 6)
 	end
 	return math.max(math.floor(total * 0.5), 6)
+end
+
+local function compute_preview_height(line_count, max_preview)
+	if line_count <= 0 or max_preview <= 0 then
+		return 0
+	end
+	if line_count == 1 then
+		return 1
+	end
+	local h = math.min(line_count, 15, max_preview)
+	if line_count > 5 and h < 5 then
+		return math.min(5, max_preview)
+	end
+	return h
 end
 
 local function new_layout(box)
@@ -113,8 +109,8 @@ local function new_layout(box)
 
 		box:update({ height = body_height + (show_preview and preview_height or 0) + (show_preview and 3 or 2) })
 		width = vim.api.nvim_win_get_width(box.win)
-		local inner_col = H_PADDING
-		local inner_width = math.max(width - (H_PADDING * 2), 1)
+		local inner_col = 0
+		local inner_width = math.max(width, 1)
 
 		local specs = {
 			{ name = "input", row = 0, col = inner_col, width = inner_width, height = 1, focusable = true, winhl = "Normal:NormalFloat" },
@@ -229,44 +225,39 @@ function M.open(opts)
 		callback = close_palette,
 	})
 
-	local function selected_preview_item()
-		local selected = list:selected_item()
-		if selected and not is_header(selected) then
-			return selected
-		end
-		return first_non_header(items)
-	end
-
 	local function rerender()
 		if closed then
 			return
 		end
-		local preview_item = selected_preview_item()
-		local plines, pft, phighlights, pline_numbers, pfocus_row = nil, nil, nil, nil, nil
-		local preview_height = 0
-		if preview_item then
-			plines, pft, phighlights, pline_numbers, pfocus_row = preview_data.for_item(preview_item)
-			local line_count = math.max(#(plines or {}), 1)
-			local target = (line_count == 1) and 1 or math.min(line_count, 15)
-			local max_total = resolve_max_height(picker_opts.height)
-			local available = math.max(max_total - 3, 1)
-			local max_preview = math.max(available - 1, 0)
-			preview_height = math.min(target, max_preview)
-			if line_count > 5 and preview_height > 0 and preview_height < 5 then
-				preview_height = math.min(5, max_preview)
-			end
-			if preview_height == 0 then
-				plines, pft, phighlights, pline_numbers, pfocus_row = nil, nil, nil, nil, nil
+		local max_total = resolve_max_height(picker_opts.height)
+		local preview_item = list:selected_item()
+		if is_header(preview_item) then
+			preview_item = nil
+		end
+		if not preview_item then
+			for _, item in ipairs(items) do
+				if not is_header(item) then
+					preview_item = item
+					break
+				end
 			end
 		end
-		local max_total = resolve_max_height(picker_opts.height)
+		local p = nil
+		local preview_height = 0
+		if preview_item then
+			local lines, ft, highlights, line_numbers, focus_row = preview_data.for_item(preview_item)
+			p = { lines = lines, ft = ft, highlights = highlights, line_numbers = line_numbers, focus_row = focus_row }
+			local line_count = math.max(#(lines or {}), 1)
+			local max_preview = math.max(max_total - 4, 0)
+			preview_height = compute_preview_height(line_count, max_preview)
+		end
 		local frame = (preview_height > 0) and 3 or 2
 		local available = math.max(max_total - frame, 1)
 		local body_height = math.max(math.min(list.visible_count, available - preview_height), 1)
 		layout:apply(body_height, preview_height, { list = list, preview = preview, input = input })
 		list:render(vim.api.nvim_win_get_width(list.win))
-		if plines and preview and preview.win and vim.api.nvim_win_is_valid(preview.win) then
-			preview:set(plines, pft, phighlights, pline_numbers, pfocus_row)
+		if p and preview and preview.win and vim.api.nvim_win_is_valid(preview.win) then
+			preview:set(p.lines, p.ft, p.highlights, p.line_numbers, p.focus_row)
 		end
 	end
 
@@ -366,7 +357,7 @@ function M.open(opts)
 	input = ui.input.new({
 		buf = layout.sections.input.buf,
 		win = layout.sections.input.win,
-		prompt = mode.icon("files") .. " ",
+		prompt = " " .. mode.icon("files") .. " ",
 		on_change = refresh,
 		on_submit = submit,
 		on_escape = close_palette,
@@ -382,11 +373,8 @@ function M.open(opts)
 	})
 
 	local list_map_opts = { buffer = layout.sections.list.buf, noremap = true, silent = true }
-	for _, map in ipairs(MOVE_MAPS) do
-		vim.keymap.set("n", map[1], function()
-			move_selection(map[2])
-		end, list_map_opts)
-	end
+	vim.keymap.set("n", "j", function() move_selection(1) end, list_map_opts)
+	vim.keymap.set("n", "k", function() move_selection(-1) end, list_map_opts)
 	vim.keymap.set("n", "<CR>", function()
 		submit(input:get_value())
 	end, list_map_opts)

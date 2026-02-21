@@ -29,13 +29,11 @@ local function cursor_to_eol(win, buf)
 end
 
 local function normalise_chunks(spec, default_hl)
-  if spec == nil then
-    return nil
-  end
-  if type(spec) == "string" then
+  local t = type(spec)
+  if t == "string" then
     return { { spec, default_hl } }
   end
-  if type(spec) ~= "table" then
+  if t ~= "table" then
     return nil
   end
   if spec.text then
@@ -190,15 +188,6 @@ function Input:set_addons(addons)
       virt_text = right,
       virt_text_pos = "right_align",
       hl_mode = "combine",
-    })
-  end
-
-  local left = normalise_chunks(self.addons.left, "Comment")
-  if left then
-    vim.api.nvim_buf_set_extmark(self.buf, self.ns, 0, 0, {
-      virt_text = left,
-      virt_text_pos = "inline",
-      hl_mode = "replace",
     })
   end
 

@@ -3,6 +3,7 @@ local List = {}
 List.__index = List
 local window = require("pulse.ui.window")
 local MATCH_HL = "PulseListMatch"
+local SIDE_PADDING = 1
 
 local function clamp(value, min_value, max_value)
 	return math.min(math.max(value, min_value), max_value)
@@ -86,21 +87,24 @@ end
 function List:_visible_lines(width)
 	local lines = {}
 	local highlights = {}
-	local content_width = math.max(width or 0, 1)
+	local total_width = math.max(width or 0, 1)
+	local content_width = math.max(total_width - (SIDE_PADDING * 2), 1)
 
 	if #self.items == 0 then
 		local text = "(No items)"
-		local pad = math.max(content_width - vim.fn.strdisplaywidth(text), 0)
-		lines[1] = text .. string.rep(" ", pad)
-		highlights[1] = { group = "Comment", row = 0, start_col = 0, end_col = #text }
+		local fit = fit_to_width(text, content_width)
+		local pad = math.max(content_width - vim.fn.strdisplaywidth(fit), 0)
+		lines[1] = string.rep(" ", SIDE_PADDING) .. fit .. string.rep(" ", pad + SIDE_PADDING)
+		highlights[1] = { group = "Comment", row = 0, start_col = SIDE_PADDING, end_col = SIDE_PADDING + #fit }
 		while #lines < self.visible_count do
-			lines[#lines + 1] = string.rep(" ", content_width)
+			lines[#lines + 1] = string.rep(" ", total_width)
 		end
 		return lines, highlights
 	end
 
 	for index, item in ipairs(self.items) do
 		local spec = normalise_item(self.render_item(item, content_width))
+		local selected = (index == self.selected)
 		local left = fit_to_width(spec.left, content_width)
 		local left_group = spec.left_group
 		local left_matches = type(spec.left_matches) == "table" and spec.left_matches or nil
@@ -123,18 +127,21 @@ function List:_visible_lines(width)
 			text_width = vim.fn.strdisplaywidth(text)
 		end
 
-		local padded = text .. string.rep(" ", math.max(content_width - text_width, 0))
+		local padded = string.rep(" ", SIDE_PADDING)
+			.. text
+			.. string.rep(" ", math.max(content_width - text_width, 0))
+			.. string.rep(" ", SIDE_PADDING)
 		lines[index] = padded
 
-		if left_group and #left > 0 then
+		if (not selected) and left_group and #left > 0 then
 			highlights[#highlights + 1] = {
 				group = left_group,
 				row = index - 1,
-				start_col = 0,
-				end_col = #left,
+				start_col = SIDE_PADDING,
+				end_col = SIDE_PADDING + #left,
 			}
 		end
-		if left_matches and #left_matches > 0 then
+		if (not selected) and left_matches and #left_matches > 0 then
 			local left_len = #left
 			for _, m in ipairs(left_matches) do
 				local s = math.max(tonumber(m[1]) or -1, 0)
@@ -143,21 +150,21 @@ function List:_visible_lines(width)
 					highlights[#highlights + 1] = {
 						group = m[3] or MATCH_HL,
 						row = index - 1,
-						start_col = s,
-						end_col = math.min(e, left_len),
+						start_col = SIDE_PADDING + s,
+						end_col = SIDE_PADDING + math.min(e, left_len),
 					}
 				end
 			end
 		end
-		if right_start and right_group and #right > 0 then
+		if (not selected) and right_start and right_group and #right > 0 then
 			highlights[#highlights + 1] = {
 				group = right_group,
 				row = index - 1,
-				start_col = right_start,
-				end_col = #text,
+				start_col = SIDE_PADDING + right_start,
+				end_col = SIDE_PADDING + #text,
 			}
 		end
-		if index == self.selected then
+		if selected then
 			highlights[#highlights + 1] = {
 				group = "Visual",
 				row = index - 1,
@@ -168,7 +175,7 @@ function List:_visible_lines(width)
 	end
 
 	while #lines < self.visible_count do
-		lines[#lines + 1] = string.rep(" ", content_width)
+		lines[#lines + 1] = string.rep(" ", total_width)
 	end
 
 	return lines, highlights
