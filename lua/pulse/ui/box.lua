@@ -98,10 +98,14 @@ function Box:mount(overrides)
   local cfg = self:_resolve_main_config(overrides)
   if self:is_valid() then
     vim.api.nvim_win_set_config(self.win, config_for_existing_window(cfg))
-    return self.win, self.buf
+    return self.win, self.buf, nil
   end
 
-  self.win = vim.api.nvim_open_win(self.buf, true, cfg)
+  local ok, win_or_err = pcall(vim.api.nvim_open_win, self.buf, true, cfg)
+  if not ok then
+    return nil, self.buf, tostring(win_or_err)
+  end
+  self.win = win_or_err
   if self.opts.winhl and self.opts.winhl ~= "" then
     vim.api.nvim_set_option_value("winhl", self.opts.winhl, { win = self.win })
   end
@@ -110,7 +114,7 @@ function Box:mount(overrides)
   vim.bo[self.buf].swapfile = false
   vim.bo[self.buf].modifiable = true
 
-  return self.win, self.buf
+  return self.win, self.buf, nil
 end
 
 function Box:update(opts)

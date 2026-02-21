@@ -36,6 +36,24 @@ local function fit_to_width(text, width)
   return table.concat(out)
 end
 
+local function normalise_item(rendered, legacy_group)
+  if type(rendered) == "table" then
+    return {
+      left = tostring(rendered.left or ""),
+      left_group = rendered.left_group or legacy_group or "Normal",
+      right = tostring(rendered.right or ""),
+      right_group = rendered.right_group or "Comment",
+    }
+  end
+
+  return {
+    left = tostring(rendered or ""),
+    left_group = legacy_group or "Normal",
+    right = "",
+    right_group = "Comment",
+  }
+end
+
 function List.new(opts)
   local self = setmetatable({}, List)
   self.buf = assert(opts.buf, "list requires a buffer")
@@ -74,18 +92,46 @@ function List:_visible_lines(width)
   local content_width = width
 
   for index, item in ipairs(self.items) do
-    local text, hl = "", nil
-    text, hl = self.render_item(item)
-    text = fit_to_width(text, content_width)
-    local text_width = vim.fn.strdisplaywidth(text)
+    local rendered, legacy_group = self.render_item(item, content_width)
+    local spec = normalise_item(rendered, legacy_group)
+    local left = fit_to_width(spec.left, content_width)
+    local left_group = spec.left_group
+    local right = spec.right
+    local right_group = spec.right_group
+    local text, text_width, right_start = "", 0, nil
+
+    if right ~= "" then
+      local right_text = fit_to_width(right, content_width)
+      local right_width = vim.fn.strdisplaywidth(right_text)
+      local left_cap = math.max(content_width - right_width - 1, 0)
+      left = fit_to_width(left, left_cap)
+      local left_width = vim.fn.strdisplaywidth(left)
+      local gap = math.max(content_width - left_width - right_width, 0)
+      text = left .. string.rep(" ", gap) .. right_text
+      text_width = vim.fn.strdisplaywidth(text)
+      right_start = #left + gap
+    else
+      text = left
+      text_width = vim.fn.strdisplaywidth(text)
+    end
+
     local padded = text .. string.rep(" ", math.max(content_width - text_width, 0))
     lines[index] = padded
-    if hl and item then
+
+    if left_group and item and #left > 0 then
       highlights[#highlights + 1] = {
-        group = hl,
+        group = left_group,
         row = index - 1,
         start_col = 0,
-        end_col = math.min(text_width, content_width),
+        end_col = #left,
+      }
+    end
+    if right_start and right_group and #right > 0 then
+      highlights[#highlights + 1] = {
+        group = right_group,
+        row = index - 1,
+        start_col = right_start,
+        end_col = #text,
       }
     end
     if item and index == self.selected then
