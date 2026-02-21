@@ -15,6 +15,7 @@ local modules = {
 }
 
 local M = {}
+local H_PADDING = 1
 local MOVE_MAPS = {
 	{ "j", 1 },
 	{ "<ScrollWheelDown>", 1 },
@@ -100,20 +101,22 @@ local function new_layout(box)
 
 		box:update({ height = body_height + preview_height + 3 })
 		width = vim.api.nvim_win_get_width(box.win)
+		local inner_col = H_PADDING
+		local inner_width = math.max(width - (H_PADDING * 2), 1)
 
 		local specs = {
-			{ name = "input", row = 0, height = 1, focusable = true, winhl = "Normal:NormalFloat" },
+			{ name = "input", row = 0, col = inner_col, width = inner_width, height = 1, focusable = true, winhl = "Normal:NormalFloat" },
 			{ name = "divider", row = 1, height = 1, focusable = false, winhl = "Normal:FloatBorder", divider = true },
-			{ name = "list", row = 2, height = body_height, focusable = true, winhl = "Normal:NormalFloat,CursorLine:CursorLine" },
+			{ name = "list", row = 2, col = inner_col, width = inner_width, height = body_height, focusable = true, winhl = "Normal:NormalFloat,CursorLine:CursorLine" },
 			{ name = "body_divider", row = 2 + body_height, height = 1, focusable = false, winhl = "Normal:FloatBorder", divider = true },
-			{ name = "preview", row = 3 + body_height, height = preview_height, focusable = true, winhl = "Normal:NormalFloat" },
+			{ name = "preview", row = 3 + body_height, col = inner_col, width = inner_width, height = preview_height, focusable = true, winhl = "Normal:NormalFloat" },
 		}
 
 		for _, s in ipairs(specs) do
 			local section = upsert(s.name, {
 				row = s.row,
-				col = 0,
-				width = width,
+				col = s.col or 0,
+				width = s.width or width,
 				height = s.height,
 				focusable = s.focusable,
 				enter = false,

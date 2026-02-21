@@ -3,6 +3,8 @@ local Input = {}
 Input.__index = Input
 
 local window = require("pulse.ui.window")
+local MODE_PREFIX = { [":"] = true, ["~"] = true, ["!"] = true, ["@"] = true, ["#"] = true, ["$"] = true }
+local MODE_HL = "PulseModePrefix"
 
 local function configure_window(win)
   window.configure_content_window(win)
@@ -58,6 +60,7 @@ function Input.new(opts)
   self.augroup = vim.api.nvim_create_augroup("PulseUIInput" .. tostring(self.buf), { clear = true })
   self.ns = vim.api.nvim_create_namespace("pulse_ui_input")
   self.addons = {}
+  pcall(vim.api.nvim_set_hl, 0, MODE_HL, { bold = true, default = true })
 
   vim.bo[self.buf].buftype = "prompt"
   vim.bo[self.buf].bufhidden = "wipe"
@@ -152,6 +155,11 @@ function Input:set_addons(addons)
   end
 
   vim.api.nvim_buf_clear_namespace(self.buf, self.ns, 0, -1)
+
+  local first = (vim.api.nvim_buf_get_lines(self.buf, 0, 1, false)[1] or ""):sub(1, 1)
+  if MODE_PREFIX[first] then
+    pcall(vim.api.nvim_buf_add_highlight, self.buf, self.ns, MODE_HL, 0, 0, 1)
+  end
 
   local right = normalise_chunks(self.addons.right, "Comment")
   if right then
