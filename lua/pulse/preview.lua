@@ -83,6 +83,36 @@ local function file_snippet(path, lnum, query, match_cols)
   return out, filetype_for(resolved), highlights, line_numbers, (line_no - start_l + 1)
 end
 
+local DIFF_ADD_HL = (vim.fn.hlexists("DiffAdded") == 1) and "DiffAdded" or "DiffAdd"
+local DIFF_DEL_HL = (vim.fn.hlexists("DiffDelete") == 1) and "DiffDelete" or "DiffDelete"
+
+local function git_patch_for(path)
+  local diff = vim.fn.systemlist({ "git", "--no-pager", "diff", "--", path })
+  if vim.v.shell_error == 0 and #diff > 0 then
+    return diff
+  end
+  diff = vim.fn.systemlist({ "git", "--no-pager", "diff", "--cached", "--", path })
+  if vim.v.shell_error == 0 and #diff > 0 then
+    return diff
+  end
+  return nil
+end
+
+local function diff_highlights(lines)
+  local out = {}
+  for i, line in ipairs(lines or {}) do
+    local row = i - 1
+    if line:sub(1, 2) == "@@" or line:sub(1, 10) == "diff --git" or line:sub(1, 5) == "index" then
+      out[#out + 1] = { group = "DiffChange", row = row, start_col = 0, end_col = -1 }
+    elseif line:sub(1, 1) == "+" and line:sub(1, 3) ~= "+++" then
+      out[#out + 1] = { group = DIFF_ADD_HL, row = row, start_col = 0, end_col = -1 }
+    elseif line:sub(1, 1) == "-" and line:sub(1, 3) ~= "---" then
+      out[#out + 1] = { group = DIFF_DEL_HL, row = row, start_col = 0, end_col = -1 }
+    end
+  end
+  return out
+end
+
 function M.for_item(item)
   if not item then
     return { "No selection" }, "text", {}, nil, 1
@@ -94,11 +124,11 @@ function M.for_item(item)
 
   if item.kind == "git_status" then
     local path = item.path or item.filename
-    local diff = vim.fn.systemlist({ "git", "--no-pager", "diff", "--", path })
-    if vim.v.shell_error ~= 0 or #diff == 0 then
+    local diff = git_patch_for(path)
+    if not diff or #diff == 0 then
       diff = { "No git diff for " .. tostring(path) }
     end
-    return diff, "diff", {}, nil, 1
+    return diff, "diff", diff_highlights(diff), nil, 1
   end
 
   if item.kind == "live_grep" or item.kind == "fuzzy_search" then

@@ -164,6 +164,26 @@ function List:_visible_lines(width)
 				end_col = SIDE_PADDING + #text,
 			}
 		end
+		if (not selected) and right_start and #right > 0 then
+			local a1, a2 = right:find("%+%d+")
+			if a1 then
+				highlights[#highlights + 1] = {
+					group = "Added",
+					row = index - 1,
+					start_col = SIDE_PADDING + right_start + a1 - 1,
+					end_col = SIDE_PADDING + right_start + a2,
+				}
+			end
+			local d1, d2 = right:find("%-%d+")
+			if d1 then
+				highlights[#highlights + 1] = {
+					group = "Removed",
+					row = index - 1,
+					start_col = SIDE_PADDING + right_start + d1 - 1,
+					end_col = SIDE_PADDING + right_start + d2,
+				}
+			end
+		end
 		if selected then
 			highlights[#highlights + 1] = {
 				group = "Visual",

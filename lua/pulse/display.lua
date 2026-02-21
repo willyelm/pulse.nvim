@@ -120,8 +120,7 @@ function M.to_display(item)
   end
 
   if item.kind == "git_status" then
-    local name = file_name(item.path)
-    return row(string.format("󰊢 %s", name), item.code or "")
+    return row(item.display_left or "", item.display_right or "", "Normal")
   end
 
   if item.kind == "diagnostic" then
