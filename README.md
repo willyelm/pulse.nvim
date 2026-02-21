@@ -1,79 +1,105 @@
-# pulse.nvim
+# Pulse.nvim
 
-Smart panel for files, commands, symbols, grep, and git status using Pulse's built-in floating UI.
+One entry point. Total focus.
+
+# What is Pulse
+
+A Fast one command-palette picker for Neovim. Pulse uses a prefix
+approach to move quickly between modes:
+
+| Prefix      | Mode                          |
+| ----------- | ----------------------------- |
+| (no prefix) | files                         |
+| `:`         | commands                      |
+| `~`         | git status                    |
+| `!`         | diagnostics                   |
+| `@`         | symbols (current buffer)      |
+| `#`         | workspace symbols             |
+| `$`         | live grep                     |
+| `?`         | fuzzy search (current buffer) |
 
 ## Requirements
 
-- Neovim >= 0.10
-- `nvim-tree/nvim-web-devicons` (recommended for icons)
-
-## Behavior
-
-- (empty) -> files mode.
-- `:` -> command history + all available commands when empty; when typing, only available commands are shown.
-- `~` -> git changed files (`git status --porcelain`) with in-panel diff preview.
-- `!` -> workspace diagnostics (errors, warnings, info, hints), with current buffer diagnostics shown first.
-- `@` -> current buffer symbols (Treesitter immediate + LSP async), filtered as you type.
-- `#` -> workspace symbols for project (LSP async), filtered as you type.
-- `$` -> live grep in project files (`rg --vimgrep`) with in-panel preview.
-- `?` -> fuzzy search
-
-## Commands API
-
-- `:Pulse` -> open empty (files mode)
-- `:Pulse commands` -> open with `:`
-- `:Pulse git_status` -> open with `~`
-- `:Pulse diagnostics` -> open with `!`
-- `:Pulse symbols` -> open with `@`
-- `:Pulse workspace_symbols` -> open with `#`
-- `:Pulse live_grep` -> open with `$`
-- `:Pulse fuzzy_search` -> open with `?`
-
-Aliases also supported: `symbol`, `workspace_symbol`, `files`, `smart`.
+- Neovim `>= 0.10`
+- `ripgrep` (`rg`)
+- `git` (for git status mode preview)
+- `nvim-tree/nvim-web-devicons` (optional, recommended)
 
 ## Install (lazy.nvim)
 
 ```lua
 {
   "willyelm/pulse.nvim",
-  dependencies = {
-    "nvim-tree/nvim-web-devicons",
-  },
-  opts = {
-    cmdline = false,
-  },
-  keys = {
-    { "<leader>p", "<cmd>Pulse<cr>", desc = "Pulse" },
-    { "<leader>p:", "<cmd>Pulse commands<cr>", desc = "Pulse Commands" },
-    { "<leader>p@", "<cmd>Pulse symbols<cr>", desc = "Pulse Symbols" },
-    { "<leader>p#", "<cmd>Pulse workspace_symbols<cr>", desc = "Pulse Workspace Symbols" },
-    { "<leader>p$", "<cmd>Pulse live_grep<cr>", desc = "Pulse Live Grep" },
-    { "<leader>p~", "<cmd>Pulse git_status<cr>", desc = "Pulse Git Status" },
-    { "<leader>p!", "<cmd>Pulse diagnostics<cr>", desc = "Pulse Diagnostics" },
-  },
+  dependencies = { "nvim-tree/nvim-web-devicons" },
+  opts = {},
 }
 ```
 
-## Default config
+## Setup
 
 ```lua
 require("pulse").setup({
-  cmdline = false, -- when true, maps ':' in normal mode to open Pulse with ':' prefilled
-  ui = {
-    initial_mode = "insert",
-    prompt_prefix = "",
-    selection_caret = " ",
-    entry_prefix = " ",
-    sorting_strategy = "ascending",
-    layout_config = {
-      width = 0.50,
-      height = 0.45,
-      prompt_position = "top",
-      anchor = "N",
-    },
-    border = true,
-  },
+  cmdline = false, -- set true to enable experimental ':' cmdline replacement
+  initial_mode = "insert",
+  position = "top",
+  width = 0.50,
+  height = 0.75,
+  border = "rounded",
 })
 ```
 
-`telescope` config key is still accepted for backward compatibility and maps to `ui`.
+## Open Pulse
+
+- `:Pulse`
+- `:Pulse files`
+- `:Pulse commands`
+- `:Pulse git_status`
+- `:Pulse diagnostics`
+- `:Pulse symbols`
+- `:Pulse workspace_symbols`
+- `:Pulse live_grep`
+- `:Pulse fuzzy_search`
+
+## Input + Navigation
+
+- `<Tab>`: next item
+- `<Down>/<C-n>`: next item
+- `<Up>/<C-p>`: previous item
+- `<CR>`: submit/open
+- `<Esc>`: close
+- selection wraps from last->first and first->last
+
+## Optional Keymaps
+
+```lua
+vim.keymap.set("n", "<leader>p", "<cmd>Pulse<cr>", { desc = "Pulse" })
+vim.keymap.set("n", "<leader>p:", "<cmd>Pulse commands<cr>", { desc = "Pulse Commands" })
+vim.keymap.set("n", "<leader>p~", "<cmd>Pulse git_status<cr>", { desc = "Pulse Git Status" })
+vim.keymap.set("n", "<leader>p!", "<cmd>Pulse diagnostics<cr>", { desc = "Pulse Diagnostics" })
+vim.keymap.set("n", "<leader>p@", "<cmd>Pulse symbols<cr>", { desc = "Pulse Symbols" })
+vim.keymap.set("n", "<leader>p#", "<cmd>Pulse workspace_symbols<cr>", { desc = "Pulse Workspace Symbols" })
+vim.keymap.set("n", "<leader>p$", "<cmd>Pulse live_grep<cr>", { desc = "Pulse Live Grep" })
+vim.keymap.set("n", "<leader>p?", "<cmd>Pulse fuzzy_search<cr>", { desc = "Pulse Fuzzy Search" })
+```
+
+## Theming
+
+Pulse uses existing highlight groups, with optional overrides:
+
+- `PulseModePrefix`
+- `PulseListMatch`
+- `PulseAdd`
+- `PulseDelete`
+- `PulseDiffAdd`
+- `PulseDiffDelete`
+- `PulseDiffNAdd`
+- `PulseDiffNDelete`
+
+Example:
+
+```lua
+vim.api.nvim_set_hl(0, "PulseAdd", { link = "Added" })
+vim.api.nvim_set_hl(0, "PulseDelete", { link = "Removed" })
+vim.api.nvim_set_hl(0, "PulseDiffAdd", { link = "DiffAdd" })
+vim.api.nvim_set_hl(0, "PulseDiffDelete", { link = "DiffDelete" })
+```
