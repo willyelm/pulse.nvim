@@ -4,6 +4,8 @@ List.__index = List
 local window = require("pulse.ui.window")
 local MATCH_HL = "PulseListMatch"
 local SIDE_PADDING = 1
+local ADD_SUM_HL = (vim.fn.hlexists("PulseAdd") == 1) and "PulseAdd" or "Added"
+local DEL_SUM_HL = (vim.fn.hlexists("PulseDelete") == 1) and "PulseDelete" or "Removed"
 
 local function clamp(value, min_value, max_value)
 	return math.min(math.max(value, min_value), max_value)
@@ -168,7 +170,7 @@ function List:_visible_lines(width)
 			local a1, a2 = right:find("%+%d+")
 			if a1 then
 				highlights[#highlights + 1] = {
-					group = "Added",
+					group = ADD_SUM_HL,
 					row = index - 1,
 					start_col = SIDE_PADDING + right_start + a1 - 1,
 					end_col = SIDE_PADDING + right_start + a2,
@@ -177,7 +179,7 @@ function List:_visible_lines(width)
 			local d1, d2 = right:find("%-%d+")
 			if d1 then
 				highlights[#highlights + 1] = {
-					group = "Removed",
+					group = DEL_SUM_HL,
 					row = index - 1,
 					start_col = SIDE_PADDING + right_start + d1 - 1,
 					end_col = SIDE_PADDING + right_start + d2,

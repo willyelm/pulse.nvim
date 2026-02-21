@@ -71,10 +71,18 @@ end
 local function build_display(item)
   local name = vim.fn.fnamemodify(item.path or "", ":t")
   local code = vim.trim(item.code or "")
-  local add_s = "+" .. tostring(item.added or 0)
-  local del_s = "-" .. tostring(item.removed or 0)
+  local parts = {}
+  if (item.added or 0) > 0 then
+    parts[#parts + 1] = "+" .. tostring(item.added)
+  end
+  if (item.removed or 0) > 0 then
+    parts[#parts + 1] = "-" .. tostring(item.removed)
+  end
+  if code ~= "" then
+    parts[#parts + 1] = code
+  end
   local left = string.format("%s %s", devicon_for(item.path), name)
-  local right = string.format("%s %s %s", add_s, del_s, code)
+  local right = table.concat(parts, " ")
 
   item.display_left = left
   item.display_right = right

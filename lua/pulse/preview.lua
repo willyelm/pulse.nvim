@@ -2,6 +2,7 @@ local M = {}
 local Preview = {}
 Preview.__index = Preview
 local window = require("pulse.ui.window")
+local diff_ui = require("pulse.ui.diff")
 
 local function filetype_for(path)
   local ft = vim.filetype.match({ filename = path })
@@ -83,9 +84,6 @@ local function file_snippet(path, lnum, query, match_cols)
   return out, filetype_for(resolved), highlights, line_numbers, (line_no - start_l + 1)
 end
 
-local DIFF_ADD_HL = (vim.fn.hlexists("DiffAdded") == 1) and "DiffAdded" or "DiffAdd"
-local DIFF_DEL_HL = (vim.fn.hlexists("DiffDelete") == 1) and "DiffDelete" or "DiffDelete"
-
 local function git_patch_for(path)
   local diff = vim.fn.systemlist({ "git", "--no-pager", "diff", "--", path })
   if vim.v.shell_error == 0 and #diff > 0 then
@@ -98,19 +96,24 @@ local function git_patch_for(path)
   return nil
 end
 
-local function diff_highlights(lines)
-  local out = {}
-  for i, line in ipairs(lines or {}) do
-    local row = i - 1
-    if line:sub(1, 2) == "@@" or line:sub(1, 10) == "diff --git" or line:sub(1, 5) == "index" then
-      out[#out + 1] = { group = "DiffChange", row = row, start_col = 0, end_col = -1 }
-    elseif line:sub(1, 1) == "+" and line:sub(1, 3) ~= "+++" then
-      out[#out + 1] = { group = DIFF_ADD_HL, row = row, start_col = 0, end_col = -1 }
-    elseif line:sub(1, 1) == "-" and line:sub(1, 3) ~= "---" then
-      out[#out + 1] = { group = DIFF_DEL_HL, row = row, start_col = 0, end_col = -1 }
-    end
+local function read_worktree_file(path)
+  local resolved = resolve_path(path)
+  if not resolved then
+    return {}
   end
-  return out
+  return vim.fn.readfile(resolved)
+end
+
+local function read_head_file(path)
+  local rel = vim.fn.fnamemodify(path or "", ":.")
+  if rel == "" then
+    return {}
+  end
+  local lines = vim.fn.systemlist({ "git", "--no-pager", "show", "HEAD:" .. rel })
+  if vim.v.shell_error ~= 0 then
+    return {}
+  end
+  return lines
 end
 
 function M.for_item(item)
@@ -124,11 +127,17 @@ function M.for_item(item)
 
   if item.kind == "git_status" then
     local path = item.path or item.filename
-    local diff = git_patch_for(path)
-    if not diff or #diff == 0 then
-      diff = { "No git diff for " .. tostring(path) }
+    local old_lines = read_head_file(path)
+    local new_lines = read_worktree_file(path)
+    if #old_lines == 0 and #new_lines == 0 then
+      local diff = git_patch_for(path)
+      if not diff or #diff == 0 then
+        diff = { "No git diff for " .. tostring(path) }
+      end
+      return diff, "text", {}, nil, 1
     end
-    return diff, "diff", diff_highlights(diff), nil, 1
+    local lines, highlights, focus_row = diff_ui.from_lines(old_lines, new_lines, { context = 3 })
+    return lines, "text", highlights, nil, focus_row
   end
 
   if item.kind == "live_grep" or item.kind == "fuzzy_search" then
