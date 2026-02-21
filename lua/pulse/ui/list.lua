@@ -46,6 +46,7 @@ function List.new(opts)
   self.items = {}
   self.selected = 1
   self.visible_count = self.min_visible
+  self.ns = vim.api.nvim_create_namespace("pulse_ui_list")
 
   vim.bo[self.buf].buftype = "nofile"
   vim.bo[self.buf].bufhidden = "wipe"
@@ -114,10 +115,9 @@ function List:render(width)
   vim.api.nvim_buf_set_lines(self.buf, 0, -1, false, lines)
   vim.bo[self.buf].modifiable = false
 
-  local ns = vim.api.nvim_create_namespace("pulse_ui_list")
-  vim.api.nvim_buf_clear_namespace(self.buf, ns, 0, -1)
+  vim.api.nvim_buf_clear_namespace(self.buf, self.ns, 0, -1)
   for _, item in ipairs(highlights) do
-    pcall(vim.api.nvim_buf_add_highlight, self.buf, ns, item.group, item.row, item.start_col, item.end_col)
+    pcall(vim.api.nvim_buf_add_highlight, self.buf, self.ns, item.group, item.row, item.start_col, item.end_col)
   end
 
   if self.win and vim.api.nvim_win_is_valid(self.win) and #self.items > 0 then

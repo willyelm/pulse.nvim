@@ -96,9 +96,7 @@ end
 
 function Input:set_value(value)
   local text = tostring(value or "")
-  vim.bo[self.buf].modifiable = true
   vim.api.nvim_buf_set_lines(self.buf, 0, -1, false, { text })
-  vim.bo[self.buf].modifiable = true
   cursor_to_eol(self.win, self.buf)
 end
 

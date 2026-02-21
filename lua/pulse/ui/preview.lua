@@ -19,6 +19,7 @@ function Preview.new(opts)
   self.buf = assert(opts.buf, "preview requires a buffer")
   self.win = assert(opts.win, "preview requires a window")
   self.ns = vim.api.nvim_create_namespace("pulse_ui_preview")
+  self.active_filetype = "text"
 
   vim.bo[self.buf].buftype = "nofile"
   vim.bo[self.buf].bufhidden = "wipe"
@@ -37,11 +38,15 @@ function Preview:set(lines, filetype, highlights, line_numbers, focus_row)
   vim.api.nvim_buf_set_lines(self.buf, 0, -1, false, safe_lines)
   vim.bo[self.buf].modifiable = false
 
-  vim.bo[self.buf].filetype = filetype or "text"
+  local target_filetype = filetype or "text"
+  vim.bo[self.buf].filetype = target_filetype
   vim.api.nvim_buf_clear_namespace(self.buf, self.ns, 0, -1)
 
-  if filetype and filetype ~= "" and filetype ~= "text" then
-    pcall(vim.treesitter.start, self.buf, filetype)
+  if target_filetype ~= self.active_filetype then
+    self.active_filetype = target_filetype
+    if target_filetype ~= "" and target_filetype ~= "text" then
+      pcall(vim.treesitter.start, self.buf, target_filetype)
+    end
   end
 
   if line_numbers and #line_numbers > 0 then

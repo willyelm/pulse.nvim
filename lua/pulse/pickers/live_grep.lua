@@ -39,18 +39,14 @@ local function stop_timer(state)
   state.timer = nil
 end
 
-local function clear_results(state)
+local function reset_results(state)
   state.items = {}
   state.pending_items = nil
-  state.limit_reached = false
-end
-
-local function cancel_work(state)
-  stop_timer(state)
-  stop_job(state)
+  state.stopped = false
 end
 
 local function append_lines(state, lines, query)
+  local reached = false
   for _, line in ipairs(lines or {}) do
     if line and line ~= "" then
       local path, lnum, col, text = line:match("^(.-):(%d+):(%d+):(.*)$")
@@ -67,27 +63,17 @@ local function append_lines(state, lines, query)
       end
     end
     if #state.pending_items >= MAX_RESULTS then
-      state.limit_reached = true
+      reached = true
       break
     end
   end
-end
-
-local function parse_stdout_chunk(state, data, query)
-  if not data or #data == 0 then
-    return
-  end
-  append_lines(state, data, query)
-  if #state.pending_items > 0 then
-    state.items = vim.list_slice(state.pending_items, 1, MAX_RESULTS)
-    notify_update(state)
-  end
+  return reached
 end
 
 local function start_search(state, query, token)
   stop_job(state)
   state.pending_items = {}
-  state.limit_reached = false
+  state.stopped = false
 
   local cmd = {
     "rg",
@@ -112,8 +98,16 @@ local function start_search(state, query, token)
       if token ~= state.token then
         return
       end
-      parse_stdout_chunk(state, data, query)
-      if state.limit_reached then
+      if not data or #data == 0 then
+        return
+      end
+      local reached = append_lines(state, data, query)
+      if #state.pending_items > 0 then
+        state.items = state.pending_items
+        notify_update(state)
+      end
+      if reached then
+        state.stopped = true
         stop_job(state)
       end
     end,
@@ -122,8 +116,8 @@ local function start_search(state, query, token)
         return
       end
       state.job = nil
-      if code == 0 or code == 1 or state.limit_reached then
-        state.items = vim.list_slice(state.pending_items or {}, 1, MAX_RESULTS)
+      if code == 0 or code == 1 or state.stopped then
+        state.items = state.pending_items or {}
       else
         state.items = {}
       end
@@ -134,7 +128,7 @@ local function start_search(state, query, token)
 
   if state.job <= 0 then
     state.job = nil
-    clear_results(state)
+    reset_results(state)
     notify_update(state)
   end
 end
@@ -149,7 +143,7 @@ function M.seed(ctx)
     token = 0,
     job = nil,
     timer = nil,
-    limit_reached = false,
+    stopped = false,
     update_scheduled = false,
   }
 end
@@ -158,9 +152,10 @@ function M.items(state, query)
   local q = vim.trim(query or "")
   if q == "" then
     state.query = ""
-    clear_results(state)
+    reset_results(state)
     state.token = state.token + 1
-    cancel_work(state)
+    stop_timer(state)
+    stop_job(state)
     return {}
   end
 
@@ -183,6 +178,15 @@ function M.items(state, query)
   end
 
   return state.items
+end
+
+function M.dispose(state)
+  if not state then
+    return
+  end
+  stop_timer(state)
+  stop_job(state)
+  reset_results(state)
 end
 
 return M

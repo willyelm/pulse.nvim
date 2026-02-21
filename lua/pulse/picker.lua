@@ -293,6 +293,19 @@ local function list_has_only_headers(items)
 	return true
 end
 
+local function is_header(item)
+	return item and item.kind == "header"
+end
+
+local function is_jumpable(item)
+	return item
+		and (item.kind == "symbol" or item.kind == "workspace_symbol" or item.kind == "file" or item.kind == "live_grep")
+end
+
+local function compute_preview_height()
+	return math.max(math.min(math.floor((vim.o.lines - vim.o.cmdheight) * 0.22), 12), 6)
+end
+
 function M.open(opts)
 	local picker_opts = vim.tbl_deep_extend("force", {
 		initial_mode = "insert",
@@ -308,6 +321,7 @@ function M.open(opts)
 
 	local source_bufnr = vim.api.nvim_get_current_buf()
 	local source_win = vim.api.nvim_get_current_win()
+	local cwd = vim.fn.getcwd()
 	local states = {}
 
 	local palette = {
@@ -331,11 +345,93 @@ function M.open(opts)
 	box:mount()
 	local lifecycle_group = vim.api.nvim_create_augroup("PulseUIPalette" .. tostring(box.buf), { clear = true })
 
+	local list
+	local preview
+	local sections = {}
+	local layout_state = { body = nil, preview = nil, width = nil }
+
+	local function set_divider(buf, width)
+		local line = string.rep("─", width)
+		vim.bo[buf].modifiable = true
+		vim.api.nvim_buf_set_lines(buf, 0, -1, false, { line })
+		vim.bo[buf].modifiable = false
+	end
+
+	local function upsert_section(name, opts)
+		if sections[name] and sections[name].buf and vim.api.nvim_buf_is_valid(sections[name].buf) then
+			opts.buf = sections[name].buf
+		end
+		sections[name] = box:create_section(name, opts)
+		return sections[name]
+	end
+
+	local function relayout(body_height, preview_height)
+		if palette.closed then
+			return
+		end
+
+		local current_width = vim.api.nvim_win_get_width(box.win)
+		if
+			sections.input
+			and layout_state.body == body_height
+			and layout_state.preview == preview_height
+			and layout_state.width == current_width
+		then
+			return
+		end
+
+		box:update({ height = body_height + preview_height + 3 })
+		local width = vim.api.nvim_win_get_width(box.win)
+		local function place(name, row, height, focusable, winhl)
+			upsert_section(name, {
+				row = row,
+				col = 0,
+				width = width,
+				height = height,
+				focusable = focusable,
+				enter = false,
+				winhl = winhl,
+			})
+		end
+
+		place("input", 0, 1, true, "Normal:NormalFloat")
+
+		place("divider", 1, 1, false, "Normal:FloatBorder")
+		set_divider(sections.divider.buf, width)
+
+		place("list", 2, body_height, true, "Normal:NormalFloat,CursorLine:CursorLine")
+
+		place("body_divider", 2 + body_height, 1, false, "Normal:FloatBorder")
+		set_divider(sections.body_divider.buf, width)
+
+		place("preview", 3 + body_height, preview_height, true, "Normal:NormalFloat")
+
+		if list then
+			list.win = sections.list.win
+		end
+		if preview then
+			preview.win = sections.preview.win
+		end
+		if palette.input then
+			palette.input.win = sections.input.win
+		end
+
+		layout_state.body = body_height
+		layout_state.preview = preview_height
+		layout_state.width = width
+	end
+
 	local function close_palette()
 		if palette.closed then
 			return
 		end
 		palette.closed = true
+		for mode, state in pairs(states) do
+			local mod = modules[mode]
+			if mod and type(mod.dispose) == "function" then
+				pcall(mod.dispose, state)
+			end
+		end
 		box:unmount()
 		if vim.api.nvim_win_is_valid(source_win) then
 			vim.api.nvim_set_current_win(source_win)
@@ -367,177 +463,43 @@ function M.open(opts)
 		end
 
 		if mode == "files" then
-			states[mode] = modules.files.seed(vim.fn.getcwd())
+			states[mode] = modules.files.seed(cwd)
 		elseif mode == "commands" then
 			states[mode] = modules.commands.seed()
 		else
 			states[mode] = modules[mode].seed({
 				on_update = refresh_no_prompt_reset,
 				bufnr = source_bufnr,
-				cwd = vim.fn.getcwd(),
+				cwd = cwd,
 			})
 		end
 
 		return states[mode]
 	end
 
-	local input_section = box:create_section("input", {
-		row = 0,
-		col = 0,
-		width = vim.api.nvim_win_get_width(box.win),
-		height = 1,
-		focusable = true,
-		enter = false,
-		winhl = "Normal:NormalFloat",
-	})
+	relayout(10, 8)
 
-	local divider_section = box:create_section("divider", {
-		row = 1,
-		col = 0,
-		width = vim.api.nvim_win_get_width(box.win),
-		height = 1,
-		focusable = false,
-		enter = false,
-		winhl = "Normal:FloatBorder",
-	})
-
-	local list_section = box:create_section("list", {
-		row = 2,
-		col = 0,
-		width = vim.api.nvim_win_get_width(box.win),
-		height = 10,
-		focusable = true,
-		enter = false,
-		winhl = "Normal:NormalFloat,CursorLine:CursorLine",
-	})
-
-	local body_divider_section = box:create_section("body_divider", {
-		row = 12,
-		col = 0,
-		width = vim.api.nvim_win_get_width(box.win),
-		height = 1,
-		focusable = false,
-		enter = false,
-		winhl = "Normal:FloatBorder",
-	})
-
-	local preview_section = box:create_section("preview", {
-		row = 13,
-		col = 0,
-		width = vim.api.nvim_win_get_width(box.win),
-		height = 8,
-		focusable = true,
-		enter = false,
-		winhl = "Normal:NormalFloat",
-	})
-
-	local list = ui.list.new({
-		buf = list_section.buf,
-		win = list_section.win,
+	list = ui.list.new({
+		buf = sections.list.buf,
+		win = sections.list.win,
 		max_visible = 15,
 		min_visible = 3,
 		render_item = to_display,
 	})
 
-	local preview = ui.preview.new({
-		buf = preview_section.buf,
-		win = preview_section.win,
+	preview = ui.preview.new({
+		buf = sections.preview.buf,
+		win = sections.preview.win,
 	})
-
-	local function resize_layout()
-		if palette.closed then
-			return
-		end
-
-		local total_width = vim.api.nvim_win_get_width(box.win)
-		local body_height = list.visible_count
-		local preview_height = math.max(math.min(math.floor((vim.o.lines - vim.o.cmdheight) * 0.22), 12), 6)
-
-		box:update({
-			height = body_height + preview_height + 3,
-		})
-
-		local updated_width = vim.api.nvim_win_get_width(box.win)
-
-		box:create_section("input", {
-			row = 0,
-			col = 0,
-			width = updated_width,
-			height = 1,
-			focusable = true,
-			enter = false,
-			buf = input_section.buf,
-			winhl = "Normal:NormalFloat",
-		})
-
-		local divider_text = string.rep("─", updated_width)
-		vim.bo[divider_section.buf].modifiable = true
-		vim.api.nvim_buf_set_lines(divider_section.buf, 0, -1, false, { divider_text })
-		vim.bo[divider_section.buf].modifiable = false
-
-		box:create_section("divider", {
-			row = 1,
-			col = 0,
-			width = updated_width,
-			height = 1,
-			focusable = false,
-			enter = false,
-			buf = divider_section.buf,
-			winhl = "Normal:FloatBorder",
-		})
-
-		box:create_section("list", {
-			row = 2,
-			col = 0,
-			width = updated_width,
-			height = body_height,
-			focusable = true,
-			enter = false,
-			buf = list_section.buf,
-			winhl = "Normal:NormalFloat,CursorLine:CursorLine",
-		})
-
-		vim.bo[body_divider_section.buf].modifiable = true
-		vim.api.nvim_buf_set_lines(body_divider_section.buf, 0, -1, false, { divider_text })
-		vim.bo[body_divider_section.buf].modifiable = false
-		box:create_section("body_divider", {
-			row = 2 + body_height,
-			col = 0,
-			width = updated_width,
-			height = 1,
-			focusable = false,
-			enter = false,
-			buf = body_divider_section.buf,
-			winhl = "Normal:FloatBorder",
-		})
-
-		box:create_section("preview", {
-			row = 3 + body_height,
-			col = 0,
-			width = updated_width,
-			height = preview_height,
-			focusable = true,
-			enter = false,
-			buf = preview_section.buf,
-			winhl = "Normal:NormalFloat",
-		})
-
-		list.win = box:section("list").win
-		preview.win = box:section("preview").win
-		input_section.win = box:section("input").win
-		if palette.input then
-			palette.input.win = input_section.win
-		end
-	end
 
 	local function selected_or_first_selectable()
 		local selected = list:selected_item()
-		if selected and selected.kind ~= "header" then
+		if selected and not is_header(selected) then
 			return selected
 		end
 
 		for _, item in ipairs(palette.items) do
-			if item.kind ~= "header" then
+			if not is_header(item) then
 				return item
 			end
 		end
@@ -549,6 +511,34 @@ function M.open(opts)
 		local item = selected_or_first_selectable()
 		local lines, ft, highlights, line_numbers, focus_row = preview_for_item(item)
 		preview:set(lines, ft, highlights, line_numbers, focus_row)
+	end
+
+	local function render_views()
+		list:render(vim.api.nvim_win_get_width(list.win))
+		refresh_preview()
+	end
+
+	local function sync_layout_and_render()
+		relayout(list.visible_count, compute_preview_height())
+		render_views()
+	end
+
+	local function move_selection(delta)
+		list:move(delta, is_header)
+		render_views()
+	end
+
+	local function jump_in_source(item)
+		local jumped = false
+		local runner = function()
+			jumped = jump_to(item)
+		end
+		if vim.api.nvim_win_is_valid(source_win) then
+			pcall(vim.api.nvim_win_call, source_win, runner)
+		else
+			pcall(runner)
+		end
+		return jumped
 	end
 
 	function palette.refresh()
@@ -567,59 +557,28 @@ function M.open(opts)
 		list:set_items(items)
 
 		local selected = list:selected_item()
-		if selected and selected.kind == "header" then
-			list:move(1, function(item)
-				return item.kind == "header"
-			end)
+		if is_header(selected) then
+			list:move(1, is_header)
 		end
 
-		resize_layout()
-		list:render(vim.api.nvim_win_get_width(list.win))
-		refresh_preview()
-	end
+			sync_layout_and_render()
+		end
 
 	local function preview_selection_in_source()
 		local item = list:selected_item()
-		if not item or item.kind == "header" then
+		if not is_jumpable(item) then
 			return
 		end
-		if
-			item.kind == "symbol"
-			or item.kind == "workspace_symbol"
-			or item.kind == "file"
-			or item.kind == "live_grep"
-			then
-				if vim.api.nvim_win_is_valid(source_win) then
-					pcall(vim.api.nvim_win_call, source_win, function()
-						jump_to(item)
-					end)
-				end
-			end
-		end
+		jump_in_source(item)
+	end
 
 	local function move_next()
-		list:move(1, function(item)
-			return item.kind == "header"
-		end)
-		list:render(vim.api.nvim_win_get_width(list.win))
-		refresh_preview()
+		move_selection(1)
 	end
 
 	local function move_prev()
-		list:move(-1, function(item)
-			return item.kind == "header"
-		end)
-		list:render(vim.api.nvim_win_get_width(list.win))
-		refresh_preview()
+		move_selection(-1)
 	end
-
-	vim.keymap.set("n", "<ScrollWheelDown>", function()
-		move_next()
-	end, { buffer = list.buf, noremap = true, silent = true })
-
-	vim.keymap.set("n", "<ScrollWheelUp>", function()
-		move_prev()
-	end, { buffer = list.buf, noremap = true, silent = true })
 
 	local function submit(prompt)
 		local mode, query = parse_prompt(prompt)
@@ -641,27 +600,16 @@ function M.open(opts)
 			return
 		end
 
-		local jumped = false
-		if vim.api.nvim_win_is_valid(source_win) then
-			pcall(vim.api.nvim_win_call, source_win, function()
-				jumped = jump_to(selected)
-			end)
-		else
-			jumped = jump_to(selected)
-		end
-
-		if jumped then
+		if jump_in_source(selected) then
 			close_palette()
 		end
 	end
 
 	palette.input = ui.input.new({
-		buf = input_section.buf,
-		win = input_section.win,
+		buf = sections.input.buf,
+		win = sections.input.win,
 		prompt = picker_opts.prompt_prefix or "",
-		on_change = function()
-			palette.refresh()
-		end,
+		on_change = palette.refresh,
 		on_submit = submit,
 		on_escape = close_palette,
 		on_down = move_next,
@@ -669,9 +617,11 @@ function M.open(opts)
 		on_tab = preview_selection_in_source,
 	})
 
-	local list_map_opts = { buffer = list_section.buf, noremap = true, silent = true }
+	local list_map_opts = { buffer = sections.list.buf, noremap = true, silent = true }
 	vim.keymap.set("n", "j", move_next, list_map_opts)
 	vim.keymap.set("n", "k", move_prev, list_map_opts)
+	vim.keymap.set("n", "<ScrollWheelDown>", move_next, list_map_opts)
+	vim.keymap.set("n", "<ScrollWheelUp>", move_prev, list_map_opts)
 	vim.keymap.set("n", "<CR>", function()
 		submit(palette.input:get_value())
 	end, list_map_opts)
@@ -683,11 +633,9 @@ function M.open(opts)
 			if palette.closed then
 				return
 			end
-			resize_layout()
-			list:render(vim.api.nvim_win_get_width(list.win))
-			refresh_preview()
-		end,
-	})
+				sync_layout_and_render()
+			end,
+		})
 
 	if picker_opts.initial_prompt and picker_opts.initial_prompt ~= "" then
 		palette.input:set_value(picker_opts.initial_prompt)
