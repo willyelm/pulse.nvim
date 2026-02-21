@@ -65,12 +65,10 @@ function M.open(opts)
 	local source_win = vim.api.nvim_get_current_win()
 	local cwd = vim.fn.getcwd()
 	local states = {}
-
-	local palette = {
-		current_mode = "files",
-		items = {},
-		closed = false,
-	}
+	local items = {}
+	local closed = false
+	local input
+	local refresh
 
 	local box = ui.box.new({
 		width = picker_opts.layout_config.width or 0.70,
@@ -96,21 +94,21 @@ function M.open(opts)
 	local layout = picker_layout.new(box)
 
 	local function relayout(body_height, preview_height)
-		if palette.closed then
+		if closed then
 			return
 		end
 		layout:apply(body_height, preview_height, {
 			list = list,
 			preview = preview,
-			input = palette.input,
+			input = input,
 		})
 	end
 
 	local function close_palette()
-		if palette.closed then
+		if closed then
 			return
 		end
-		palette.closed = true
+		closed = true
 		for mode, state in pairs(states) do
 			local mod = modules[mode]
 			if mod and type(mod.dispose) == "function" then
@@ -131,14 +129,16 @@ function M.open(opts)
 	})
 
 	local function refresh_no_prompt_reset()
-		if palette.closed then
+		if closed then
 			return
 		end
 		vim.schedule(function()
-			if palette.closed then
+			if closed then
 				return
 			end
-			palette.refresh()
+			if refresh then
+				refresh()
+			end
 		end)
 	end
 
@@ -182,7 +182,7 @@ function M.open(opts)
 		if selected and not is_header(selected) then
 			return selected
 		end
-		return first_non_header(palette.items)
+		return first_non_header(items)
 	end
 
 	local function refresh_preview()
@@ -219,20 +219,19 @@ function M.open(opts)
 		return jumped
 	end
 
-	function palette.refresh()
-		local prompt = palette.input:get_value()
+	function refresh()
+		local prompt = input:get_value()
 		local mode_name, query = mode_parser.parse_prompt(prompt)
-		palette.current_mode = mode_name
 		local title = modules[mode_name].title()
 		box:set_title(title)
 
-		local items = modules[mode_name].items(ensure_state(mode_name), query)
-		if list_has_only_headers(items) then
-			items = {}
+		local next_items = modules[mode_name].items(ensure_state(mode_name), query)
+		if list_has_only_headers(next_items) then
+			next_items = {}
 		end
 
-		palette.items = items
-		list:set_items(items)
+		items = next_items
+		list:set_items(next_items)
 
 		local selected = list:selected_item()
 		if is_header(selected) then
@@ -275,11 +274,11 @@ function M.open(opts)
 		end
 	end
 
-	palette.input = ui.input.new({
+	input = ui.input.new({
 		buf = layout.sections.input.buf,
 		win = layout.sections.input.win,
 		prompt = picker_opts.prompt_prefix or "",
-		on_change = palette.refresh,
+		on_change = refresh,
 		on_submit = submit,
 		on_escape = close_palette,
 		on_down = function()
@@ -303,14 +302,14 @@ function M.open(opts)
 		end, list_map_opts)
 	end
 	vim.keymap.set("n", "<CR>", function()
-		submit(palette.input:get_value())
+		submit(input:get_value())
 	end, list_map_opts)
 	vim.keymap.set("n", "<Esc>", close_palette, list_map_opts)
 
 	vim.api.nvim_create_autocmd("VimResized", {
 		group = lifecycle_group,
 		callback = function()
-			if palette.closed then
+			if closed then
 				return
 			end
 			sync_layout_and_render()
@@ -318,11 +317,11 @@ function M.open(opts)
 	})
 
 	if picker_opts.initial_prompt and picker_opts.initial_prompt ~= "" then
-		palette.input:set_value(picker_opts.initial_prompt)
+		input:set_value(picker_opts.initial_prompt)
 	end
 
-	palette.refresh()
-	palette.input:focus(picker_opts.initial_mode ~= "normal")
+	refresh()
+	input:focus(picker_opts.initial_mode ~= "normal")
 end
 
 return M

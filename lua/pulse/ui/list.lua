@@ -36,21 +36,15 @@ local function fit_to_width(text, width)
   return table.concat(out)
 end
 
-local function normalise_item(rendered, legacy_group)
-  if type(rendered) == "table" then
-    return {
-      left = tostring(rendered.left or ""),
-      left_group = rendered.left_group or legacy_group or "Normal",
-      right = tostring(rendered.right or ""),
-      right_group = rendered.right_group or "Comment",
-    }
+local function normalise_item(rendered)
+  if type(rendered) ~= "table" then
+    rendered = {}
   end
-
   return {
-    left = tostring(rendered or ""),
-    left_group = legacy_group or "Normal",
-    right = "",
-    right_group = "Comment",
+    left = tostring(rendered.left or ""),
+    left_group = rendered.left_group or "Normal",
+    right = tostring(rendered.right or ""),
+    right_group = rendered.right_group or "Comment",
   }
 end
 
@@ -92,8 +86,7 @@ function List:_visible_lines(width)
   local content_width = width
 
   for index, item in ipairs(self.items) do
-    local rendered, legacy_group = self.render_item(item, content_width)
-    local spec = normalise_item(rendered, legacy_group)
+    local spec = normalise_item(self.render_item(item, content_width))
     local left = fit_to_width(spec.left, content_width)
     local left_group = spec.left_group
     local right = spec.right
