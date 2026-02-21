@@ -124,8 +124,9 @@ function M.for_item(item)
   if item.kind == "command" then
     return {
       "Command", "", ":" .. tostring(item.command), "",
-      "Press <CR> to execute selected command.",
-      "Typing after ':' and pressing <CR> executes typed command.",
+      "<Tab> fills input with the selected command.",
+      "<CR> executes selected command after navigation,",
+      "otherwise executes typed input.",
     }, "text", {}, nil, 1
   end
 

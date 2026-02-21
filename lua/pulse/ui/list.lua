@@ -59,6 +59,7 @@ function List.new(opts)
 	self.win = assert(opts.win, "list requires a window")
 	self.max_visible = opts.max_visible or 15
 	self.min_visible = opts.min_visible or 3
+	self.allow_empty_selection = opts.allow_empty_selection == true
 	self.render_item = assert(opts.render_item, "list requires render_item callback")
 	self.items = {}
 	self.selected = 1
@@ -66,11 +67,7 @@ function List.new(opts)
 	self.ns = vim.api.nvim_create_namespace("pulse_ui_list")
 	pcall(vim.api.nvim_set_hl, 0, MATCH_HL, { bold = true, default = true })
 
-	vim.bo[self.buf].buftype = "nofile"
-	vim.bo[self.buf].bufhidden = "wipe"
-	vim.bo[self.buf].swapfile = false
-	vim.bo[self.buf].modifiable = false
-	vim.bo[self.buf].filetype = "pulselist"
+	window.configure_isolated_buffer(self.buf, { buftype = "nofile", modifiable = false })
 
 	window.configure_content_window(self.win)
 
@@ -79,11 +76,16 @@ end
 
 function List:_normalise_selection()
 	if #self.items == 0 then
-		self.selected = 1
+		self.selected = self.allow_empty_selection and 0 or 1
 		return
 	end
 
-	self.selected = clamp(self.selected, 1, #self.items)
+	if self.allow_empty_selection then
+		self.selected = clamp(self.selected or 0, 0, #self.items)
+		return
+	end
+
+	self.selected = clamp(self.selected or 1, 1, #self.items)
 end
 
 function List:_visible_lines(width)
@@ -219,7 +221,7 @@ function List:render(width)
 	end
 
 	if self.win and vim.api.nvim_win_is_valid(self.win) then
-		local row = (#self.items > 0) and self.selected or 1
+		local row = ((#self.items > 0) and (self.selected or 0) > 0) and self.selected or 1
 		pcall(vim.api.nvim_win_set_cursor, self.win, { row, 0 })
 	end
 end
@@ -232,12 +234,20 @@ function List:set_items(items)
 end
 
 function List:set_selected(index)
-	self.selected = index or 1
+	self.selected = index
 	self:_normalise_selection()
 end
 
 function List:selected_item()
+	if (self.selected or 0) < 1 then
+		return nil
+	end
 	return self.items[self.selected]
+end
+
+function List:set_allow_empty_selection(allow)
+	self.allow_empty_selection = allow == true
+	self:_normalise_selection()
 end
 
 function List:move(delta, skip)

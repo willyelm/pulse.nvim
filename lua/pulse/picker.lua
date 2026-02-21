@@ -178,6 +178,7 @@ function M.open(opts)
 	local cwd = vim.fn.getcwd()
 	local states, items = {}, {}
 	local active_mode = "files"
+	local command_selection_explicit = false
 	local closed, input, refresh = false, nil, nil
 
 	local box = ui.box.new({
@@ -200,7 +201,9 @@ function M.open(opts)
 	local lifecycle_group = vim.api.nvim_create_augroup("PulseUIPalette" .. tostring(box.buf), { clear = true })
 	local list, preview
 	local layout = new_layout(box)
-
+	local function map(buf, modes, lhs, rhs)
+		vim.keymap.set(modes, lhs, rhs, { buffer = buf, noremap = true, silent = true })
+	end
 	local function close_palette()
 		if closed then
 			return
@@ -295,6 +298,9 @@ function M.open(opts)
 
 	local function move_selection(delta)
 		list:move(delta, is_header)
+		if active_mode == "commands" then
+			command_selection_explicit = true
+		end
 		rerender()
 	end
 
@@ -327,7 +333,10 @@ function M.open(opts)
 		items = next_items
 		list:set_items(next_items)
 		if mode_switched then
-			list:set_selected(1)
+			command_selection_explicit = false
+			local commands_mode = mode_name == "commands"
+			list:set_allow_empty_selection(commands_mode)
+			list:set_selected(commands_mode and 0 or 1)
 		end
 		update_counter(input, mode_name, query, found, total_for_mode(mod, state, found))
 
@@ -342,16 +351,34 @@ function M.open(opts)
 		local selected = list:selected_item()
 		if mode_name == "commands" then
 			close_palette()
-			if query ~= "" then
-				actions.execute_command(query)
-			elseif selected and selected.kind == "command" then
+			if command_selection_explicit and selected and selected.kind == "command" then
 				actions.execute_command(selected.command)
+			elseif query ~= "" then
+				actions.execute_command(query)
 			end
 			return
 		end
 		if selected and not is_header(selected) and jump_in_source(selected) then
 			close_palette()
 		end
+	end
+
+	local function apply_tab_action(selected)
+		selected = selected or list:selected_item()
+		if not selected or is_header(selected) or active_mode == "git_status" then return end
+		if active_mode == "commands" then
+			input:set_value(mode.start("commands") .. selected.command)
+			command_selection_explicit = true
+			return
+		end
+		jump_in_source(selected)
+	end
+	local function click_tab_action()
+		local mouse = vim.fn.getmousepos()
+		if type(mouse) ~= "table" or mouse.winid ~= list.win then return end
+		list:set_selected(tonumber(mouse.line) or 1)
+		rerender()
+		apply_tab_action()
 	end
 
 	input = ui.input.new({
@@ -361,33 +388,28 @@ function M.open(opts)
 		on_change = refresh,
 		on_submit = submit,
 		on_escape = close_palette,
-		on_down = function()
-			move_selection(1)
-		end,
-		on_up = function()
-			move_selection(-1)
-		end,
-		on_tab = function()
-			move_selection(1)
-		end,
+		on_down = function() move_selection(1) end,
+		on_up = function() move_selection(-1) end,
+		on_tab = apply_tab_action,
 	})
 
-	local list_map_opts = { buffer = layout.sections.list.buf, noremap = true, silent = true }
-	vim.keymap.set("n", "j", function() move_selection(1) end, list_map_opts)
-	vim.keymap.set("n", "k", function() move_selection(-1) end, list_map_opts)
-	vim.keymap.set("n", "<CR>", function()
-		submit(input:get_value())
-	end, list_map_opts)
-	vim.keymap.set("n", "<Tab>", function()
-		move_selection(1)
-	end, list_map_opts)
-	vim.keymap.set("n", "<Esc>", close_palette, list_map_opts)
-
+	for _, spec in ipairs({
+		{ keys = { "j", "l", "<Down>", "<Right>" }, delta = 1 },
+		{ keys = { "k", "h", "<Up>", "<Left>" }, delta = -1 },
+	}) do
+		local delta = spec.delta
+		for _, lhs in ipairs(spec.keys) do
+			map(layout.sections.list.buf, "n", lhs, function() move_selection(delta) end)
+		end
+	end
+	map(layout.sections.list.buf, "n", "<LeftMouse>", click_tab_action)
+	map(input.buf, { "n", "i" }, "<LeftMouse>", click_tab_action)
+	map(layout.sections.list.buf, "n", "<CR>", function() submit(input:get_value()) end)
+	map(layout.sections.list.buf, "n", "<Tab>", apply_tab_action)
+	map(layout.sections.list.buf, "n", "<Esc>", close_palette)
 	vim.api.nvim_create_autocmd("VimResized", {
 		group = lifecycle_group,
-		callback = function()
-			rerender()
-		end,
+		callback = function() box:update(); rerender() end,
 	})
 
 	if picker_opts.initial_prompt and picker_opts.initial_prompt ~= "" then

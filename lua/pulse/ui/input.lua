@@ -66,12 +66,7 @@ function Input.new(opts)
   self.addons = {}
   pcall(vim.api.nvim_set_hl, 0, MODE_HL, { bold = true, default = true })
 
-  vim.bo[self.buf].buftype = "prompt"
-  vim.bo[self.buf].bufhidden = "wipe"
-  vim.bo[self.buf].swapfile = false
-  vim.bo[self.buf].modifiable = true
-  vim.bo[self.buf].filetype = "pulseinput"
-  vim.b[self.buf].gitsigns_disable = true
+  window.configure_isolated_buffer(self.buf, { buftype = "prompt", modifiable = true })
   vim.fn.prompt_setprompt(self.buf, self.prompt)
 
   vim.api.nvim_create_autocmd({ "TextChangedI", "TextChanged" }, {

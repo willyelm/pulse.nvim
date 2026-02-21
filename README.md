@@ -62,12 +62,25 @@ require("pulse").setup({
 
 ## Input + Navigation
 
-- `<Tab>`: next item
-- `<Down>/<C-n>`: next item
-- `<Up>/<C-p>`: previous item
-- `<CR>`: submit/open
+- `j/k` or arrow keys: navigate items
+- `h/l`: navigate items (aliases)
+- `<Down>/<C-n>`: next item (from input)
+- `<Up>/<C-p>`: previous item (from input)
+- `<Tab>`:
+  - files: open preview in source window (picker stays open)
+  - symbols/workspace symbols: jump to location (picker stays open)
+  - live grep/fuzzy search: open/jump to location (picker stays open)
+  - diagnostics: jump to location (picker stays open)
+  - commands: replace input with selected command
+  - git status: no-op
+- `<CR>`: submit/open and close picker
 - `<Esc>`: close
 - selection wraps from last->first and first->last
+
+In `commands` mode:
+- No implicit first-item execution.
+- `<CR>` executes the selected command only after explicit navigation.
+- Otherwise `<CR>` executes the typed command.
 
 ## Optional Keymaps
 
