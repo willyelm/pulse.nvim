@@ -1,6 +1,7 @@
 local M = {}
 local Input = {}
 Input.__index = Input
+
 local window = require("pulse.ui.window")
 
 local function configure_window(win)
@@ -24,6 +25,25 @@ local function cursor_to_eol(win, buf)
   pcall(vim.api.nvim_win_set_cursor, win, { 1, #line })
 end
 
+local function normalise_chunks(spec, default_hl)
+  if spec == nil then
+    return nil
+  end
+  if type(spec) == "string" then
+    return { { spec, default_hl } }
+  end
+  if type(spec) ~= "table" then
+    return nil
+  end
+  if type(spec.chunks) == "table" then
+    return spec.chunks
+  end
+  if spec.text then
+    return { { tostring(spec.text), spec.hl or default_hl } }
+  end
+  return nil
+end
+
 function Input.new(opts)
   local self = setmetatable({}, Input)
   self.buf = assert(opts.buf, "input requires a buffer")
@@ -45,7 +65,6 @@ function Input.new(opts)
   vim.bo[self.buf].modifiable = true
   vim.bo[self.buf].filetype = "pulseinput"
   vim.b[self.buf].gitsigns_disable = true
-
   vim.fn.prompt_setprompt(self.buf, self.prompt)
 
   vim.api.nvim_create_autocmd({ "TextChangedI", "TextChanged" }, {
@@ -62,44 +81,33 @@ function Input.new(opts)
   local function map(lhs, cb)
     vim.keymap.set({ "i", "n" }, lhs, cb, map_opts)
   end
-  local function call(fn)
+  local function call(fn, ...)
     if fn then
-      fn()
+      fn(...)
     end
   end
 
   map("<CR>", function()
-    if self.on_submit then
-      self.on_submit(self:get_value())
-    end
+    call(self.on_submit, self:get_value())
   end)
   map("<Esc>", function()
     call(self.on_escape)
   end)
-  map("<Down>", function()
-    call(self.on_down)
-  end)
-  map("<ScrollWheelDown>", function()
-    call(self.on_down)
-  end)
-  map("<C-n>", function()
-    call(self.on_down)
-  end)
-  map("<Up>", function()
-    call(self.on_up)
-  end)
-  map("<ScrollWheelUp>", function()
-    call(self.on_up)
-  end)
-  map("<C-p>", function()
-    call(self.on_up)
-  end)
   map("<Tab>", function()
     call(self.on_tab)
   end)
+  for _, lhs in ipairs({ "<Down>", "<ScrollWheelDown>", "<C-n>" }) do
+    map(lhs, function()
+      call(self.on_down)
+    end)
+  end
+  for _, lhs in ipairs({ "<Up>", "<ScrollWheelUp>", "<C-p>" }) do
+    map(lhs, function()
+      call(self.on_up)
+    end)
+  end
 
   configure_window(self.win)
-
   return self
 end
 
@@ -115,46 +123,26 @@ function Input:set_prompt(prompt)
 end
 
 function Input:get_value()
-  local lines = vim.api.nvim_buf_get_lines(self.buf, 0, 1, false)
-  return lines[1] or ""
+  return (vim.api.nvim_buf_get_lines(self.buf, 0, 1, false)[1] or "")
 end
 
 function Input:set_value(value)
-  local text = tostring(value or "")
-  vim.api.nvim_buf_set_lines(self.buf, 0, -1, false, { text })
+  vim.api.nvim_buf_set_lines(self.buf, 0, -1, false, { tostring(value or "") })
   cursor_to_eol(self.win, self.buf)
   self:set_addons(self.addons)
 end
 
 function Input:focus(insert_mode)
-  if self.win and vim.api.nvim_win_is_valid(self.win) then
-    configure_window(self.win)
-    vim.api.nvim_set_current_win(self.win)
-    self:set_addons(self.addons)
-    if insert_mode ~= false then
-      cursor_to_eol(self.win, self.buf)
-      vim.cmd("startinsert!")
-    end
+  if not (self.win and vim.api.nvim_win_is_valid(self.win)) then
+    return
   end
-end
-
-local function normalise_chunks(spec, default_hl)
-  if spec == nil then
-    return nil
+  configure_window(self.win)
+  vim.api.nvim_set_current_win(self.win)
+  self:set_addons(self.addons)
+  if insert_mode ~= false then
+    cursor_to_eol(self.win, self.buf)
+    vim.cmd("startinsert!")
   end
-  if type(spec) == "string" then
-    return { { spec, default_hl } }
-  end
-  if type(spec) ~= "table" then
-    return nil
-  end
-  if spec.chunks and type(spec.chunks) == "table" then
-    return spec.chunks
-  end
-  if spec.text then
-    return { { tostring(spec.text), spec.hl or default_hl } }
-  end
-  return nil
 end
 
 function Input:set_addons(addons)

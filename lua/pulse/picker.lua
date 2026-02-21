@@ -23,11 +23,11 @@ local MOVE_MAPS = {
 }
 
 local function normalise_border(border)
-	if border == true or border == nil then
-		return "rounded"
-	end
 	if border == false then
 		return "none"
+	end
+	if border == true or border == nil then
+		return "rounded"
 	end
 	return border
 end
@@ -66,12 +66,7 @@ local function total_for_mode(mod, state, found)
 end
 
 local function update_counter(input, found, total)
-	input:set_addons({
-		right = {
-			text = string.format("%d/%d", found, total),
-			hl = "Comment",
-		},
-	})
+	input:set_addons({ right = { text = string.format("%d/%d", found, total), hl = "Comment" } })
 end
 
 local function compute_preview_height()
@@ -79,17 +74,7 @@ local function compute_preview_height()
 end
 
 local function new_layout(box)
-	local layout = {
-		sections = {},
-		state = { body = nil, preview = nil, width = nil },
-	}
-
-	local function set_divider(buf, width)
-		local line = string.rep("─", width)
-		vim.bo[buf].modifiable = true
-		vim.api.nvim_buf_set_lines(buf, 0, -1, false, { line })
-		vim.bo[buf].modifiable = false
-	end
+	local layout = { sections = {}, state = { body = nil, preview = nil, width = nil } }
 
 	local function upsert(name, opts)
 		local current = layout.sections[name]
@@ -100,39 +85,44 @@ local function new_layout(box)
 		return layout.sections[name]
 	end
 
+	local function draw_divider(buf, width)
+		local line = string.rep("─", width)
+		vim.bo[buf].modifiable = true
+		vim.api.nvim_buf_set_lines(buf, 0, -1, false, { line })
+		vim.bo[buf].modifiable = false
+	end
+
 	function layout:apply(body_height, preview_height, refs)
 		local width = vim.api.nvim_win_get_width(box.win)
-		if
-			self.sections.input
-			and self.state.body == body_height
-			and self.state.preview == preview_height
-			and self.state.width == width
-		then
+		if self.sections.input and self.state.body == body_height and self.state.preview == preview_height and self.state.width == width then
 			return
 		end
 
 		box:update({ height = body_height + preview_height + 3 })
 		width = vim.api.nvim_win_get_width(box.win)
 
-		local function place(name, row, height, focusable, winhl)
-			upsert(name, {
-				row = row,
+		local specs = {
+			{ name = "input", row = 0, height = 1, focusable = true, winhl = "Normal:NormalFloat" },
+			{ name = "divider", row = 1, height = 1, focusable = false, winhl = "Normal:FloatBorder", divider = true },
+			{ name = "list", row = 2, height = body_height, focusable = true, winhl = "Normal:NormalFloat,CursorLine:CursorLine" },
+			{ name = "body_divider", row = 2 + body_height, height = 1, focusable = false, winhl = "Normal:FloatBorder", divider = true },
+			{ name = "preview", row = 3 + body_height, height = preview_height, focusable = true, winhl = "Normal:NormalFloat" },
+		}
+
+		for _, s in ipairs(specs) do
+			local section = upsert(s.name, {
+				row = s.row,
 				col = 0,
 				width = width,
-				height = height,
-				focusable = focusable,
+				height = s.height,
+				focusable = s.focusable,
 				enter = false,
-				winhl = winhl,
+				winhl = s.winhl,
 			})
+			if s.divider then
+				draw_divider(section.buf, width)
+			end
 		end
-
-		place("input", 0, 1, true, "Normal:NormalFloat")
-		place("divider", 1, 1, false, "Normal:FloatBorder")
-		set_divider(self.sections.divider.buf, width)
-		place("list", 2, body_height, true, "Normal:NormalFloat,CursorLine:CursorLine")
-		place("body_divider", 2 + body_height, 1, false, "Normal:FloatBorder")
-		set_divider(self.sections.body_divider.buf, width)
-		place("preview", 3 + body_height, preview_height, true, "Normal:NormalFloat")
 
 		if refs.list then
 			refs.list.win = self.sections.list.win
@@ -160,23 +150,16 @@ function M.open(opts)
 	local picker_opts = vim.tbl_deep_extend("force", {
 		initial_mode = "insert",
 		prompt_prefix = "",
-		layout_config = {
-			width = 0.70,
-			height = 0.70,
-			prompt_position = "top",
-			anchor = "N",
-		},
+		layout_config = { width = 0.70, height = 0.70, prompt_position = "top", anchor = "N" },
 		border = true,
 	}, opts or {})
 
 	local source_bufnr = vim.api.nvim_get_current_buf()
 	local source_win = vim.api.nvim_get_current_win()
 	local cwd = vim.fn.getcwd()
-	local states = {}
-	local items = {}
-	local closed = false
-	local input
-	local refresh
+	local states, items = {}, {}
+	local active_mode = "files"
+	local closed, input, refresh = false, nil, nil
 
 	local box = ui.box.new({
 		width = picker_opts.layout_config.width or 0.70,
@@ -195,22 +178,10 @@ function M.open(opts)
 		vim.notify("Pulse: unable to open panel (" .. tostring(mount_err) .. ")", vim.log.levels.WARN)
 		return
 	end
+
 	local lifecycle_group = vim.api.nvim_create_augroup("PulseUIPalette" .. tostring(box.buf), { clear = true })
-
-	local list
-	local preview
+	local list, preview
 	local layout = new_layout(box)
-
-	local function relayout(body_height, preview_height)
-		if closed then
-			return
-		end
-		layout:apply(body_height, preview_height, {
-			list = list,
-			preview = preview,
-			input = input,
-		})
-	end
 
 	local function close_palette()
 		if closed then
@@ -236,42 +207,50 @@ function M.open(opts)
 		callback = close_palette,
 	})
 
-	local function refresh_no_prompt_reset()
-		if closed then
-			return
+	local function sync_layout()
+		if not closed then
+			layout:apply(list.visible_count, compute_preview_height(), { list = list, preview = preview, input = input })
 		end
-		vim.schedule(function()
-			if closed then
-				return
-			end
-			if refresh then
-				refresh()
-			end
-		end)
+	end
+
+	local function render_views()
+		local selected = list:selected_item()
+		if not selected or is_header(selected) then
+			selected = first_non_header(items)
+		end
+		list:render(vim.api.nvim_win_get_width(list.win))
+		local lines, ft, highlights, line_numbers, focus_row = preview_data.for_item(selected)
+		preview:set(lines, ft, highlights, line_numbers, focus_row)
+	end
+
+	local function rerender()
+		sync_layout()
+		render_views()
 	end
 
 	local function ensure_state(mode)
 		if states[mode] then
 			return states[mode]
 		end
-
 		if mode == "files" then
 			states[mode] = modules.files.seed(cwd)
 		elseif mode == "commands" then
 			states[mode] = modules.commands.seed()
 		else
 			states[mode] = modules[mode].seed({
-				on_update = refresh_no_prompt_reset,
+				on_update = function()
+					if not closed and refresh then
+						vim.schedule(refresh)
+					end
+				end,
 				bufnr = source_bufnr,
 				cwd = cwd,
 			})
 		end
-
 		return states[mode]
 	end
 
-	relayout(10, 8)
-
+	layout:apply(10, 8, {})
 	list = ui.list.new({
 		buf = layout.sections.list.buf,
 		win = layout.sections.list.win,
@@ -279,35 +258,7 @@ function M.open(opts)
 		min_visible = 3,
 		render_item = display.to_display,
 	})
-
-	preview = preview_data.new({
-		buf = layout.sections.preview.buf,
-		win = layout.sections.preview.win,
-	})
-
-	local function selected_or_first_selectable()
-		local selected = list:selected_item()
-		if selected and not is_header(selected) then
-			return selected
-		end
-		return first_non_header(items)
-	end
-
-	local function refresh_preview()
-		local item = selected_or_first_selectable()
-		local lines, ft, highlights, line_numbers, focus_row = preview_data.for_item(item)
-		preview:set(lines, ft, highlights, line_numbers, focus_row)
-	end
-
-	local function render_views()
-		list:render(vim.api.nvim_win_get_width(list.win))
-		refresh_preview()
-	end
-
-	local function sync_layout_and_render()
-		relayout(list.visible_count, compute_preview_height())
-		render_views()
-	end
+	preview = preview_data.new({ buf = layout.sections.preview.buf, win = layout.sections.preview.win })
 
 	local function move_selection(delta)
 		list:move(delta, is_header)
@@ -331,58 +282,42 @@ function M.open(opts)
 		local prompt = input:get_value()
 		local mode_name, query = mode_parser.parse_prompt(prompt)
 		local mod = modules[mode_name]
-		local title = mod.title()
-		box:set_title(title)
-
 		local state = ensure_state(mode_name)
+		local mode_switched = mode_name ~= active_mode
+		active_mode = mode_name
 		local next_items = mod.items(state, query)
-		if #next_items > 0 and first_non_header(next_items) == nil then
+		local found = count_non_headers(next_items)
+		if #next_items > 0 and found == 0 then
 			next_items = {}
 		end
-		local found = count_non_headers(next_items)
-		local total = total_for_mode(mod, state, found)
 
 		items = next_items
 		list:set_items(next_items)
-		update_counter(input, found, total)
+		if mode_switched then
+			list:set_selected(1)
+		end
+		update_counter(input, found, total_for_mode(mod, state, found))
+		box:set_title(mod.title())
 
-		local selected = list:selected_item()
-		if is_header(selected) then
+		if is_header(list:selected_item()) then
 			list:move(1, is_header)
 		end
-
-		sync_layout_and_render()
-	end
-
-	local function preview_selection_in_source()
-		local item = list:selected_item()
-		if not actions.is_jumpable(item) then
-			return
-		end
-		jump_in_source(item)
+		rerender()
 	end
 
 	local function submit(prompt)
 		local mode_name, query = mode_parser.parse_prompt(prompt)
 		local selected = list:selected_item()
-
 		if mode_name == "commands" then
 			close_palette()
 			if query ~= "" then
 				actions.execute_command(query)
-				return
-			end
-			if selected and selected.kind == "command" then
+			elseif selected and selected.kind == "command" then
 				actions.execute_command(selected.command)
 			end
 			return
 		end
-
-		if not selected or is_header(selected) then
-			return
-		end
-
-		if jump_in_source(selected) then
+		if selected and not is_header(selected) and jump_in_source(selected) then
 			close_palette()
 		end
 	end
@@ -400,7 +335,12 @@ function M.open(opts)
 		on_up = function()
 			move_selection(-1)
 		end,
-		on_tab = preview_selection_in_source,
+		on_tab = function()
+			local item = list:selected_item()
+			if actions.is_jumpable(item) then
+				jump_in_source(item)
+			end
+		end,
 	})
 
 	local list_map_opts = { buffer = layout.sections.list.buf, noremap = true, silent = true }
@@ -417,10 +357,7 @@ function M.open(opts)
 	vim.api.nvim_create_autocmd("VimResized", {
 		group = lifecycle_group,
 		callback = function()
-			if closed then
-				return
-			end
-			sync_layout_and_render()
+			rerender()
 		end,
 	})
 
