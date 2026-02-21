@@ -38,9 +38,6 @@ local function normalise_chunks(spec, default_hl)
   if type(spec) ~= "table" then
     return nil
   end
-  if type(spec.chunks) == "table" then
-    return spec.chunks
-  end
   if spec.text then
     return { { tostring(spec.text), spec.hl or default_hl } }
   end
@@ -196,10 +193,10 @@ function Input:set_addons(addons)
     })
   end
 
-  local left_icon = normalise_chunks(self.addons.left_icon, "Comment")
-  if left_icon then
+  local left = normalise_chunks(self.addons.left, "Comment")
+  if left then
     vim.api.nvim_buf_set_extmark(self.buf, self.ns, 0, 0, {
-      virt_text = left_icon,
+      virt_text = left,
       virt_text_pos = "inline",
       hl_mode = "replace",
     })

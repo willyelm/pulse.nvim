@@ -1,13 +1,7 @@
 local M = {}
+local util = require("pulse.util")
 
 local SymbolKind = vim.lsp.protocol.SymbolKind or {}
-
-local function has_ci(haystack, needle)
-  if needle == "" then
-    return true
-  end
-  return string.find(string.lower(haystack or ""), string.lower(needle), 1, true) ~= nil
-end
 
 local function kind_name(kind)
   if type(kind) == "number" then
@@ -163,14 +157,16 @@ end
 
 function M.items(state, query)
   local symbols = state.symbols or {}
+  query = query or ""
   if query == "" then
     return symbols
   end
 
+  local query_lc = string.lower(query)
   local out = {}
   for _, s in ipairs(symbols) do
     local hay = table.concat({ s.symbol or "", s.symbol_kind_name or "", s.filename or "" }, " ")
-    if has_ci(hay, query) then
+    if util.contains_ci(hay, query_lc) then
       out[#out + 1] = s
     end
   end

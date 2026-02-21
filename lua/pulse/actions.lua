@@ -44,15 +44,4 @@ function M.execute_command(cmd)
   end
 end
 
-function M.is_jumpable(item)
-  return item
-    and (
-      item.kind == "symbol"
-      or item.kind == "workspace_symbol"
-      or item.kind == "file"
-      or item.kind == "live_grep"
-      or item.kind == "fuzzy_search"
-    )
-end
-
 return M

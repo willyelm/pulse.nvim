@@ -34,15 +34,6 @@ local function normalise_lines(lines)
   return out
 end
 
-local function add_hl(highlights, row, start_col, end_col)
-  highlights[#highlights + 1] = {
-    group = "Search",
-    row = row,
-    start_col = start_col,
-    end_col = end_col,
-  }
-end
-
 local function add_query_matches(highlights, lines, query)
   local q = (query or ""):lower()
   if q == "" then
@@ -53,7 +44,7 @@ local function add_query_matches(highlights, lines, query)
     while true do
       local idx = lower:find(q, from, true)
       if not idx then break end
-      add_hl(highlights, row - 1, idx - 1, idx - 1 + #q)
+      highlights[#highlights + 1] = { group = "Search", row = row - 1, start_col = idx - 1, end_col = idx - 1 + #q }
       from = idx + 1
     end
   end
@@ -84,7 +75,7 @@ local function file_snippet(path, lnum, query, match_cols)
     local row = line_no - start_l
     for _, col in ipairs(match_cols) do
       if type(col) == "number" and col > 0 then
-        add_hl(highlights, row, col - 1, col)
+        highlights[#highlights + 1] = { group = "Search", row = row, start_col = col - 1, end_col = col }
       end
     end
   end
@@ -110,11 +101,7 @@ function M.for_item(item)
     return diff, "diff", {}, nil, 1
   end
 
-  if item.kind == "live_grep" then
-    return file_snippet(item.path or item.filename, item.lnum, item.query)
-  end
-
-  if item.kind == "fuzzy_search" then
+  if item.kind == "live_grep" or item.kind == "fuzzy_search" then
     return file_snippet(item.path or item.filename, item.lnum, item.query, item.match_cols)
   end
 

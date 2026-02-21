@@ -60,7 +60,7 @@ local function placeholder_for(mode_name, query)
 	return ((query or "") == "" and placeholder ~= "") and (" " .. placeholder) or nil
 end
 
-local function update_counter(input, mode_name, prompt, query, found, total)
+local function update_counter(input, mode_name, query, found, total)
 	input:set_prompt(mode.icon(mode_name) .. " ")
 	local ghost = placeholder_for(mode_name, query)
 	input:set_addons({
@@ -121,51 +121,13 @@ local function new_layout(box)
 		local inner_width = math.max(width - (H_PADDING * 2), 1)
 
 		local specs = {
-			{
-				name = "input",
-				row = 0,
-				col = inner_col,
-				width = inner_width,
-				height = 1,
-				focusable = true,
-				winhl = "Normal:NormalFloat",
-			},
-			{
-				name = "divider",
-				row = 1,
-				height = 1,
-				focusable = false,
-				winhl = "Normal:FloatBorder",
-				divider = true,
-			},
-			{
-				name = "list",
-				row = 2,
-				col = inner_col,
-				width = inner_width,
-				height = body_height,
-				focusable = true,
-				winhl = "Normal:NormalFloat,CursorLine:CursorLine",
-			},
+			{ name = "input", row = 0, col = inner_col, width = inner_width, height = 1, focusable = true, winhl = "Normal:NormalFloat" },
+			{ name = "divider", row = 1, height = 1, focusable = false, winhl = "Normal:FloatBorder", divider = true },
+			{ name = "list", row = 2, col = inner_col, width = inner_width, height = body_height, focusable = true, winhl = "Normal:NormalFloat,CursorLine:CursorLine" },
 		}
 		if show_preview then
-			specs[#specs + 1] = {
-				name = "body_divider",
-				row = 2 + body_height,
-				height = 1,
-				focusable = false,
-				winhl = "Normal:FloatBorder",
-				divider = true,
-			}
-			specs[#specs + 1] = {
-				name = "preview",
-				row = 3 + body_height,
-				col = inner_col,
-				width = inner_width,
-				height = preview_height,
-				focusable = true,
-				winhl = "Normal:NormalFloat",
-			}
+			specs[#specs + 1] = { name = "body_divider", row = 2 + body_height, height = 1, focusable = false, winhl = "Normal:FloatBorder", divider = true }
+			specs[#specs + 1] = { name = "preview", row = 3 + body_height, col = inner_col, width = inner_width, height = preview_height, focusable = true, winhl = "Normal:NormalFloat" }
 		else
 			if self.sections.body_divider then
 				box:close_section("body_divider")
@@ -192,12 +154,8 @@ local function new_layout(box)
 			end
 		end
 
-		if refs.list then
-			refs.list.win = self.sections.list.win
-		end
-		if refs.input then
-			refs.input:set_win(self.sections.input.win)
-		end
+		if refs.list then refs.list.win = self.sections.list.win end
+		if refs.input then refs.input:set_win(self.sections.input.win) end
 		if refs.preview then
 			if show_preview then
 				refs.preview:set_target(self.sections.preview.buf, self.sections.preview.win)
@@ -256,8 +214,8 @@ function M.open(opts)
 			return
 		end
 		closed = true
-		for mode, state in pairs(states) do
-			local mod = modules[mode]
+		for mode_name, state in pairs(states) do
+			local mod = modules[mode_name]
 			if mod and type(mod.dispose) == "function" then
 				pcall(mod.dispose, state)
 			end
@@ -308,16 +266,16 @@ function M.open(opts)
 		render_views(preview_item)
 	end
 
-	local function ensure_state(mode)
-		if states[mode] then
-			return states[mode]
+	local function ensure_state(mode_name)
+		if states[mode_name] then
+			return states[mode_name]
 		end
-		if mode == "files" then
-			states[mode] = modules.files.seed(cwd)
-		elseif mode == "commands" then
-			states[mode] = modules.commands.seed()
+		if mode_name == "files" then
+			states[mode_name] = modules.files.seed(cwd)
+		elseif mode_name == "commands" then
+			states[mode_name] = modules.commands.seed()
 		else
-			states[mode] = modules[mode].seed({
+			states[mode_name] = modules[mode_name].seed({
 				on_update = function()
 					if not closed and refresh then
 						vim.schedule(refresh)
@@ -327,7 +285,7 @@ function M.open(opts)
 				cwd = cwd,
 			})
 		end
-		return states[mode]
+		return states[mode_name]
 	end
 
 	layout:apply(10, 8, {})
@@ -376,7 +334,7 @@ function M.open(opts)
 		if mode_switched then
 			list:set_selected(1)
 		end
-		update_counter(input, mode_name, prompt, query, found, total_for_mode(mod, state, found))
+		update_counter(input, mode_name, query, found, total_for_mode(mod, state, found))
 
 		if is_header(list:selected_item()) then
 			list:move(1, is_header)

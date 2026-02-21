@@ -1,11 +1,5 @@
 local M = {}
-
-local function has_ci(haystack, needle)
-  if needle == "" then
-    return true
-  end
-  return string.find(string.lower(haystack or ""), string.lower(needle), 1, true) ~= nil
-end
+local util = require("pulse.util")
 
 function M.seed()
   local history = {}
@@ -33,21 +27,23 @@ function M.seed()
 end
 
 function M.items(state, query)
+  query = query or ""
+  local query_lc = string.lower(query)
   local items, seen = {}, {}
-  local show_history = query == nil or query == ""
+  local show_history = query == ""
 
   if show_history then
     for _, cmd in ipairs(state.history) do
-      if has_ci(cmd, query) then
+      if util.contains_ci(cmd, query_lc) then
         seen[cmd] = true
-        items[#items + 1] = { kind = "command", command = cmd, source = "history" }
+        items[#items + 1] = { kind = "command", command = cmd }
       end
     end
   end
 
   for _, cmd in ipairs(state.commands) do
-    if not seen[cmd] and has_ci(cmd, query) then
-      items[#items + 1] = { kind = "command", command = cmd, source = "completion" }
+    if not seen[cmd] and util.contains_ci(cmd, query_lc) then
+      items[#items + 1] = { kind = "command", command = cmd }
     end
   end
 

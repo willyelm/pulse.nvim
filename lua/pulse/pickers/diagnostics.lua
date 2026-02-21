@@ -1,11 +1,5 @@
 local M = {}
-
-local function ci(h, n)
-  if n == "" then
-    return true
-  end
-  return string.find(string.lower(h or ""), string.lower(n), 1, true) ~= nil
-end
+local util = require("pulse.util")
 
 local severity_name = {
   [vim.diagnostic.severity.ERROR] = "ERROR",
@@ -20,6 +14,7 @@ function M.seed(ctx)
 end
 
 function M.items(state, query)
+  local q = string.lower(query or "")
   local current_bufnr = state.current_bufnr or vim.api.nvim_get_current_buf()
   local out = {}
   for _, d in ipairs(vim.diagnostic.get(nil)) do
@@ -40,7 +35,7 @@ function M.items(state, query)
       severity_name = name,
     }
     local hay = table.concat({ msg, name, item.source, filename }, " ")
-    if ci(hay, query or "") then
+    if util.contains_ci(hay, q) then
       out[#out + 1] = item
     end
   end

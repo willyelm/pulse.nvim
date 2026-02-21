@@ -15,7 +15,8 @@ local COMMAND_TO_MODE = {
   diagnostics = "diagnostics",
 }
 
-local MODE_COMPLETIONS = { "files", "symbols", "workspace_symbols", "commands", "live_grep", "fuzzy_search", "git_status", "diagnostics" }
+local MODE_COMPLETIONS = vim.tbl_keys(COMMAND_TO_MODE)
+table.sort(MODE_COMPLETIONS)
 
 local function open_panel(initial_prompt, extra_opts)
   if vim.fn.getcmdwintype() ~= "" then

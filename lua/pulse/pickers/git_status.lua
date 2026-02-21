@@ -1,11 +1,5 @@
 local M = {}
-
-local function ci(h, n)
-  if n == "" then
-    return true
-  end
-  return string.find(string.lower(h or ""), string.lower(n), 1, true) ~= nil
-end
+local util = require("pulse.util")
 
 local function parse_status_line(line)
   local code = line:sub(1, 2)
@@ -33,7 +27,7 @@ function M.seed()
 end
 
 function M.items(state, query)
-  local q = vim.trim(query or "")
+  local q = string.lower(vim.trim(query or ""))
   state.files = {}
   state.all_files = {}
 
@@ -47,7 +41,7 @@ function M.items(state, query)
     if item then
       state.all_files[#state.all_files + 1] = item
       local hay = item.path .. " " .. item.code
-      if ci(hay, q) then
+      if util.contains_ci(hay, q) then
         state.files[#state.files + 1] = item
       end
     end

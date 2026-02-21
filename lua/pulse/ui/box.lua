@@ -35,7 +35,6 @@ end
 function Box.new(opts)
   local self = setmetatable({}, Box)
   self.opts = vim.tbl_deep_extend("force", {
-    relative = "editor",
     width = 0.7,
     height = 0.6,
     row = nil,
@@ -47,7 +46,6 @@ function Box.new(opts)
     zindex = 50,
     winhl = "Normal:NormalFloat,FloatBorder:FloatBorder",
     noautocmd = true,
-    parent_win = nil,
   }, opts or {})
   self.buf = self.opts.buf or vim.api.nvim_create_buf(false, true)
   self.win = nil
@@ -64,19 +62,13 @@ function Box:_resolve_main_config(overrides)
   local total_columns = vim.o.columns
   local total_lines = vim.o.lines - vim.o.cmdheight
 
-  if cfg.relative == "win" and cfg.parent_win and vim.api.nvim_win_is_valid(cfg.parent_win) then
-    local win_cfg = vim.api.nvim_win_get_config(cfg.parent_win)
-    total_columns = tonumber(win_cfg.width) or total_columns
-    total_lines = tonumber(win_cfg.height) or total_lines
-  end
-
   local width = resolve_size(cfg.width, total_columns, 20)
   local height = resolve_size(cfg.height, total_lines, 6)
   local row = resolve_position(cfg.row, total_lines, height)
   local col = resolve_position(cfg.col, total_columns, width)
 
-  local out = {
-    relative = cfg.relative,
+  return {
+    relative = "editor",
     row = row,
     col = col,
     width = width,
@@ -88,10 +80,6 @@ function Box:_resolve_main_config(overrides)
     noautocmd = cfg.noautocmd,
     zindex = cfg.zindex,
   }
-  if cfg.relative == "win" and cfg.parent_win and vim.api.nvim_win_is_valid(cfg.parent_win) then
-    out.win = cfg.parent_win
-  end
-  return out
 end
 
 function Box:mount(overrides)
@@ -125,16 +113,6 @@ function Box:update(opts)
   self.opts = vim.tbl_deep_extend("force", self.opts, opts or {})
   local cfg = self:_resolve_main_config()
   vim.api.nvim_win_set_config(self.win, config_for_existing_window(cfg))
-end
-
-function Box:set_title(title)
-  self.opts.title = title
-  if not self:is_valid() then
-    return
-  end
-  local cfg = vim.api.nvim_win_get_config(self.win)
-  cfg.title = title
-  vim.api.nvim_win_set_config(self.win, cfg)
 end
 
 function Box:create_section(name, opts)

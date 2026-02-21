@@ -1,8 +1,8 @@
 local M = {}
+local util = require("pulse.util")
 
 local SymbolKind = vim.lsp.protocol.SymbolKind or {}
 local TS_KIND = { ["function"] = 12, ["method"] = 6, ["class"] = 5, ["interface"] = 11, ["enum"] = 10, ["struct"] = 23, ["type"] = 13 }
-local function ci(h, n) return n == "" or string.find(string.lower(h or ""), string.lower(n), 1, true) ~= nil end
 local function kname(k) return SymbolKind[k] or "Symbol" end
 local function depth(container)
   if not container or container == "" then return 0 end
@@ -88,6 +88,7 @@ end
 
 function M.items(state, query)
   local q = query or ""
+  local q_lc = string.lower(q)
   if state.last_query ~= q then
     state.last_query, state.request_id = q, state.request_id + 1
     local rid = state.request_id
@@ -101,7 +102,7 @@ function M.items(state, query)
   local out = {}
   for _, it in ipairs(state.symbols or {}) do
     local hay = table.concat({ it.symbol or "", it.symbol_kind_name or "", it.container or "", it.filename or "" }, " ")
-    if ci(hay, q) then out[#out + 1] = it end
+    if util.contains_ci(hay, q_lc) then out[#out + 1] = it end
   end
   return out
 end

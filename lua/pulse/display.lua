@@ -38,9 +38,10 @@ local DIAG_ICON = {
   HINT = "󰌵",
 }
 
+local ok_devicons, devicons = pcall(require, "nvim-web-devicons")
+
 local function devicon_for(path)
-  local ok, devicons = pcall(require, "nvim-web-devicons")
-  if not ok then
+  if not ok_devicons then
     return ""
   end
   local name, ext = vim.fn.fnamemodify(path, ":t"), vim.fn.fnamemodify(path, ":e")

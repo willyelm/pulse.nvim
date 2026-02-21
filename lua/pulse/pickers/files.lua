@@ -1,11 +1,5 @@
 local M = {}
-
-local function has_ci(haystack, needle)
-	if needle == "" then
-		return true
-	end
-	return string.find(string.lower(haystack or ""), string.lower(needle), 1, true) ~= nil
-end
+local util = require("pulse.util")
 
 local function normalize_path(path)
 	return vim.fn.fnamemodify(path, ":p")
@@ -66,6 +60,7 @@ local function ensure_repo_files(state)
 end
 
 function M.items(state, query)
+	query = query or ""
 	local items, seen = {}, {}
 
 	if query == "" then
@@ -88,8 +83,9 @@ function M.items(state, query)
 		return items
 	end
 
+	local query_lc = string.lower(query)
 	for _, path in ipairs(ensure_repo_files(state)) do
-		if has_ci(path, query) then
+		if util.contains_ci(path, query_lc) then
 			items[#items + 1] = { kind = "file", path = path }
 		end
 	end
