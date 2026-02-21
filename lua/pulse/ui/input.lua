@@ -47,6 +47,14 @@ local function normalise_chunks(spec, default_hl)
   return nil
 end
 
+local function strip_prompt_prefix(line, prompt)
+  prompt = prompt or ""
+  if prompt ~= "" and line:sub(1, #prompt) == prompt then
+    return line:sub(#prompt + 1)
+  end
+  return line
+end
+
 function Input.new(opts)
   local self = setmetatable({}, Input)
   self.buf = assert(opts.buf, "input requires a buffer")
@@ -75,6 +83,9 @@ function Input.new(opts)
     group = self.augroup,
     buffer = self.buf,
     callback = function()
+      if self._mute_change then
+        return
+      end
       if self.on_change then
         self.on_change(self:get_value())
       end
@@ -122,12 +133,26 @@ function Input:set_win(win)
 end
 
 function Input:set_prompt(prompt)
-  self.prompt = prompt or ""
+  prompt = prompt or ""
+  if self.prompt == prompt then
+    return
+  end
+  local old_prompt = self.prompt or ""
+  local line = (vim.api.nvim_buf_get_lines(self.buf, 0, 1, false)[1] or "")
+  local value = strip_prompt_prefix(line, old_prompt)
+  self._mute_change = true
+  self.prompt = prompt
   vim.fn.prompt_setprompt(self.buf, self.prompt)
+  if vim.api.nvim_buf_is_valid(self.buf) then
+    vim.api.nvim_buf_set_lines(self.buf, 0, -1, false, { self.prompt .. value })
+    cursor_to_eol(self.win, self.buf)
+  end
+  self._mute_change = false
 end
 
 function Input:get_value()
-  return (vim.api.nvim_buf_get_lines(self.buf, 0, 1, false)[1] or "")
+  local line = (vim.api.nvim_buf_get_lines(self.buf, 0, 1, false)[1] or "")
+  return strip_prompt_prefix(line, self.prompt)
 end
 
 function Input:set_value(value)

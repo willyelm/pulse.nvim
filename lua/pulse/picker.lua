@@ -55,20 +55,15 @@ local function total_for_mode(mod, state, found)
 	return found
 end
 
-local function left_placeholder(mode_name, prompt, query)
-	local icon = mode.icon(mode_name) .. " "
+local function placeholder_for(mode_name, query)
 	local placeholder = mode.placeholder(mode_name)
-	if (prompt or "") == "" and mode_name == "files" and placeholder ~= "" then
-		return icon .. placeholder, nil
-	end
-	local ghost = ((query or "") == "" and placeholder ~= "") and (" " .. placeholder) or nil
-	return icon, ghost
+	return ((query or "") == "" and placeholder ~= "") and (" " .. placeholder) or nil
 end
 
 local function update_counter(input, mode_name, prompt, query, found, total)
-	local left_icon, ghost = left_placeholder(mode_name, prompt, query)
+	input:set_prompt(mode.icon(mode_name) .. " ")
+	local ghost = placeholder_for(mode_name, query)
 	input:set_addons({
-		left_icon = left_icon,
 		ghost = ghost,
 		right = { text = string.format("%d/%d", found, total), hl = "Comment" },
 	})
@@ -409,7 +404,7 @@ function M.open(opts)
 	input = ui.input.new({
 		buf = layout.sections.input.buf,
 		win = layout.sections.input.win,
-		prompt = "",
+		prompt = mode.icon("files") .. " ",
 		on_change = refresh,
 		on_submit = submit,
 		on_escape = close_palette,
@@ -451,9 +446,6 @@ function M.open(opts)
 
 	refresh()
 	input:focus(picker_opts.initial_mode ~= "normal")
-	if input and input.win and vim.api.nvim_win_is_valid(input.win) and input:get_value() == "" then
-		pcall(vim.api.nvim_win_set_cursor, input.win, { 1, 0 })
-	end
 end
 
 return M
