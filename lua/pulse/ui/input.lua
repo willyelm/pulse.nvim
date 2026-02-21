@@ -49,12 +49,22 @@ function Input.new(opts)
       self.on_down()
     end
   end, map_opts)
+  vim.keymap.set({ "i", "n" }, "<ScrollWheelDown>", function()
+    if self.on_down then
+      self.on_down()
+    end
+  end, map_opts)
   vim.keymap.set({ "i", "n" }, "<C-n>", function()
     if self.on_down then
       self.on_down()
     end
   end, map_opts)
   vim.keymap.set({ "i", "n" }, "<Up>", function()
+    if self.on_up then
+      self.on_up()
+    end
+  end, map_opts)
+  vim.keymap.set({ "i", "n" }, "<ScrollWheelUp>", function()
     if self.on_up then
       self.on_up()
     end

@@ -387,7 +387,7 @@ function M.open(opts)
     col = 0,
     width = vim.api.nvim_win_get_width(box.win),
     height = 10,
-    focusable = false,
+    focusable = true,
     enter = false,
     winhl = "Normal:NormalFloat,CursorLine:CursorLine",
   })
@@ -472,7 +472,7 @@ function M.open(opts)
       col = 0,
       width = updated_width,
       height = body_height,
-      focusable = false,
+      focusable = true,
       enter = false,
       buf = list_section.buf,
       winhl = "Normal:NormalFloat,CursorLine:CursorLine",
@@ -588,6 +588,14 @@ function M.open(opts)
     list:render(vim.api.nvim_win_get_width(list.win))
     refresh_preview()
   end
+
+  vim.keymap.set("n", "<ScrollWheelDown>", function()
+    move_next()
+  end, { buffer = list.buf, noremap = true, silent = true })
+
+  vim.keymap.set("n", "<ScrollWheelUp>", function()
+    move_prev()
+  end, { buffer = list.buf, noremap = true, silent = true })
 
   local function submit(prompt)
     local mode, query = parse_prompt(prompt)

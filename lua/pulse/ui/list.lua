@@ -15,7 +15,6 @@ function List.new(opts)
   self.render_item = assert(opts.render_item, "list requires render_item callback")
   self.items = {}
   self.selected = 1
-  self.offset = 1
   self.visible_count = self.min_visible
 
   vim.bo[self.buf].buftype = "nofile"
@@ -30,20 +29,10 @@ end
 function List:_normalise_selection()
   if #self.items == 0 then
     self.selected = 1
-    self.offset = 1
     return
   end
 
   self.selected = clamp(self.selected, 1, #self.items)
-  local max_offset = math.max(#self.items - self.visible_count + 1, 1)
-  self.offset = clamp(self.offset, 1, max_offset)
-
-  if self.selected < self.offset then
-    self.offset = self.selected
-  end
-  if self.selected > self.offset + self.visible_count - 1 then
-    self.offset = self.selected - self.visible_count + 1
-  end
 end
 
 function List:_visible_lines(width)
@@ -51,25 +40,20 @@ function List:_visible_lines(width)
   local highlights = {}
   local content_width = width
 
-  for row = 1, self.visible_count do
-    local index = self.offset + row - 1
-    local item = self.items[index]
+  for index, item in ipairs(self.items) do
     local text, hl = "", nil
-    if item then
-      text, hl = self.render_item(item)
-      text = tostring(text or "")
-    end
+    text, hl = self.render_item(item)
+    text = tostring(text or "")
 
     if #text > content_width then
       text = text:sub(1, math.max(content_width - 1, 1))
     end
     local padded = text .. string.rep(" ", math.max(content_width - #text, 0))
-
-    lines[#lines + 1] = padded
+    lines[index] = padded
     if hl and item then
       highlights[#highlights + 1] = {
         group = hl,
-        row = row - 1,
+        row = index - 1,
         start_col = 0,
         end_col = math.min(#text, content_width),
       }
@@ -77,11 +61,15 @@ function List:_visible_lines(width)
     if item and index == self.selected then
       highlights[#highlights + 1] = {
         group = "CursorLine",
-        row = row - 1,
+        row = index - 1,
         start_col = 0,
         end_col = -1,
       }
     end
+  end
+
+  while #lines < self.visible_count do
+    lines[#lines + 1] = string.rep(" ", math.max(content_width, 0))
   end
 
   return lines, highlights
@@ -100,6 +88,10 @@ function List:render(width)
   vim.api.nvim_buf_clear_namespace(self.buf, ns, 0, -1)
   for _, item in ipairs(highlights) do
     pcall(vim.api.nvim_buf_add_highlight, self.buf, ns, item.group, item.row, item.start_col, item.end_col)
+  end
+
+  if self.win and vim.api.nvim_win_is_valid(self.win) and #self.items > 0 then
+    pcall(vim.api.nvim_win_set_cursor, self.win, { self.selected, 0 })
   end
 end
 
