@@ -27,9 +27,8 @@ local function refresh_lines(state)
   state.filename = vim.api.nvim_buf_get_name(bufnr)
 end
 
-local function fuzzy_score(haystack, needle)
+local function fuzzy_score(haystack, n)
   local h = string.lower(haystack or "")
-  local n = string.lower(needle)
   local nlen = #n
   if nlen == 0 or h == "" then
     return nil
@@ -80,10 +79,11 @@ function M.items(state, query)
   if q == "" then
     return {}
   end
+  local ql = string.lower(q)
 
   local out = {}
   for i, line in ipairs(state.lines or {}) do
-    local score, col, match_cols = fuzzy_score(line, q)
+    local score, col, match_cols = fuzzy_score(line, ql)
     if score then
       out[#out + 1] = {
         kind = "fuzzy_search",

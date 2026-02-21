@@ -99,12 +99,12 @@ function Input.new(opts)
   map("<Tab>", function()
     call(self.on_tab)
   end)
-  for _, lhs in ipairs({ "<Down>", "<ScrollWheelDown>", "<C-n>" }) do
+  for _, lhs in ipairs({ "<Down>", "<C-n>" }) do
     map(lhs, function()
       call(self.on_down)
     end)
   end
-  for _, lhs in ipairs({ "<Up>", "<ScrollWheelUp>", "<C-p>" }) do
+  for _, lhs in ipairs({ "<Up>", "<C-p>" }) do
     map(lhs, function()
       call(self.on_up)
     end)

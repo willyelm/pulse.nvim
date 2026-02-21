@@ -19,9 +19,7 @@ local M = {}
 local H_PADDING = 1
 local MOVE_MAPS = {
 	{ "j", 1 },
-	{ "<ScrollWheelDown>", 1 },
 	{ "k", -1 },
-	{ "<ScrollWheelUp>", -1 },
 }
 
 local function is_header(item)
@@ -63,6 +61,17 @@ end
 
 local function compute_preview_height()
 	return math.max(math.min(math.floor((vim.o.lines - vim.o.cmdheight) * 0.22), 12), 6)
+end
+
+local function resolve_max_height(height_cfg)
+	local total = vim.o.lines - vim.o.cmdheight
+	if type(height_cfg) == "number" and height_cfg > 0 and height_cfg < 1 then
+		return math.max(math.floor(total * height_cfg), 6)
+	end
+	if type(height_cfg) == "number" then
+		return math.max(math.floor(height_cfg), 6)
+	end
+	return math.max(math.floor(total * 0.5), 6)
 end
 
 local function new_layout(box)
@@ -246,9 +255,17 @@ function M.open(opts)
 			return
 		end
 		local preview_item = selected_preview_item()
+		local preview_height = preview_item and compute_preview_height() or 0
+		local max_total = resolve_max_height(picker_opts.height)
+		local frame = (preview_height > 0) and 3 or 2
+		local available = math.max(max_total - frame, 1)
+		if preview_height > 0 then
+			preview_height = math.min(preview_height, math.max(available - 1, 0))
+		end
+		local body_height = math.max(math.min(list.visible_count, available - preview_height), 1)
 		layout:apply(
-			list.visible_count,
-			preview_item and compute_preview_height() or 0,
+			body_height,
+			preview_height,
 			{ list = list, preview = preview, input = input }
 		)
 		render_views(preview_item)
@@ -362,10 +379,7 @@ function M.open(opts)
 			move_selection(-1)
 		end,
 		on_tab = function()
-			local item = list:selected_item()
-			if actions.is_jumpable(item) then
-				jump_in_source(item)
-			end
+			move_selection(1)
 		end,
 	})
 
@@ -377,6 +391,9 @@ function M.open(opts)
 	end
 	vim.keymap.set("n", "<CR>", function()
 		submit(input:get_value())
+	end, list_map_opts)
+	vim.keymap.set("n", "<Tab>", function()
+		move_selection(1)
 	end, list_map_opts)
 	vim.keymap.set("n", "<Esc>", close_palette, list_map_opts)
 

@@ -214,20 +214,24 @@ function List:move(delta, skip)
 		return
 	end
 
-	local guard = 0
-	repeat
-		self.selected = clamp(self.selected + delta, 1, #self.items)
-		guard = guard + 1
+	local n = #self.items
+	local step = (delta or 0) >= 0 and 1 or -1
+	local start = self.selected
+
+	for _ = 1, n do
+		self.selected = self.selected + step
+		if self.selected < 1 then
+			self.selected = n
+		elseif self.selected > n then
+			self.selected = 1
+		end
 		local item = self.items[self.selected]
 		if not skip or not skip(item) then
-			break
+			return
 		end
-		if (self.selected == 1 and delta < 0) or (self.selected == #self.items and delta > 0) then
-			break
-		end
-	until guard > #self.items
+	end
 
-	self:_normalise_selection()
+	self.selected = start
 end
 
 M.new = function(opts)

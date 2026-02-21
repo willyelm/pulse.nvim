@@ -4,8 +4,8 @@ M.defaults = {
 	cmdline = false,
 	initial_mode = "insert",
 	position = "top",
-	width = 0.70,
-	height = 0.50,
+	width = 0.50,
+	height = 0.75,
 	border = "rounded",
 }
 
