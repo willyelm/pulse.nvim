@@ -69,10 +69,6 @@ local function update_counter(input, mode_name, query, found, total)
 	})
 end
 
-local function compute_preview_height()
-	return math.max(math.min(math.floor((vim.o.lines - vim.o.cmdheight) * 0.22), 12), 6)
-end
-
 local function resolve_max_height(height_cfg)
 	local total = vim.o.lines - vim.o.cmdheight
 	if type(height_cfg) == "number" and height_cfg > 0 and height_cfg < 1 then
@@ -241,29 +237,37 @@ function M.open(opts)
 		return first_non_header(items)
 	end
 
-	local function render_views(preview_item)
-		list:render(vim.api.nvim_win_get_width(list.win))
-		if preview_item and preview and preview.win and vim.api.nvim_win_is_valid(preview.win) then
-			local lines, ft, highlights, line_numbers, focus_row = preview_data.for_item(preview_item)
-			preview:set(lines, ft, highlights, line_numbers, focus_row)
-		end
-	end
-
 	local function rerender()
 		if closed then
 			return
 		end
 		local preview_item = selected_preview_item()
-		local preview_height = preview_item and compute_preview_height() or 0
+		local plines, pft, phighlights, pline_numbers, pfocus_row = nil, nil, nil, nil, nil
+		local preview_height = 0
+		if preview_item then
+			plines, pft, phighlights, pline_numbers, pfocus_row = preview_data.for_item(preview_item)
+			local line_count = math.max(#(plines or {}), 1)
+			local target = (line_count == 1) and 1 or math.min(line_count, 15)
+			local max_total = resolve_max_height(picker_opts.height)
+			local available = math.max(max_total - 3, 1)
+			local max_preview = math.max(available - 1, 0)
+			preview_height = math.min(target, max_preview)
+			if line_count > 5 and preview_height > 0 and preview_height < 5 then
+				preview_height = math.min(5, max_preview)
+			end
+			if preview_height == 0 then
+				plines, pft, phighlights, pline_numbers, pfocus_row = nil, nil, nil, nil, nil
+			end
+		end
 		local max_total = resolve_max_height(picker_opts.height)
 		local frame = (preview_height > 0) and 3 or 2
 		local available = math.max(max_total - frame, 1)
-		if preview_height > 0 then
-			preview_height = math.min(preview_height, math.max(available - 1, 0))
-		end
 		local body_height = math.max(math.min(list.visible_count, available - preview_height), 1)
 		layout:apply(body_height, preview_height, { list = list, preview = preview, input = input })
-		render_views(preview_item)
+		list:render(vim.api.nvim_win_get_width(list.win))
+		if plines and preview and preview.win and vim.api.nvim_win_is_valid(preview.win) then
+			preview:set(plines, pft, phighlights, pline_numbers, pfocus_row)
+		end
 	end
 
 	local function ensure_state(mode_name)
