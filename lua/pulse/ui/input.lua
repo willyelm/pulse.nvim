@@ -177,7 +177,7 @@ function Input:set_addons(addons)
     pcall(vim.api.nvim_buf_add_highlight, self.buf, self.ns, MODE_HL, 0, 0, 1)
   end
 
-  local right = normalise_chunks(self.addons.right, "Comment")
+  local right = normalise_chunks(self.addons.right, "LineNr")
   if right then
     vim.api.nvim_buf_set_extmark(self.buf, self.ns, 0, 0, {
       virt_text = right,
@@ -186,7 +186,7 @@ function Input:set_addons(addons)
     })
   end
 
-  local ghost = normalise_chunks(self.addons.ghost, "Comment")
+  local ghost = normalise_chunks(self.addons.ghost, "LineNr")
   if ghost then
     local line = (vim.api.nvim_buf_get_lines(self.buf, 0, 1, false)[1] or "")
     vim.api.nvim_buf_set_extmark(self.buf, self.ns, 0, #line, {

@@ -48,7 +48,7 @@ local function normalise_item(rendered)
 		left = tostring(rendered.left or ""),
 		left_group = rendered.left_group or "Normal",
 		right = tostring(rendered.right or ""),
-		right_group = rendered.right_group or "Comment",
+		right_group = rendered.right_group or "LineNr",
 		left_matches = rendered.left_matches,
 	}
 end

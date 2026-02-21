@@ -47,7 +47,7 @@ local function update_counter(input, mode_name, query, found, total)
 	local ghost = ((query or "") == "" and placeholder ~= "") and placeholder or nil
 	input:set_addons({
 		ghost = ghost,
-		right = { text = string.format("%d/%d", found, total), hl = "Comment" },
+		right = { text = string.format("%d/%d", found, total), hl = "LineNr" },
 	})
 end
 

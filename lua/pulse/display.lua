@@ -63,7 +63,7 @@ local function row(left, right, left_group)
     left = left or "",
     left_group = left_group or "Normal",
     right = right or "",
-    right_group = "Comment",
+    right_group = "LineNr",
   }
 end
 
@@ -73,7 +73,7 @@ end
 
 function M.to_display(item)
   if item.kind == "header" then
-    return row(item.label or "", "", "Comment")
+    return row(item.label or "", "", "Title")
   end
 
   if item.kind == "file" then
