@@ -20,10 +20,9 @@ local function open_panel(initial_prompt, extra_opts)
     vim.notify("Pulse: cannot open inside the command-line window", vim.log.levels.WARN)
     return
   end
-  local panel_opts = config.options.ui or config.options.telescope
   picker.open(vim.tbl_deep_extend("force", {
     initial_prompt = initial_prompt or "",
-  }, panel_opts, extra_opts or {}))
+  }, config.options, extra_opts or {}))
 end
 
 local function setup_cmdline_replacement()

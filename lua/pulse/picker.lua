@@ -23,16 +23,6 @@ local MOVE_MAPS = {
 	{ "<ScrollWheelUp>", -1 },
 }
 
-local function normalise_border(border)
-	if border == false then
-		return "none"
-	end
-	if border == true or border == nil then
-		return "rounded"
-	end
-	return border
-end
-
 local function is_header(item)
 	return item and item.kind == "header"
 end
@@ -95,11 +85,12 @@ local function new_layout(box)
 
 	function layout:apply(body_height, preview_height, refs)
 		local width = vim.api.nvim_win_get_width(box.win)
+		local show_preview = preview_height > 0
 		if self.sections.input and self.state.body == body_height and self.state.preview == preview_height and self.state.width == width then
 			return
 		end
 
-		box:update({ height = body_height + preview_height + 3 })
+		box:update({ height = body_height + (show_preview and preview_height or 0) + (show_preview and 3 or 2) })
 		width = vim.api.nvim_win_get_width(box.win)
 		local inner_col = H_PADDING
 		local inner_width = math.max(width - (H_PADDING * 2), 1)
@@ -108,9 +99,35 @@ local function new_layout(box)
 			{ name = "input", row = 0, col = inner_col, width = inner_width, height = 1, focusable = true, winhl = "Normal:NormalFloat" },
 			{ name = "divider", row = 1, height = 1, focusable = false, winhl = "Normal:FloatBorder", divider = true },
 			{ name = "list", row = 2, col = inner_col, width = inner_width, height = body_height, focusable = true, winhl = "Normal:NormalFloat,CursorLine:CursorLine" },
-			{ name = "body_divider", row = 2 + body_height, height = 1, focusable = false, winhl = "Normal:FloatBorder", divider = true },
-			{ name = "preview", row = 3 + body_height, col = inner_col, width = inner_width, height = preview_height, focusable = true, winhl = "Normal:NormalFloat" },
 		}
+		if show_preview then
+			specs[#specs + 1] = {
+				name = "body_divider",
+				row = 2 + body_height,
+				height = 1,
+				focusable = false,
+				winhl = "Normal:FloatBorder",
+				divider = true,
+			}
+			specs[#specs + 1] = {
+				name = "preview",
+				row = 3 + body_height,
+				col = inner_col,
+				width = inner_width,
+				height = preview_height,
+				focusable = true,
+				winhl = "Normal:NormalFloat",
+			}
+		else
+			if self.sections.body_divider then
+				box:close_section("body_divider")
+				self.sections.body_divider = nil
+			end
+			if self.sections.preview then
+				box:close_section("preview")
+				self.sections.preview = nil
+			end
+		end
 
 		for _, s in ipairs(specs) do
 			local section = upsert(s.name, {
@@ -127,17 +144,13 @@ local function new_layout(box)
 			end
 		end
 
-		if refs.list then
-			refs.list.win = self.sections.list.win
-		end
+		if refs.list then refs.list.win = self.sections.list.win end
+		if refs.input then refs.input:set_win(self.sections.input.win) end
 		if refs.preview then
-			refs.preview.win = self.sections.preview.win
-		end
-		if refs.input then
-			if type(refs.input.set_win) == "function" then
-				refs.input:set_win(self.sections.input.win)
+			if show_preview then
+				refs.preview:set_target(self.sections.preview.buf, self.sections.preview.win)
 			else
-				refs.input.win = self.sections.input.win
+				refs.preview:set_target(nil, nil)
 			end
 		end
 
@@ -152,8 +165,9 @@ end
 function M.open(opts)
 	local picker_opts = vim.tbl_deep_extend("force", {
 		initial_mode = "insert",
-		prompt_prefix = "",
-		layout_config = { width = 0.70, height = 0.70, prompt_position = "top", anchor = "N" },
+		position = "top",
+		width = 0.70,
+		height = 0.50,
 		border = true,
 	}, opts or {})
 
@@ -165,11 +179,11 @@ function M.open(opts)
 	local closed, input, refresh = false, nil, nil
 
 	local box = ui.box.new({
-		width = picker_opts.layout_config.width or 0.70,
-		height = picker_opts.layout_config.height or 0.50,
-		row = (picker_opts.layout_config.anchor == "N") and 0.12 or nil,
+		width = picker_opts.width or 0.70,
+		height = picker_opts.height or 0.50,
+		row = (picker_opts.position == "top") and 1 or nil,
 		col = 0.5,
-		border = normalise_border(picker_opts.border),
+		border = (picker_opts.border == true) and "single" or picker_opts.border,
 		title = modules.files.title(),
 		focusable = true,
 		zindex = 60,
@@ -210,25 +224,33 @@ function M.open(opts)
 		callback = close_palette,
 	})
 
-	local function sync_layout()
-		if not closed then
-			layout:apply(list.visible_count, compute_preview_height(), { list = list, preview = preview, input = input })
+	local function selected_preview_item()
+		local selected = list:selected_item()
+		if selected and not is_header(selected) then
+			return selected
 		end
+		return first_non_header(items)
 	end
 
-	local function render_views()
-		local selected = list:selected_item()
-		if not selected or is_header(selected) then
-			selected = first_non_header(items)
-		end
+	local function render_views(preview_item)
 		list:render(vim.api.nvim_win_get_width(list.win))
-		local lines, ft, highlights, line_numbers, focus_row = preview_data.for_item(selected)
-		preview:set(lines, ft, highlights, line_numbers, focus_row)
+		if preview_item and preview and preview.win and vim.api.nvim_win_is_valid(preview.win) then
+			local lines, ft, highlights, line_numbers, focus_row = preview_data.for_item(preview_item)
+			preview:set(lines, ft, highlights, line_numbers, focus_row)
+		end
 	end
 
 	local function rerender()
-		sync_layout()
-		render_views()
+		if closed then
+			return
+		end
+		local preview_item = selected_preview_item()
+		layout:apply(
+			list.visible_count,
+			preview_item and compute_preview_height() or 0,
+			{ list = list, preview = preview, input = input }
+		)
+		render_views(preview_item)
 	end
 
 	local function ensure_state(mode)
@@ -265,7 +287,7 @@ function M.open(opts)
 
 	local function move_selection(delta)
 		list:move(delta, is_header)
-		render_views()
+		rerender()
 	end
 
 	local function jump_in_source(item)
@@ -328,7 +350,7 @@ function M.open(opts)
 	input = ui.input.new({
 		buf = layout.sections.input.buf,
 		win = layout.sections.input.win,
-		prompt = picker_opts.prompt_prefix or "",
+		prompt = "",
 		on_change = refresh,
 		on_submit = submit,
 		on_escape = close_palette,

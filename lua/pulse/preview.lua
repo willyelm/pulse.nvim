@@ -139,7 +139,18 @@ function Preview.new(opts)
   return self
 end
 
+function Preview:set_target(buf, win)
+  self.buf = buf
+  self.win = win
+  if self.win and vim.api.nvim_win_is_valid(self.win) then
+    window.configure_content_window(self.win)
+  end
+end
+
 function Preview:set(lines, filetype, highlights, line_numbers, focus_row)
+  if not (self.buf and vim.api.nvim_buf_is_valid(self.buf)) then
+    return
+  end
   local safe_lines = normalise_lines(lines)
   vim.bo[self.buf].modifiable = true
   vim.api.nvim_buf_set_lines(self.buf, 0, -1, false, safe_lines)
