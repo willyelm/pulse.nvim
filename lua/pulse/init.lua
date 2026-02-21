@@ -9,11 +9,12 @@ local MODE_PREFIX = {
   workspace_symbols = "#",
   commands = ":",
   live_grep = "$",
+  fuzzy_search = "?",
   git_status = "~",
   diagnostics = "!",
 }
 
-local MODE_COMPLETIONS = { "files", "symbols", "workspace_symbols", "commands", "live_grep", "git_status", "diagnostics" }
+local MODE_COMPLETIONS = { "files", "symbols", "workspace_symbols", "commands", "live_grep", "fuzzy_search", "git_status", "diagnostics" }
 
 local function open_panel(initial_prompt, extra_opts)
   if vim.fn.getcmdwintype() ~= "" then

@@ -91,6 +91,10 @@ function M.for_item(item)
     return file_snippet(item.path or item.filename, item.lnum, item.query)
   end
 
+  if item.kind == "fuzzy_search" then
+    return file_snippet(item.path or item.filename, item.lnum, item.query)
+  end
+
   if item.kind == "diagnostic" then
     local out = {
       string.format("[%s] %s", item.severity_name or "INFO", item.source or "diagnostic"),

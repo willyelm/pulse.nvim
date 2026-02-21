@@ -93,6 +93,14 @@ function M.to_display(item)
     return row(match_line, string.format("%s:%s", file_name(item.path), pos))
   end
 
+  if item.kind == "fuzzy_search" then
+    local match_line = vim.trim(item.text or "")
+    if match_line == "" then
+      match_line = file_name(item.filename)
+    end
+    return row(match_line, string.format("%d:%d", item.lnum or 1, item.col or 1))
+  end
+
   if item.kind == "git_status" then
     local name = file_name(item.path)
     return row(string.format("󰊢 %s", name), item.code or "")

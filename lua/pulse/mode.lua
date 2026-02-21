@@ -7,6 +7,7 @@ local MODE_PREFIX = {
   ["@"] = { mode = "symbol", strip = 2 },
   ["#"] = { mode = "workspace_symbol", strip = 2 },
   ["$"] = { mode = "live_grep", strip = 2 },
+  ["?"] = { mode = "fuzzy_search", strip = 2 },
 }
 
 function M.parse_prompt(prompt)

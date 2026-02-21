@@ -3,7 +3,7 @@ local Input = {}
 Input.__index = Input
 
 local window = require("pulse.ui.window")
-local MODE_PREFIX = { [":"] = true, ["~"] = true, ["!"] = true, ["@"] = true, ["#"] = true, ["$"] = true }
+local MODE_PREFIX = { [":"] = true, ["~"] = true, ["!"] = true, ["@"] = true, ["#"] = true, ["$"] = true, ["?"] = true }
 local MODE_HL = "PulseModePrefix"
 
 local function configure_window(win)
