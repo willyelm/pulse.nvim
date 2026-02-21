@@ -2,6 +2,14 @@ local M = {}
 local Input = {}
 Input.__index = Input
 
+local function cursor_to_eol(win, buf)
+  if not (win and vim.api.nvim_win_is_valid(win)) then
+    return
+  end
+  local line = (vim.api.nvim_buf_get_lines(buf, 0, 1, false)[1] or "")
+  pcall(vim.api.nvim_win_set_cursor, win, { 1, #line })
+end
+
 function Input.new(opts)
   local self = setmetatable({}, Input)
   self.buf = assert(opts.buf, "input requires a buffer")
@@ -34,51 +42,44 @@ function Input.new(opts)
   })
 
   local map_opts = { buffer = self.buf, noremap = true, silent = true }
-  vim.keymap.set({ "i", "n" }, "<CR>", function()
+  local function map(lhs, cb)
+    vim.keymap.set({ "i", "n" }, lhs, cb, map_opts)
+  end
+  local function call(fn)
+    if fn then
+      fn()
+    end
+  end
+
+  map("<CR>", function()
     if self.on_submit then
       self.on_submit(self:get_value())
     end
-  end, map_opts)
-  vim.keymap.set({ "i", "n" }, "<Esc>", function()
-    if self.on_escape then
-      self.on_escape()
-    end
-  end, map_opts)
-  vim.keymap.set({ "i", "n" }, "<Down>", function()
-    if self.on_down then
-      self.on_down()
-    end
-  end, map_opts)
-  vim.keymap.set({ "i", "n" }, "<ScrollWheelDown>", function()
-    if self.on_down then
-      self.on_down()
-    end
-  end, map_opts)
-  vim.keymap.set({ "i", "n" }, "<C-n>", function()
-    if self.on_down then
-      self.on_down()
-    end
-  end, map_opts)
-  vim.keymap.set({ "i", "n" }, "<Up>", function()
-    if self.on_up then
-      self.on_up()
-    end
-  end, map_opts)
-  vim.keymap.set({ "i", "n" }, "<ScrollWheelUp>", function()
-    if self.on_up then
-      self.on_up()
-    end
-  end, map_opts)
-  vim.keymap.set({ "i", "n" }, "<C-p>", function()
-    if self.on_up then
-      self.on_up()
-    end
-  end, map_opts)
-  vim.keymap.set({ "i", "n" }, "<Tab>", function()
-    if self.on_tab then
-      self.on_tab()
-    end
-  end, map_opts)
+  end)
+  map("<Esc>", function()
+    call(self.on_escape)
+  end)
+  map("<Down>", function()
+    call(self.on_down)
+  end)
+  map("<ScrollWheelDown>", function()
+    call(self.on_down)
+  end)
+  map("<C-n>", function()
+    call(self.on_down)
+  end)
+  map("<Up>", function()
+    call(self.on_up)
+  end)
+  map("<ScrollWheelUp>", function()
+    call(self.on_up)
+  end)
+  map("<C-p>", function()
+    call(self.on_up)
+  end)
+  map("<Tab>", function()
+    call(self.on_tab)
+  end)
 
   return self
 end
@@ -94,16 +95,19 @@ function Input:get_value()
 end
 
 function Input:set_value(value)
+  local text = tostring(value or "")
   vim.bo[self.buf].modifiable = true
-  vim.api.nvim_buf_set_lines(self.buf, 0, -1, false, { value or "" })
+  vim.api.nvim_buf_set_lines(self.buf, 0, -1, false, { text })
   vim.bo[self.buf].modifiable = true
+  cursor_to_eol(self.win, self.buf)
 end
 
 function Input:focus(insert_mode)
   if self.win and vim.api.nvim_win_is_valid(self.win) then
     vim.api.nvim_set_current_win(self.win)
     if insert_mode ~= false then
-      vim.cmd.startinsert()
+      cursor_to_eol(self.win, self.buf)
+      vim.cmd("startinsert!")
     end
   end
 end

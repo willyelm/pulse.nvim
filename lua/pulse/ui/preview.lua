@@ -1,6 +1,7 @@
 local M = {}
 local Preview = {}
 Preview.__index = Preview
+local window = require("pulse.ui.window")
 
 local function normalise_lines(lines)
   local out = {}
@@ -25,14 +26,7 @@ function Preview.new(opts)
   vim.bo[self.buf].modifiable = false
   vim.bo[self.buf].filetype = "text"
 
-  if self.win and vim.api.nvim_win_is_valid(self.win) then
-    vim.wo[self.win].number = false
-    vim.wo[self.win].relativenumber = false
-    vim.wo[self.win].signcolumn = "no"
-    vim.wo[self.win].foldcolumn = "0"
-    vim.wo[self.win].statuscolumn = ""
-    vim.wo[self.win].wrap = false
-  end
+  window.configure_content_window(self.win)
 
   return self
 end
@@ -74,6 +68,7 @@ function Preview:set(lines, filetype, highlights, line_numbers, focus_row)
   end
 
   if self.win and vim.api.nvim_win_is_valid(self.win) then
+    window.configure_content_window(self.win)
     pcall(vim.api.nvim_win_set_cursor, self.win, { math.max(focus_row or 1, 1), 0 })
   end
 end

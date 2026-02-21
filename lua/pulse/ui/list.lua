@@ -1,9 +1,39 @@
 local M = {}
 local List = {}
 List.__index = List
+local window = require("pulse.ui.window")
 
 local function clamp(value, min_value, max_value)
   return math.min(math.max(value, min_value), max_value)
+end
+
+local function fit_to_width(text, width)
+  local s = tostring(text or "")
+  if width <= 0 then
+    return ""
+  end
+
+  local current_width = vim.fn.strdisplaywidth(s)
+  if current_width <= width then
+    return s
+  end
+
+  local out, out_width = {}, 0
+  local idx = 0
+  while true do
+    local ch = vim.fn.strcharpart(s, idx, 1)
+    if ch == "" then
+      break
+    end
+    local ch_width = vim.fn.strdisplaywidth(ch)
+    if out_width + ch_width > width then
+      break
+    end
+    out[#out + 1] = ch
+    out_width = out_width + ch_width
+    idx = idx + 1
+  end
+  return table.concat(out)
 end
 
 function List.new(opts)
@@ -22,6 +52,8 @@ function List.new(opts)
   vim.bo[self.buf].swapfile = false
   vim.bo[self.buf].modifiable = false
   vim.bo[self.buf].filetype = "pulselist"
+
+  window.configure_content_window(self.win)
 
   return self
 end
@@ -43,19 +75,16 @@ function List:_visible_lines(width)
   for index, item in ipairs(self.items) do
     local text, hl = "", nil
     text, hl = self.render_item(item)
-    text = tostring(text or "")
-
-    if #text > content_width then
-      text = text:sub(1, math.max(content_width - 1, 1))
-    end
-    local padded = text .. string.rep(" ", math.max(content_width - #text, 0))
+    text = fit_to_width(text, content_width)
+    local text_width = vim.fn.strdisplaywidth(text)
+    local padded = text .. string.rep(" ", math.max(content_width - text_width, 0))
     lines[index] = padded
     if hl and item then
       highlights[#highlights + 1] = {
         group = hl,
         row = index - 1,
         start_col = 0,
-        end_col = math.min(#text, content_width),
+        end_col = math.min(text_width, content_width),
       }
     end
     if item and index == self.selected then
@@ -76,6 +105,7 @@ function List:_visible_lines(width)
 end
 
 function List:render(width)
+  window.configure_content_window(self.win)
   width = width or (self.win and vim.api.nvim_win_get_width(self.win)) or 20
   self:_normalise_selection()
 
