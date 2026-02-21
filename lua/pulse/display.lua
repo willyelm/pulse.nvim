@@ -90,7 +90,15 @@ function M.to_display(item)
       match_line = file_name(item.path)
     end
     local pos = string.format("%d:%d", item.lnum or 1, item.col or 1)
-    return row(match_line, string.format("%s:%s", file_name(item.path), pos))
+    local out = row(match_line, string.format("%s:%s", file_name(item.path), pos))
+    local query = vim.trim(item.query or "")
+    if query ~= "" then
+      local idx = match_line:lower():find(query:lower(), 1, true)
+      if idx then
+        out.left_matches = { { idx - 1, idx - 1 + #query } }
+      end
+    end
+    return out
   end
 
   if item.kind == "fuzzy_search" then
@@ -98,7 +106,16 @@ function M.to_display(item)
     if match_line == "" then
       match_line = file_name(item.filename)
     end
-    return row(match_line, string.format("%d:%d", item.lnum or 1, item.col or 1))
+    local out = row(match_line, string.format("%d:%d", item.lnum or 1, item.col or 1))
+    if type(item.match_cols) == "table" and #item.match_cols > 0 then
+      out.left_matches = {}
+      for _, col in ipairs(item.match_cols) do
+        if type(col) == "number" and col > 0 then
+          out.left_matches[#out.left_matches + 1] = { col - 1, col }
+        end
+      end
+    end
+    return out
   end
 
   if item.kind == "git_status" then

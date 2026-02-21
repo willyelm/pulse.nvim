@@ -28,13 +28,10 @@ local function refresh_lines(state)
 end
 
 local function fuzzy_score(haystack, needle)
-  if needle == "" then
-    return nil
-  end
   local h = string.lower(haystack or "")
   local n = string.lower(needle)
-  local hlen, nlen = #h, #n
-  if nlen == 0 or hlen == 0 then
+  local nlen = #n
+  if nlen == 0 or h == "" then
     return nil
   end
 
@@ -42,6 +39,7 @@ local function fuzzy_score(haystack, needle)
   local score = 0
   local first_idx = nil
   local prev_idx = nil
+  local cols = {}
 
   for i = 1, nlen do
     local c = n:sub(i, i)
@@ -52,6 +50,7 @@ local function fuzzy_score(haystack, needle)
     if not first_idx then
       first_idx = idx
     end
+    cols[#cols + 1] = idx
     score = score + 1
     if prev_idx and idx == prev_idx + 1 then
       score = score + 3
@@ -61,7 +60,7 @@ local function fuzzy_score(haystack, needle)
   end
 
   score = score - (first_idx or 1) * 0.01
-  return score, first_idx or 1
+  return score, first_idx or 1, cols
 end
 
 function M.seed(ctx)
@@ -84,7 +83,7 @@ function M.items(state, query)
 
   local out = {}
   for i, line in ipairs(state.lines or {}) do
-    local score, col = fuzzy_score(line, q)
+    local score, col, match_cols = fuzzy_score(line, q)
     if score then
       out[#out + 1] = {
         kind = "fuzzy_search",
@@ -95,6 +94,7 @@ function M.items(state, query)
         text = line,
         query = q,
         score = score,
+        match_cols = match_cols,
       }
     end
   end
@@ -107,11 +107,9 @@ function M.items(state, query)
   end)
 
   if #out > MAX_RESULTS then
-    local trimmed = {}
-    for i = 1, MAX_RESULTS do
-      trimmed[i] = out[i]
+    for i = #out, MAX_RESULTS + 1, -1 do
+      out[i] = nil
     end
-    return trimmed
   end
 
   return out

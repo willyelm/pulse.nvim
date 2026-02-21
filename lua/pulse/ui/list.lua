@@ -45,6 +45,7 @@ local function normalise_item(rendered)
 		left_group = rendered.left_group or "Normal",
 		right = tostring(rendered.right or ""),
 		right_group = rendered.right_group or "Comment",
+		left_matches = rendered.left_matches,
 	}
 end
 
@@ -100,6 +101,7 @@ function List:_visible_lines(width)
 		local spec = normalise_item(self.render_item(item, content_width))
 		local left = fit_to_width(spec.left, content_width)
 		local left_group = spec.left_group
+		local left_matches = type(spec.left_matches) == "table" and spec.left_matches or nil
 		local right = spec.right
 		local right_group = spec.right_group
 		local text, text_width, right_start = "", 0, nil
@@ -129,6 +131,21 @@ function List:_visible_lines(width)
 				start_col = 0,
 				end_col = #left,
 			}
+		end
+		if left_matches and #left_matches > 0 then
+			local left_len = #left
+			for _, m in ipairs(left_matches) do
+				local s = math.max(tonumber(m[1]) or -1, 0)
+				local e = math.max(tonumber(m[2]) or -1, s)
+				if s < left_len then
+					highlights[#highlights + 1] = {
+						group = m[3] or "Search",
+						row = index - 1,
+						start_col = s,
+						end_col = math.min(e, left_len),
+					}
+				end
+			end
 		end
 		if right_start and right_group and #right > 0 then
 			highlights[#highlights + 1] = {

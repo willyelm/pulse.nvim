@@ -34,7 +34,32 @@ local function normalise_lines(lines)
   return out
 end
 
-local function file_snippet(path, lnum, query)
+local function add_hl(highlights, row, start_col, end_col)
+  highlights[#highlights + 1] = {
+    group = "Search",
+    row = row,
+    start_col = start_col,
+    end_col = end_col,
+  }
+end
+
+local function add_query_matches(highlights, lines, query)
+  local q = (query or ""):lower()
+  if q == "" then
+    return
+  end
+  for row, text in ipairs(lines) do
+    local lower, from = (text or ""):lower(), 1
+    while true do
+      local idx = lower:find(q, from, true)
+      if not idx then break end
+      add_hl(highlights, row - 1, idx - 1, idx - 1 + #q)
+      from = idx + 1
+    end
+  end
+end
+
+local function file_snippet(path, lnum, query, match_cols)
   local resolved = resolve_path(path)
   if not resolved then
     return { "File not found: " .. tostring(path) }, "text", {}, nil, 1
@@ -42,8 +67,9 @@ local function file_snippet(path, lnum, query)
 
   local lines = vim.fn.readfile(resolved)
   local line_no = math.max(lnum or 1, 1)
-  local start_l = math.max(line_no - 1, 1)
-  local end_l = math.min(#lines, line_no + 9)
+  local context = 6
+  local start_l = math.max(line_no - context, 1)
+  local end_l = math.min(#lines, line_no + context)
   local out = {}
   local highlights = {}
   local line_numbers = {}
@@ -53,16 +79,13 @@ local function file_snippet(path, lnum, query)
     line_numbers[#line_numbers + 1] = i
   end
 
-  if query and query ~= "" then
-    local text = lines[line_no] or ""
-    local from = text:lower():find(query:lower(), 1, true)
-    if from then
-      highlights[#highlights + 1] = {
-        group = "Search",
-        row = line_no - start_l,
-        start_col = from - 1,
-        end_col = from - 1 + #query,
-      }
+  add_query_matches(highlights, out, query)
+  if type(match_cols) == "table" then
+    local row = line_no - start_l
+    for _, col in ipairs(match_cols) do
+      if type(col) == "number" and col > 0 then
+        add_hl(highlights, row, col - 1, col)
+      end
     end
   end
 
@@ -92,7 +115,7 @@ function M.for_item(item)
   end
 
   if item.kind == "fuzzy_search" then
-    return file_snippet(item.path or item.filename, item.lnum, item.query)
+    return file_snippet(item.path or item.filename, item.lnum, item.query, item.match_cols)
   end
 
   if item.kind == "diagnostic" then
@@ -197,6 +220,9 @@ function Preview:set(lines, filetype, highlights, line_numbers, focus_row)
   if self.win and vim.api.nvim_win_is_valid(self.win) then
     window.configure_content_window(self.win)
     pcall(vim.api.nvim_win_set_cursor, self.win, { math.max(focus_row or 1, 1), 0 })
+    pcall(vim.api.nvim_win_call, self.win, function()
+      vim.cmd("normal! zz")
+    end)
   end
 end
 

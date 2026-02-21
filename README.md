@@ -9,23 +9,25 @@ Smart panel for files, commands, symbols, grep, and git status using Pulse's bui
 
 ## Behavior
 
+- (empty) -> files mode.
 - `:` -> command history + all available commands when empty; when typing, only available commands are shown.
-- `#` -> workspace symbols for project (LSP async), filtered as you type.
-- `@` -> current buffer symbols (Treesitter immediate + LSP async), filtered as you type.
-- `$` -> live grep in project files (`rg --vimgrep`) with in-panel preview.
 - `~` -> git changed files (`git status --porcelain`) with in-panel diff preview.
 - `!` -> workspace diagnostics (errors, warnings, info, hints), with current buffer diagnostics shown first.
-- empty -> files mode.
+- `@` -> current buffer symbols (Treesitter immediate + LSP async), filtered as you type.
+- `#` -> workspace symbols for project (LSP async), filtered as you type.
+- `$` -> live grep in project files (`rg --vimgrep`) with in-panel preview.
+- `?` -> fuzzy search
 
 ## Commands API
 
 - `:Pulse` -> open empty (files mode)
 - `:Pulse commands` -> open with `:`
+- `:Pulse git_status` -> open with `~`
+- `:Pulse diagnostics` -> open with `!`
 - `:Pulse symbols` -> open with `@`
 - `:Pulse workspace_symbols` -> open with `#`
 - `:Pulse live_grep` -> open with `$`
-- `:Pulse git_status` -> open with `~`
-- `:Pulse diagnostics` -> open with `!`
+- `:Pulse fuzzy_search` -> open with `?`
 
 Aliases also supported: `symbol`, `workspace_symbol`, `files`, `smart`.
 
