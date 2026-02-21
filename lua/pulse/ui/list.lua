@@ -2,9 +2,6 @@ local M = {}
 local List = {}
 List.__index = List
 
-local SCROLLBAR_TRACK = "│"
-local SCROLLBAR_THUMB = "█"
-
 local function clamp(value, min_value, max_value)
   return math.min(math.max(value, min_value), max_value)
 end
@@ -52,8 +49,7 @@ end
 function List:_visible_lines(width)
   local lines = {}
   local highlights = {}
-  local show_scrollbar = #self.items > self.visible_count and width > 2
-  local content_width = show_scrollbar and (width - 2) or width
+  local content_width = width
 
   for row = 1, self.visible_count do
     local index = self.offset + row - 1
@@ -68,24 +64,6 @@ function List:_visible_lines(width)
       text = text:sub(1, math.max(content_width - 1, 1))
     end
     local padded = text .. string.rep(" ", math.max(content_width - #text, 0))
-
-    if show_scrollbar then
-      local scroll_char = SCROLLBAR_TRACK
-      if #self.items > 0 then
-        local thumb_row = math.floor(((self.selected - 1) / math.max(#self.items - 1, 1)) * (self.visible_count - 1)) + 1
-        if row == thumb_row then
-          scroll_char = SCROLLBAR_THUMB
-        end
-      end
-      padded = padded .. " " .. scroll_char
-      local scroll_col = width - 1
-      highlights[#highlights + 1] = {
-        group = (scroll_char == SCROLLBAR_THUMB) and "PulseScrollbarThumb" or "PulseScrollbarTrack",
-        row = row - 1,
-        start_col = scroll_col,
-        end_col = scroll_col + 1,
-      }
-    end
 
     lines[#lines + 1] = padded
     if hl and item then

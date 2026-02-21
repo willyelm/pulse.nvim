@@ -2,6 +2,17 @@ local M = {}
 local Preview = {}
 Preview.__index = Preview
 
+local function normalise_lines(lines)
+  local out = {}
+  for _, line in ipairs(lines or {}) do
+    local parts = vim.split(tostring(line or ""), "\n", { plain = true, trimempty = false })
+    for _, part in ipairs(parts) do
+      out[#out + 1] = part
+    end
+  end
+  return out
+end
+
 function Preview.new(opts)
   local self = setmetatable({}, Preview)
   self.buf = assert(opts.buf, "preview requires a buffer")
@@ -27,8 +38,9 @@ function Preview.new(opts)
 end
 
 function Preview:set(lines, filetype, highlights, line_numbers, focus_row)
+  local safe_lines = normalise_lines(lines)
   vim.bo[self.buf].modifiable = true
-  vim.api.nvim_buf_set_lines(self.buf, 0, -1, false, lines or {})
+  vim.api.nvim_buf_set_lines(self.buf, 0, -1, false, safe_lines)
   vim.bo[self.buf].modifiable = false
 
   vim.bo[self.buf].filetype = filetype or "text"

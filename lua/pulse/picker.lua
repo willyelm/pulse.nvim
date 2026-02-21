@@ -279,9 +279,6 @@ local function list_has_only_headers(items)
 end
 
 function M.open(opts)
-  vim.api.nvim_set_hl(0, "PulseScrollbarTrack", { default = true, link = "LineNr" })
-  vim.api.nvim_set_hl(0, "PulseScrollbarThumb", { default = true, link = "PmenuThumb" })
-
   local picker_opts = vim.tbl_deep_extend("force", {
     initial_mode = "insert",
     prompt_prefix = "",
@@ -410,7 +407,7 @@ function M.open(opts)
     col = 0,
     width = vim.api.nvim_win_get_width(box.win),
     height = 8,
-    focusable = false,
+    focusable = true,
     enter = false,
     winhl = "Normal:NormalFloat",
   })
@@ -500,7 +497,7 @@ function M.open(opts)
       col = 0,
       width = updated_width,
       height = preview_height,
-      focusable = false,
+      focusable = true,
       enter = false,
       buf = preview_section.buf,
       winhl = "Normal:NormalFloat",
