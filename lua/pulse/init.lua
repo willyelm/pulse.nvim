@@ -16,10 +16,10 @@ local MODE_PREFIX = {
 local MODE_COMPLETIONS = { "files", "symbols", "workspace_symbols", "commands", "live_grep", "git_status", "diagnostics" }
 
 local function open_panel(initial_prompt, extra_opts)
-  local telescope_opts = config.options.telescope
+  local panel_opts = config.options.ui or config.options.telescope
   picker.open(vim.tbl_deep_extend("force", {
     initial_prompt = initial_prompt or "",
-  }, telescope_opts, extra_opts or {}))
+  }, panel_opts, extra_opts or {}))
 end
 
 local function setup_cmdline_replacement()

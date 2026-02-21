@@ -1,11 +1,10 @@
 # pulse.nvim
 
-Telescope-powered smart panel for files, commands, symbols, grep, and git status.
+Smart panel for files, commands, symbols, grep, and git status using Pulse's built-in floating UI.
 
 ## Requirements
 
 - Neovim >= 0.10
-- `nvim-telescope/telescope.nvim`
 - `nvim-tree/nvim-web-devicons` (recommended for icons)
 
 ## Behavior
@@ -13,8 +12,8 @@ Telescope-powered smart panel for files, commands, symbols, grep, and git status
 - `:` -> command history + all available commands when empty; when typing, only available commands are shown.
 - `#` -> workspace symbols for project (LSP async), filtered as you type.
 - `@` -> current buffer symbols (Treesitter immediate + LSP async), filtered as you type.
-- `$` -> live grep in project files (`rg --vimgrep`) with Telescope grep preview in the same panel.
-- `~` -> git changed files (`git status --porcelain`) with Telescope diff preview in the same panel.
+- `$` -> live grep in project files (`rg --vimgrep`) with in-panel preview.
+- `~` -> git changed files (`git status --porcelain`) with in-panel diff preview.
 - `!` -> workspace diagnostics (errors, warnings, info, hints), with current buffer diagnostics shown first.
 - empty -> files mode.
 
@@ -36,7 +35,6 @@ Aliases also supported: `symbol`, `workspace_symbol`, `files`, `smart`.
 {
   "willyelm/pulse.nvim",
   dependencies = {
-    "nvim-telescope/telescope.nvim",
     "nvim-tree/nvim-web-devicons",
   },
   opts = {
@@ -59,7 +57,7 @@ Aliases also supported: `symbol`, `workspace_symbol`, `files`, `smart`.
 ```lua
 require("pulse").setup({
   cmdline = false, -- when true, maps ':' in normal mode to open Pulse with ':' prefilled
-  telescope = {
+  ui = {
     initial_mode = "insert",
     prompt_prefix = "",
     selection_caret = " ",
@@ -75,3 +73,5 @@ require("pulse").setup({
   },
 })
 ```
+
+`telescope` config key is still accepted for backward compatibility and maps to `ui`.
