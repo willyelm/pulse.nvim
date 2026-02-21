@@ -1,9 +1,5 @@
 local M = {}
 
-function M.title()
-  return "Workspace Diagnostics"
-end
-
 local function ci(h, n)
   if n == "" then
     return true

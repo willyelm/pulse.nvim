@@ -3,7 +3,8 @@ local Input = {}
 Input.__index = Input
 
 local window = require("pulse.ui.window")
-local MODE_PREFIX = { [":"] = true, ["~"] = true, ["!"] = true, ["@"] = true, ["#"] = true, ["$"] = true, ["?"] = true }
+local mode = require("pulse.mode")
+local MODE_PREFIX = mode.starts()
 local MODE_HL = "PulseModePrefix"
 
 local function configure_window(win)
@@ -156,7 +157,7 @@ function Input:set_addons(addons)
 
   vim.api.nvim_buf_clear_namespace(self.buf, self.ns, 0, -1)
 
-  local first = (vim.api.nvim_buf_get_lines(self.buf, 0, 1, false)[1] or ""):sub(1, 1)
+  local first = self:get_value():sub(1, 1)
   if MODE_PREFIX[first] then
     pcall(vim.api.nvim_buf_add_highlight, self.buf, self.ns, MODE_HL, 0, 0, 1)
   end
@@ -170,12 +171,22 @@ function Input:set_addons(addons)
     })
   end
 
-  local left = normalise_chunks(self.addons.left, "Comment")
-  if left then
+  local left_icon = normalise_chunks(self.addons.left_icon, "Comment")
+  if left_icon then
     vim.api.nvim_buf_set_extmark(self.buf, self.ns, 0, 0, {
-      virt_text = left,
-      virt_text_win_col = 0,
-      hl_mode = "combine",
+      virt_text = left_icon,
+      virt_text_pos = "inline",
+      hl_mode = "replace",
+    })
+  end
+
+  local ghost = normalise_chunks(self.addons.ghost, "Comment")
+  if ghost then
+    local line = (vim.api.nvim_buf_get_lines(self.buf, 0, 1, false)[1] or "")
+    vim.api.nvim_buf_set_extmark(self.buf, self.ns, 0, #line, {
+      virt_text = ghost,
+      virt_text_pos = "inline",
+      hl_mode = "replace",
     })
   end
 end

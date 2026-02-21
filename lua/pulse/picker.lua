@@ -1,7 +1,7 @@
 local ui = require("pulse.ui")
 local actions = require("pulse.actions")
 local display = require("pulse.display")
-local mode_parser = require("pulse.mode")
+local mode = require("pulse.mode")
 local preview_data = require("pulse.preview")
 
 local modules = {
@@ -20,16 +20,6 @@ local H_PADDING = 1
 local MOVE_MAPS = {
 	{ "j", 1 },
 	{ "k", -1 },
-}
-local MODE_ICON = {
-	files = "󰈔",
-	symbol = "󰘧",
-	workspace_symbol = "󰍉",
-	commands = "",
-	live_grep = "󰍉",
-	fuzzy_search = "󱉶",
-	git_status = "󰊢",
-	diagnostics = "",
 }
 
 local function is_header(item)
@@ -65,16 +55,23 @@ local function total_for_mode(mod, state, found)
 	return found
 end
 
-local function update_counter(input, found, total)
-	input:set_addons({ right = { text = string.format("%d/%d", found, total), hl = "Comment" } })
+local function left_placeholder(mode_name, prompt, query)
+	local icon = mode.icon(mode_name) .. " "
+	local placeholder = mode.placeholder(mode_name)
+	if (prompt or "") == "" and mode_name == "files" and placeholder ~= "" then
+		return icon .. placeholder, nil
+	end
+	local ghost = ((query or "") == "" and placeholder ~= "") and (" " .. placeholder) or nil
+	return icon, ghost
 end
 
-local function mode_title(mode_name, mod)
-	local icon = MODE_ICON[mode_name]
-	if icon and icon ~= "" then
-		return string.format("%s %s", icon, mod.title())
-	end
-	return mod.title()
+local function update_counter(input, mode_name, prompt, query, found, total)
+	local left_icon, ghost = left_placeholder(mode_name, prompt, query)
+	input:set_addons({
+		left_icon = left_icon,
+		ghost = ghost,
+		right = { text = string.format("%d/%d", found, total), hl = "Comment" },
+	})
 end
 
 local function compute_preview_height()
@@ -114,7 +111,12 @@ local function new_layout(box)
 	function layout:apply(body_height, preview_height, refs)
 		local width = vim.api.nvim_win_get_width(box.win)
 		local show_preview = preview_height > 0
-		if self.sections.input and self.state.body == body_height and self.state.preview == preview_height and self.state.width == width then
+		if
+			self.sections.input
+			and self.state.body == body_height
+			and self.state.preview == preview_height
+			and self.state.width == width
+		then
 			return
 		end
 
@@ -124,9 +126,32 @@ local function new_layout(box)
 		local inner_width = math.max(width - (H_PADDING * 2), 1)
 
 		local specs = {
-			{ name = "input", row = 0, col = inner_col, width = inner_width, height = 1, focusable = true, winhl = "Normal:NormalFloat" },
-			{ name = "divider", row = 1, height = 1, focusable = false, winhl = "Normal:FloatBorder", divider = true },
-			{ name = "list", row = 2, col = inner_col, width = inner_width, height = body_height, focusable = true, winhl = "Normal:NormalFloat,CursorLine:CursorLine" },
+			{
+				name = "input",
+				row = 0,
+				col = inner_col,
+				width = inner_width,
+				height = 1,
+				focusable = true,
+				winhl = "Normal:NormalFloat",
+			},
+			{
+				name = "divider",
+				row = 1,
+				height = 1,
+				focusable = false,
+				winhl = "Normal:FloatBorder",
+				divider = true,
+			},
+			{
+				name = "list",
+				row = 2,
+				col = inner_col,
+				width = inner_width,
+				height = body_height,
+				focusable = true,
+				winhl = "Normal:NormalFloat,CursorLine:CursorLine",
+			},
 		}
 		if show_preview then
 			specs[#specs + 1] = {
@@ -172,8 +197,12 @@ local function new_layout(box)
 			end
 		end
 
-		if refs.list then refs.list.win = self.sections.list.win end
-		if refs.input then refs.input:set_win(self.sections.input.win) end
+		if refs.list then
+			refs.list.win = self.sections.list.win
+		end
+		if refs.input then
+			refs.input:set_win(self.sections.input.win)
+		end
 		if refs.preview then
 			if show_preview then
 				refs.preview:set_target(self.sections.preview.buf, self.sections.preview.win)
@@ -212,7 +241,6 @@ function M.open(opts)
 		row = (picker_opts.position == "top") and 1 or nil,
 		col = 0.5,
 		border = (picker_opts.border == true) and "single" or picker_opts.border,
-		title = mode_title("files", modules.files),
 		focusable = true,
 		zindex = 60,
 		winhl = "Normal:NormalFloat,FloatBorder:FloatBorder",
@@ -281,11 +309,7 @@ function M.open(opts)
 			preview_height = math.min(preview_height, math.max(available - 1, 0))
 		end
 		local body_height = math.max(math.min(list.visible_count, available - preview_height), 1)
-		layout:apply(
-			body_height,
-			preview_height,
-			{ list = list, preview = preview, input = input }
-		)
+		layout:apply(body_height, preview_height, { list = list, preview = preview, input = input })
 		render_views(preview_item)
 	end
 
@@ -341,7 +365,7 @@ function M.open(opts)
 
 	function refresh()
 		local prompt = input:get_value()
-		local mode_name, query = mode_parser.parse_prompt(prompt)
+		local mode_name, query = mode.parse_prompt(prompt)
 		local mod = modules[mode_name]
 		local state = ensure_state(mode_name)
 		local mode_switched = mode_name ~= active_mode
@@ -357,8 +381,7 @@ function M.open(opts)
 		if mode_switched then
 			list:set_selected(1)
 		end
-		update_counter(input, found, total_for_mode(mod, state, found))
-		box:set_title(mode_title(mode_name, mod))
+		update_counter(input, mode_name, prompt, query, found, total_for_mode(mod, state, found))
 
 		if is_header(list:selected_item()) then
 			list:move(1, is_header)
@@ -367,7 +390,7 @@ function M.open(opts)
 	end
 
 	local function submit(prompt)
-		local mode_name, query = mode_parser.parse_prompt(prompt)
+		local mode_name, query = mode.parse_prompt(prompt)
 		local selected = list:selected_item()
 		if mode_name == "commands" then
 			close_palette()
@@ -428,6 +451,9 @@ function M.open(opts)
 
 	refresh()
 	input:focus(picker_opts.initial_mode ~= "normal")
+	if input and input.win and vim.api.nvim_win_is_valid(input.win) and input:get_value() == "" then
+		pcall(vim.api.nvim_win_set_cursor, input.win, { 1, 0 })
+	end
 end
 
 return M

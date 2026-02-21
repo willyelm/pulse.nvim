@@ -1,22 +1,54 @@
 local M = {}
 
-local MODE_PREFIX = {
-  [":"] = { mode = "commands", strip = 2 },
-  ["~"] = { mode = "git_status", strip = 2 },
-  ["!"] = { mode = "diagnostics", strip = 2 },
-  ["@"] = { mode = "symbol", strip = 2 },
-  ["#"] = { mode = "workspace_symbol", strip = 2 },
-  ["$"] = { mode = "live_grep", strip = 2 },
-  ["?"] = { mode = "fuzzy_search", strip = 2 },
+M.MODES = {
+	files = { start = "", icon = "󰈔", placeholder = "Search Files", strip = 1 },
+	commands = { start = ":", icon = "", placeholder = "Run Command", strip = 2 },
+	git_status = { start = "~", icon = "󰊢", placeholder = "Search Git Status", strip = 2 },
+	diagnostics = { start = "!", icon = "", placeholder = "Search Diagnostics", strip = 2 },
+	symbol = { start = "@", icon = "󰘧", placeholder = "Search Symbols In Current Buffer", strip = 2 },
+	workspace_symbol = { start = "#", icon = "󰒕", placeholder = "Search Workspace Symbols", strip = 2 },
+	live_grep = { start = "$", icon = "󰍉", placeholder = "Live Grep In Project", strip = 2 },
+	fuzzy_search = { start = "?", icon = "󱉶", placeholder = "Fuzzy Search In Current Buffer", strip = 2 },
 }
 
+local BY_START = {}
+for mode, cfg in pairs(M.MODES) do
+	if cfg.start and cfg.start ~= "" then
+		BY_START[cfg.start] = { mode = mode, strip = cfg.strip }
+	end
+end
+
+function M.mode(mode_name)
+	return M.MODES[mode_name] or M.MODES.files
+end
+
+function M.start(mode_name)
+	return M.mode(mode_name).start or ""
+end
+
+function M.icon(mode_name)
+	return M.mode(mode_name).icon or ""
+end
+
+function M.placeholder(mode_name)
+	return M.mode(mode_name).placeholder or ""
+end
+
+function M.starts()
+	local out = {}
+	for start in pairs(BY_START) do
+		out[start] = true
+	end
+	return out
+end
+
 function M.parse_prompt(prompt)
-  prompt = prompt or ""
-  local cfg = MODE_PREFIX[prompt:sub(1, 1)]
-  if cfg then
-    return cfg.mode, prompt:sub(cfg.strip)
-  end
-  return "files", prompt
+	prompt = prompt or ""
+	local cfg = BY_START[prompt:sub(1, 1)]
+	if cfg then
+		return cfg.mode, prompt:sub(cfg.strip)
+	end
+	return "files", prompt
 end
 
 return M

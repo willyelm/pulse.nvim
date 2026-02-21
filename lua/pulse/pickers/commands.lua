@@ -1,9 +1,5 @@
 local M = {}
 
-function M.title()
-  return "Commands"
-end
-
 local function has_ci(haystack, needle)
   if needle == "" then
     return true

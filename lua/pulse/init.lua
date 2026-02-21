@@ -1,17 +1,18 @@
 local config = require("pulse.config")
 local picker = require("pulse.picker")
+local mode = require("pulse.mode")
 
 local M = {}
 
-local MODE_PREFIX = {
-  files = "",
-  symbols = "@",
-  workspace_symbols = "#",
-  commands = ":",
-  live_grep = "$",
-  fuzzy_search = "?",
-  git_status = "~",
-  diagnostics = "!",
+local COMMAND_TO_MODE = {
+  files = "files",
+  symbols = "symbol",
+  workspace_symbols = "workspace_symbol",
+  commands = "commands",
+  live_grep = "live_grep",
+  fuzzy_search = "fuzzy_search",
+  git_status = "git_status",
+  diagnostics = "diagnostics",
 }
 
 local MODE_COMPLETIONS = { "files", "symbols", "workspace_symbols", "commands", "live_grep", "fuzzy_search", "git_status", "diagnostics" }
@@ -70,13 +71,13 @@ local function setup_cmdline_replacement()
 end
 
 local function pulse_command(opts)
-  local mode = (opts and opts.args and opts.args ~= "") and opts.args or "files"
-  local prefix = MODE_PREFIX[mode]
-  if prefix == nil then
-    vim.notify("Pulse: unknown mode '" .. tostring(mode) .. "'", vim.log.levels.ERROR)
+  local name = (opts and opts.args and opts.args ~= "") and opts.args or "files"
+  local internal = COMMAND_TO_MODE[name]
+  if not internal then
+    vim.notify("Pulse: unknown mode '" .. tostring(name) .. "'", vim.log.levels.ERROR)
     return
   end
-  open_panel(prefix)
+  open_panel(mode.start(internal))
 end
 
 function M.setup(opts)

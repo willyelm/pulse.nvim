@@ -4,10 +4,6 @@ local DEBOUNCE_MS = 60
 local MAX_RESULTS = 400
 local uv = vim.uv or vim.loop
 
-function M.title()
-  return "Live Grep"
-end
-
 local function notify_update(state)
   if type(state.on_update) ~= "function" then
     return

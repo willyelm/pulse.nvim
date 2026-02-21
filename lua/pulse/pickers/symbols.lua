@@ -1,9 +1,5 @@
 local M = {}
 
-function M.title()
-  return "Symbols"
-end
-
 local SymbolKind = vim.lsp.protocol.SymbolKind or {}
 
 local function has_ci(haystack, needle)

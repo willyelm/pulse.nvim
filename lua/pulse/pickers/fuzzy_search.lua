@@ -2,10 +2,6 @@ local M = {}
 
 local MAX_RESULTS = 400
 
-function M.title()
-  return "Fuzzy Search"
-end
-
 local function refresh_lines(state)
   local bufnr = state.bufnr
   if not (bufnr and vim.api.nvim_buf_is_valid(bufnr)) then

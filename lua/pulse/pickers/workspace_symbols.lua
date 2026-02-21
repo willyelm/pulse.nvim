@@ -1,5 +1,4 @@
 local M = {}
-function M.title() return "Workspace Symbols" end
 
 local SymbolKind = vim.lsp.protocol.SymbolKind or {}
 local TS_KIND = { ["function"] = 12, ["method"] = 6, ["class"] = 5, ["interface"] = 11, ["enum"] = 10, ["struct"] = 23, ["type"] = 13 }
