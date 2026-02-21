@@ -2,6 +2,7 @@ local M = {}
 local List = {}
 List.__index = List
 local window = require("pulse.ui.window")
+local MATCH_HL = "PulseListMatch"
 
 local function clamp(value, min_value, max_value)
 	return math.min(math.max(value, min_value), max_value)
@@ -60,6 +61,7 @@ function List.new(opts)
 	self.selected = 1
 	self.visible_count = self.min_visible
 	self.ns = vim.api.nvim_create_namespace("pulse_ui_list")
+	pcall(vim.api.nvim_set_hl, 0, MATCH_HL, { bold = true, default = true })
 
 	vim.bo[self.buf].buftype = "nofile"
 	vim.bo[self.buf].bufhidden = "wipe"
@@ -139,7 +141,7 @@ function List:_visible_lines(width)
 				local e = math.max(tonumber(m[2]) or -1, s)
 				if s < left_len then
 					highlights[#highlights + 1] = {
-						group = m[3] or "Search",
+						group = m[3] or MATCH_HL,
 						row = index - 1,
 						start_col = s,
 						end_col = math.min(e, left_len),

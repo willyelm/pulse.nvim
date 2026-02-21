@@ -21,6 +21,16 @@ local MOVE_MAPS = {
 	{ "j", 1 },
 	{ "k", -1 },
 }
+local MODE_ICON = {
+	files = "󰈔",
+	symbol = "󰘧",
+	workspace_symbol = "󰍉",
+	commands = "",
+	live_grep = "󰍉",
+	fuzzy_search = "󱉶",
+	git_status = "󰊢",
+	diagnostics = "",
+}
 
 local function is_header(item)
 	return item and item.kind == "header"
@@ -57,6 +67,14 @@ end
 
 local function update_counter(input, found, total)
 	input:set_addons({ right = { text = string.format("%d/%d", found, total), hl = "Comment" } })
+end
+
+local function mode_title(mode_name, mod)
+	local icon = MODE_ICON[mode_name]
+	if icon and icon ~= "" then
+		return string.format("%s %s", icon, mod.title())
+	end
+	return mod.title()
 end
 
 local function compute_preview_height()
@@ -194,7 +212,7 @@ function M.open(opts)
 		row = (picker_opts.position == "top") and 1 or nil,
 		col = 0.5,
 		border = (picker_opts.border == true) and "single" or picker_opts.border,
-		title = modules.files.title(),
+		title = mode_title("files", modules.files),
 		focusable = true,
 		zindex = 60,
 		winhl = "Normal:NormalFloat,FloatBorder:FloatBorder",
@@ -340,7 +358,7 @@ function M.open(opts)
 			list:set_selected(1)
 		end
 		update_counter(input, found, total_for_mode(mod, state, found))
-		box:set_title(mod.title())
+		box:set_title(mode_title(mode_name, mod))
 
 		if is_header(list:selected_item()) then
 			list:move(1, is_header)
