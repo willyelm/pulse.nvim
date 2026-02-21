@@ -85,21 +85,32 @@ local function parse_prompt(prompt)
 end
 
 local function jump_to(selection)
+	local function edit_target(path)
+		local ok, err = pcall(vim.cmd.edit, vim.fn.fnameescape(path))
+		if not ok then
+			vim.notify(tostring(err), vim.log.levels.WARN)
+			return false
+		end
+		return true
+	end
+
 	if selection.kind == "file" then
-		vim.cmd.edit(vim.fn.fnameescape(selection.path))
-		return
+		return edit_target(selection.path)
 	end
 	if selection.kind == "command" then
 		local keys = vim.api.nvim_replace_termcodes(":" .. selection.command, true, false, true)
 		vim.api.nvim_feedkeys(keys, "n", false)
-		return
+		return true
 	end
 	if selection.filename and selection.filename ~= "" then
-		vim.cmd.edit(vim.fn.fnameescape(selection.filename))
+		if not edit_target(selection.filename) then
+			return false
+		end
 	end
 	if selection.lnum then
 		vim.api.nvim_win_set_cursor(0, { selection.lnum, math.max((selection.col or 1) - 1, 0) })
 	end
+	return true
 end
 
 local function execute_command(cmd)
@@ -577,14 +588,14 @@ function M.open(opts)
 			or item.kind == "workspace_symbol"
 			or item.kind == "file"
 			or item.kind == "live_grep"
-		then
-			if vim.api.nvim_win_is_valid(source_win) then
-				vim.api.nvim_win_call(source_win, function()
-					jump_to(item)
-				end)
+			then
+				if vim.api.nvim_win_is_valid(source_win) then
+					pcall(vim.api.nvim_win_call, source_win, function()
+						jump_to(item)
+					end)
+				end
 			end
 		end
-	end
 
 	local function move_next()
 		list:move(1, function(item)
@@ -630,11 +641,17 @@ function M.open(opts)
 			return
 		end
 
-		close_palette()
+		local jumped = false
 		if vim.api.nvim_win_is_valid(source_win) then
-			vim.api.nvim_win_call(source_win, function()
-				jump_to(selected)
+			pcall(vim.api.nvim_win_call, source_win, function()
+				jumped = jump_to(selected)
 			end)
+		else
+			jumped = jump_to(selected)
+		end
+
+		if jumped then
+			close_palette()
 		end
 	end
 
