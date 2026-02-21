@@ -189,4 +189,8 @@ function M.dispose(state)
   reset_results(state)
 end
 
+function M.total_count(state)
+  return #(state.items or {})
+end
+
 return M

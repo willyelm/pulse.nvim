@@ -3,7 +3,6 @@ local actions = require("pulse.actions")
 local display = require("pulse.display")
 local mode_parser = require("pulse.mode")
 local preview_data = require("pulse.preview")
-local picker_layout = require("pulse.picker_layout")
 
 local modules = {
 	files = require("pulse.pickers.files"),
@@ -16,6 +15,12 @@ local modules = {
 }
 
 local M = {}
+local MOVE_MAPS = {
+	{ "j", 1 },
+	{ "<ScrollWheelDown>", 1 },
+	{ "k", -1 },
+	{ "<ScrollWheelUp>", -1 },
+}
 
 local function normalise_border(border)
 	if border == true or border == nil then
@@ -40,12 +45,115 @@ local function first_non_header(items)
 	return nil
 end
 
-local function list_has_only_headers(items)
-	return #items > 0 and first_non_header(items) == nil
+local function count_non_headers(items)
+	local count = 0
+	for _, item in ipairs(items or {}) do
+		if not is_header(item) then
+			count = count + 1
+		end
+	end
+	return count
+end
+
+local function total_for_mode(mod, state, found)
+	if mod and type(mod.total_count) == "function" then
+		local ok, total = pcall(mod.total_count, state)
+		if ok and type(total) == "number" then
+			return math.max(total, found)
+		end
+	end
+	return found
+end
+
+local function update_counter(input, found, total)
+	input:set_addons({
+		right = {
+			text = string.format("%d/%d", found, total),
+			hl = "Comment",
+		},
+	})
 end
 
 local function compute_preview_height()
 	return math.max(math.min(math.floor((vim.o.lines - vim.o.cmdheight) * 0.22), 12), 6)
+end
+
+local function new_layout(box)
+	local layout = {
+		sections = {},
+		state = { body = nil, preview = nil, width = nil },
+	}
+
+	local function set_divider(buf, width)
+		local line = string.rep("─", width)
+		vim.bo[buf].modifiable = true
+		vim.api.nvim_buf_set_lines(buf, 0, -1, false, { line })
+		vim.bo[buf].modifiable = false
+	end
+
+	local function upsert(name, opts)
+		local current = layout.sections[name]
+		if current and current.buf and vim.api.nvim_buf_is_valid(current.buf) then
+			opts.buf = current.buf
+		end
+		layout.sections[name] = box:create_section(name, opts)
+		return layout.sections[name]
+	end
+
+	function layout:apply(body_height, preview_height, refs)
+		local width = vim.api.nvim_win_get_width(box.win)
+		if
+			self.sections.input
+			and self.state.body == body_height
+			and self.state.preview == preview_height
+			and self.state.width == width
+		then
+			return
+		end
+
+		box:update({ height = body_height + preview_height + 3 })
+		width = vim.api.nvim_win_get_width(box.win)
+
+		local function place(name, row, height, focusable, winhl)
+			upsert(name, {
+				row = row,
+				col = 0,
+				width = width,
+				height = height,
+				focusable = focusable,
+				enter = false,
+				winhl = winhl,
+			})
+		end
+
+		place("input", 0, 1, true, "Normal:NormalFloat")
+		place("divider", 1, 1, false, "Normal:FloatBorder")
+		set_divider(self.sections.divider.buf, width)
+		place("list", 2, body_height, true, "Normal:NormalFloat,CursorLine:CursorLine")
+		place("body_divider", 2 + body_height, 1, false, "Normal:FloatBorder")
+		set_divider(self.sections.body_divider.buf, width)
+		place("preview", 3 + body_height, preview_height, true, "Normal:NormalFloat")
+
+		if refs.list then
+			refs.list.win = self.sections.list.win
+		end
+		if refs.preview then
+			refs.preview.win = self.sections.preview.win
+		end
+		if refs.input then
+			if type(refs.input.set_win) == "function" then
+				refs.input:set_win(self.sections.input.win)
+			else
+				refs.input.win = self.sections.input.win
+			end
+		end
+
+		self.state.body = body_height
+		self.state.preview = preview_height
+		self.state.width = width
+	end
+
+	return layout
 end
 
 function M.open(opts)
@@ -91,7 +199,7 @@ function M.open(opts)
 
 	local list
 	local preview
-	local layout = picker_layout.new(box)
+	local layout = new_layout(box)
 
 	local function relayout(body_height, preview_height)
 		if closed then
@@ -222,16 +330,21 @@ function M.open(opts)
 	function refresh()
 		local prompt = input:get_value()
 		local mode_name, query = mode_parser.parse_prompt(prompt)
-		local title = modules[mode_name].title()
+		local mod = modules[mode_name]
+		local title = mod.title()
 		box:set_title(title)
 
-		local next_items = modules[mode_name].items(ensure_state(mode_name), query)
-		if list_has_only_headers(next_items) then
+		local state = ensure_state(mode_name)
+		local next_items = mod.items(state, query)
+		if #next_items > 0 and first_non_header(next_items) == nil then
 			next_items = {}
 		end
+		local found = count_non_headers(next_items)
+		local total = total_for_mode(mod, state, found)
 
 		items = next_items
 		list:set_items(next_items)
+		update_counter(input, found, total)
 
 		local selected = list:selected_item()
 		if is_header(selected) then
@@ -265,7 +378,7 @@ function M.open(opts)
 			return
 		end
 
-		if not selected or selected.kind == "header" then
+		if not selected or is_header(selected) then
 			return
 		end
 
@@ -291,12 +404,7 @@ function M.open(opts)
 	})
 
 	local list_map_opts = { buffer = layout.sections.list.buf, noremap = true, silent = true }
-	for _, map in ipairs({
-		{ "j", 1 },
-		{ "<ScrollWheelDown>", 1 },
-		{ "k", -1 },
-		{ "<ScrollWheelUp>", -1 },
-	}) do
+	for _, map in ipairs(MOVE_MAPS) do
 		vim.keymap.set("n", map[1], function()
 			move_selection(map[2])
 		end, list_map_opts)

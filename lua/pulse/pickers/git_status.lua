@@ -33,12 +33,13 @@ local function parse_status_line(line)
 end
 
 function M.seed()
-  return { files = {} }
+  return { files = {}, all_files = {} }
 end
 
 function M.items(state, query)
   local q = vim.trim(query or "")
   state.files = {}
+  state.all_files = {}
 
   local lines = vim.fn.systemlist({ "git", "status", "--porcelain=v1" })
   if vim.v.shell_error ~= 0 then
@@ -48,6 +49,7 @@ function M.items(state, query)
   for _, line in ipairs(lines) do
     local item = parse_status_line(line)
     if item then
+      state.all_files[#state.all_files + 1] = item
       local hay = item.path .. " " .. item.code
       if ci(hay, q) then
         state.files[#state.files + 1] = item
@@ -56,6 +58,10 @@ function M.items(state, query)
   end
 
   return state.files
+end
+
+function M.total_count(state)
+  return #(state.all_files or {})
 end
 
 return M

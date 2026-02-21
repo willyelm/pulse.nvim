@@ -1,6 +1,20 @@
 local M = {}
 local Input = {}
 Input.__index = Input
+local window = require("pulse.ui.window")
+
+local function configure_window(win)
+  window.configure_content_window(win)
+  if not (win and vim.api.nvim_win_is_valid(win)) then
+    return
+  end
+  vim.wo[win].colorcolumn = ""
+  vim.wo[win].cursorcolumn = false
+  vim.wo[win].cursorline = false
+  vim.wo[win].list = false
+  vim.wo[win].spell = false
+  vim.wo[win].winbar = ""
+end
 
 local function cursor_to_eol(win, buf)
   if not (win and vim.api.nvim_win_is_valid(win)) then
@@ -22,12 +36,15 @@ function Input.new(opts)
   self.on_up = opts.on_up
   self.on_tab = opts.on_tab
   self.augroup = vim.api.nvim_create_augroup("PulseUIInput" .. tostring(self.buf), { clear = true })
+  self.ns = vim.api.nvim_create_namespace("pulse_ui_input")
+  self.addons = {}
 
   vim.bo[self.buf].buftype = "prompt"
   vim.bo[self.buf].bufhidden = "wipe"
   vim.bo[self.buf].swapfile = false
   vim.bo[self.buf].modifiable = true
   vim.bo[self.buf].filetype = "pulseinput"
+  vim.b[self.buf].gitsigns_disable = true
 
   vim.fn.prompt_setprompt(self.buf, self.prompt)
 
@@ -81,7 +98,15 @@ function Input.new(opts)
     call(self.on_tab)
   end)
 
+  configure_window(self.win)
+
   return self
+end
+
+function Input:set_win(win)
+  self.win = win
+  configure_window(self.win)
+  self:set_addons(self.addons)
 end
 
 function Input:set_prompt(prompt)
@@ -98,15 +123,64 @@ function Input:set_value(value)
   local text = tostring(value or "")
   vim.api.nvim_buf_set_lines(self.buf, 0, -1, false, { text })
   cursor_to_eol(self.win, self.buf)
+  self:set_addons(self.addons)
 end
 
 function Input:focus(insert_mode)
   if self.win and vim.api.nvim_win_is_valid(self.win) then
+    configure_window(self.win)
     vim.api.nvim_set_current_win(self.win)
+    self:set_addons(self.addons)
     if insert_mode ~= false then
       cursor_to_eol(self.win, self.buf)
       vim.cmd("startinsert!")
     end
+  end
+end
+
+local function normalise_chunks(spec, default_hl)
+  if spec == nil then
+    return nil
+  end
+  if type(spec) == "string" then
+    return { { spec, default_hl } }
+  end
+  if type(spec) ~= "table" then
+    return nil
+  end
+  if spec.chunks and type(spec.chunks) == "table" then
+    return spec.chunks
+  end
+  if spec.text then
+    return { { tostring(spec.text), spec.hl or default_hl } }
+  end
+  return nil
+end
+
+function Input:set_addons(addons)
+  self.addons = addons or {}
+  if not vim.api.nvim_buf_is_valid(self.buf) then
+    return
+  end
+
+  vim.api.nvim_buf_clear_namespace(self.buf, self.ns, 0, -1)
+
+  local right = normalise_chunks(self.addons.right, "Comment")
+  if right then
+    vim.api.nvim_buf_set_extmark(self.buf, self.ns, 0, 0, {
+      virt_text = right,
+      virt_text_pos = "right_align",
+      hl_mode = "combine",
+    })
+  end
+
+  local left = normalise_chunks(self.addons.left, "Comment")
+  if left then
+    vim.api.nvim_buf_set_extmark(self.buf, self.ns, 0, 0, {
+      virt_text = left,
+      virt_text_win_col = 0,
+      hl_mode = "combine",
+    })
   end
 end
 

@@ -101,4 +101,8 @@ function M.items(state, query)
   return items
 end
 
+function M.total_count(state)
+  return #(ensure_repo_files(state) or {})
+end
+
 return M

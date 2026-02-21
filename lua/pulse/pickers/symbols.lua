@@ -181,4 +181,8 @@ function M.items(state, query)
   return out
 end
 
+function M.total_count(state)
+  return #(state.symbols or {})
+end
+
 return M
