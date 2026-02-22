@@ -12,16 +12,6 @@ if [[ ! -f "${change_log_file}" ]]; then
   {
     echo "# Changelog"
     echo
-    echo "## [Unreleased]"
-    echo
-    echo "### New"
-    echo
-    echo "-"
-    echo
-    echo "### Changed"
-    echo
-    echo "-"
-    echo
     cat "${notes_file}"
   } > "${change_log_file}"
   exit 0

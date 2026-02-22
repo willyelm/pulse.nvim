@@ -77,21 +77,17 @@ changed_items="$(
 {
   echo "release_notes<<EOF"
   echo "## [${new_tag#v}] - $(date +%F)"
-  echo
-  echo "### New"
-  echo
   if [[ -n "${new_items}" ]]; then
+    echo
+    echo "### New"
+    echo
     printf '%s\n' "${new_items}" | sed -E 's/^/- /'
-  else
-    echo "- None"
   fi
-  echo
-  echo "### Changed"
-  echo
   if [[ -n "${changed_items}" ]]; then
+    echo
+    echo "### Changed"
+    echo
     printf '%s\n' "${changed_items}" | sed -E 's/^/- /'
-  else
-    echo "- None"
   fi
   echo "EOF"
 } >> "${GITHUB_OUTPUT}"
