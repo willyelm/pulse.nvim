@@ -99,7 +99,7 @@ function M.for_item(item)
       return git_patch_for(path), "text", {}, nil, 1
     end
     local lines, highlights, focus_row = diff_ui.from_lines(old_lines, new_lines, { context = 3 })
-    return lines, "text", highlights, nil, focus_row
+    return lines, filetype_for(path), highlights, nil, focus_row
   end
 
   if item.kind == "live_grep" or item.kind == "fuzzy_search" then
@@ -183,7 +183,17 @@ function Preview:set(lines, filetype, highlights, line_numbers, focus_row)
   end
 
   for _, hl in ipairs(highlights or {}) do
-    pcall(vim.api.nvim_buf_add_highlight, self.buf, self.ns, hl.group, hl.row, hl.start_col, hl.end_col)
+    if type(hl.priority) == "number" and type(hl.end_col) == "number" and hl.end_col >= 0 then
+      pcall(vim.api.nvim_buf_set_extmark, self.buf, self.ns, hl.row, hl.start_col, {
+        end_row = hl.row,
+        end_col = hl.end_col,
+        hl_group = hl.group,
+        hl_mode = hl.hl_mode or "replace",
+        priority = hl.priority,
+      })
+    else
+      pcall(vim.api.nvim_buf_add_highlight, self.buf, self.ns, hl.group, hl.row, hl.start_col, hl.end_col)
+    end
   end
 
   if self.win and vim.api.nvim_win_is_valid(self.win) then
