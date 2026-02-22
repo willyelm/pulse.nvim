@@ -5,7 +5,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Added
+### New
 
 -
 
@@ -13,13 +13,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 -
 
-### Fixed
-
--
-
 ## [0.1.0] - 2026-02-22
 
-### Added
+### New
 
 - Pulse command-palette picker with a single entry point and prefix-based mode switching.
 - Mode prefixes for files, commands, git status, diagnostics, buffer symbols, workspace symbols, live grep, and fuzzy search.
