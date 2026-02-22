@@ -2,7 +2,7 @@
 
 One entry point. Total focus.
 
-# What is Pulse
+## What is Pulse
 
 A Fast one command-palette picker for Neovim. Pulse uses a prefix
 approach to move quickly between modes:
@@ -76,6 +76,7 @@ require("pulse").setup({
 - selection wraps from last->first and first->last
 
 In `commands` mode:
+
 - No implicit first-item execution.
 - `<CR>` executes the selected command only after explicit navigation.
 - Otherwise `<CR>` executes the typed command.
@@ -114,3 +115,11 @@ vim.api.nvim_set_hl(0, "PulseDelete", { link = "Removed" })
 vim.api.nvim_set_hl(0, "PulseDiffAdd", { link = "DiffAdd" })
 vim.api.nvim_set_hl(0, "PulseDiffDelete", { link = "DiffDelete" })
 ```
+
+## Contributing
+
+[See CONTRIBUTING.md](./CONTRIBUTING.md)
+
+## Changelog
+
+[See CHANGELOG.md](./CHANGELOG.md)

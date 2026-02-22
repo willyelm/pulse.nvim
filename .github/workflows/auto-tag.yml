@@ -1,0 +1,113 @@
+name: Auto Tag
+
+on:
+  push:
+    branches:
+      - main
+      - master
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: auto-tag-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  tag:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Fetch tags
+        run: git fetch --tags --force
+
+      - name: Compute next tag
+        id: next
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          latest_tag="$(git tag --list 'v*' --sort=-v:refname | head -n1 || true)"
+
+          # First release when no v* tag exists.
+          if [[ -z "${latest_tag}" ]]; then
+            echo "create=true" >> "$GITHUB_OUTPUT"
+            echo "bump=minor" >> "$GITHUB_OUTPUT"
+            echo "latest_tag=" >> "$GITHUB_OUTPUT"
+            echo "new_tag=v0.1.0" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          if [[ -z "$(git rev-list "${latest_tag}..HEAD" 2>/dev/null)" ]]; then
+            echo "create=false" >> "$GITHUB_OUTPUT"
+            echo "latest_tag=${latest_tag}" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          commits="$(git log "${latest_tag}..HEAD" --format='%s%n%b')"
+
+          bump="patch"
+
+          # Major: conventional commit bang (e.g. feat!:) or BREAKING CHANGE footer/body.
+          if grep -Eq '^[a-zA-Z]+(\([^)]+\))?!:' <<< "$commits" || grep -Eq 'BREAKING CHANGE:' <<< "$commits"; then
+            bump="major"
+          # Minor: at least one feat commit.
+          elif grep -Eq '^feat(\([^)]+\))?:' <<< "$commits"; then
+            bump="minor"
+          fi
+
+          current="${latest_tag#v}"
+          IFS='.' read -r major minor patch <<< "$current"
+
+          case "$bump" in
+            major)
+              major=$((major + 1))
+              minor=0
+              patch=0
+              ;;
+            minor)
+              minor=$((minor + 1))
+              patch=0
+              ;;
+            patch)
+              patch=$((patch + 1))
+              ;;
+          esac
+
+          new_tag="v${major}.${minor}.${patch}"
+
+          echo "create=true" >> "$GITHUB_OUTPUT"
+          echo "bump=${bump}" >> "$GITHUB_OUTPUT"
+          echo "latest_tag=${latest_tag}" >> "$GITHUB_OUTPUT"
+          echo "new_tag=${new_tag}" >> "$GITHUB_OUTPUT"
+
+      - name: Create and push tag
+        if: steps.next.outputs.create == 'true'
+        env:
+          NEW_TAG: ${{ steps.next.outputs.new_tag }}
+        run: |
+          set -euo pipefail
+
+          if git rev-parse "$NEW_TAG" >/dev/null 2>&1; then
+            echo "Tag $NEW_TAG already exists; skipping."
+            exit 0
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag -a "$NEW_TAG" -m "Release $NEW_TAG"
+          git push origin "$NEW_TAG"
+
+      - name: Summary
+        run: |
+          if [[ "${{ steps.next.outputs.create }}" == "true" ]]; then
+            echo "Created tag: ${{ steps.next.outputs.new_tag }} (bump=${{ steps.next.outputs.bump }})"
+          else
+            echo "No new commits since ${{ steps.next.outputs.latest_tag }}; no tag created."
+          fi
