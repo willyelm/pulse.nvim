@@ -367,7 +367,12 @@ function M.open(opts)
 		selected = selected or list:selected_item()
 		if not selected or is_header(selected) or active_mode == "git_status" then return end
 		if active_mode == "commands" then
-			input:set_value(mode.start("commands") .. selected.command)
+			local cmd = tostring(selected.command or "")
+			if cmd:sub(1, 1) == ":" then
+				cmd = cmd:sub(2)
+			end
+			input:set_value(mode.start("commands") .. cmd)
+			input:focus(true)
 			command_selection_explicit = true
 			return
 		end
@@ -394,8 +399,8 @@ function M.open(opts)
 	})
 
 	for _, spec in ipairs({
-		{ keys = { "j", "l", "<Down>", "<Right>" }, delta = 1 },
-		{ keys = { "k", "h", "<Up>", "<Left>" }, delta = -1 },
+		{ keys = { "<Down>", "<Right>" }, delta = 1 },
+		{ keys = { "<Up>", "<Left>" }, delta = -1 },
 	}) do
 		local delta = spec.delta
 		for _, lhs in ipairs(spec.keys) do

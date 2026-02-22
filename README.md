@@ -62,10 +62,9 @@ require("pulse").setup({
 
 ## Input + Navigation
 
-- `j/k` or arrow keys: navigate items
-- `h/l`: navigate items (aliases)
 - `<Down>/<C-n>`: next item (from input)
 - `<Up>/<C-p>`: previous item (from input)
+- `Esc`: close picker
 - `<Tab>`:
   - files: open preview in source window (picker stays open)
   - symbols/workspace symbols: jump to location (picker stays open)
@@ -74,7 +73,6 @@ require("pulse").setup({
   - commands: replace input with selected command
   - git status: no-op
 - `<CR>`: submit/open and close picker
-- `<Esc>`: close
 - selection wraps from last->first and first->last
 
 In `commands` mode:
