@@ -1,5 +1,13 @@
 # Changelog
 
+
+## [0.1.3] - 2026-02-22
+
+### Changed
+
+- chore: separate release jobs
+- fix: hide previews for files and command pickers
+
 ## [0.1.2] - 2026-02-22
 
 ### Changed
