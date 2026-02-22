@@ -1,14 +1,14 @@
 local M = {}
 
 M.MODES = {
-	files = { start = "", icon = "󰈔", placeholder = "Search Files", strip = 1 },
-	commands = { start = ":", icon = "", placeholder = "Run Command", strip = 2 },
-	git_status = { start = "~", icon = "󰊢", placeholder = "Search Git Status", strip = 2 },
-	diagnostics = { start = "!", icon = "", placeholder = "Search Diagnostics", strip = 2 },
-	symbol = { start = "@", icon = "󰘧", placeholder = "Search Symbols In Current Buffer", strip = 2 },
-	workspace_symbol = { start = "#", icon = "󰒕", placeholder = "Search Workspace Symbols", strip = 2 },
-	live_grep = { start = "$", icon = "󰍉", placeholder = "Live Grep In Project", strip = 2 },
-	fuzzy_search = { start = "?", icon = "󱉶", placeholder = "Fuzzy Search In Current Buffer", strip = 2 },
+	files = { start = "", icon = "󰈔", placeholder = "Search Files", strip = 1, preview = false },
+	commands = { start = ":", icon = "", placeholder = "Run Command", strip = 2, preview = false },
+	git_status = { start = "~", icon = "󰊢", placeholder = "Search Git Status", strip = 2, preview = true },
+	diagnostics = { start = "!", icon = "", placeholder = "Search Diagnostics", strip = 2, preview = true },
+	symbol = { start = "@", icon = "󰘧", placeholder = "Search Symbols In Current Buffer", strip = 2, preview = false },
+	workspace_symbol = { start = "#", icon = "󰒕", placeholder = "Search Workspace Symbols", strip = 2, preview = false },
+	live_grep = { start = "$", icon = "󰍉", placeholder = "Live Grep In Project", strip = 2, preview = true },
+	fuzzy_search = { start = "?", icon = "󱉶", placeholder = "Fuzzy Search In Current Buffer", strip = 2, preview = true },
 }
 
 local BY_START = {}
@@ -32,6 +32,10 @@ end
 
 function M.placeholder(mode_name)
 	return M.mode(mode_name).placeholder or ""
+end
+
+function M.preview(mode_name)
+	return M.mode(mode_name).preview == true
 end
 
 function M.starts()

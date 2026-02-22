@@ -233,15 +233,18 @@ function M.open(opts)
 			return
 		end
 		local max_total = resolve_max_height(picker_opts.height)
-		local preview_item = list:selected_item()
-		if is_header(preview_item) then
-			preview_item = nil
-		end
-		if not preview_item then
-			for _, item in ipairs(items) do
-				if not is_header(item) then
-					preview_item = item
-					break
+		local preview_item = nil
+		if mode.preview(active_mode) then
+			preview_item = list:selected_item()
+			if is_header(preview_item) then
+				preview_item = nil
+			end
+			if not preview_item then
+				for _, item in ipairs(items) do
+					if not is_header(item) then
+						preview_item = item
+						break
+					end
 				end
 			end
 		end
