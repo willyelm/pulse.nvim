@@ -86,7 +86,14 @@ jobs:
       - name: commit_changelog
         env:
           NEW_TAG: ${{ needs.check.outputs.new_tag }}
-        run: ./.github/scripts/release/commit_changelog.sh
+        run: |
+          if git diff --quiet -- CHANGELOG.md; then
+            exit 0
+          fi
+
+          git add CHANGELOG.md
+          git commit -m "chore(changelog): update for ${NEW_TAG} [skip ci]"
+          git push origin "HEAD:${GITHUB_REF_NAME}"
 
       - name: Upload release notes
         uses: actions/upload-artifact@v4
