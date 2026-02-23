@@ -152,11 +152,11 @@ function M.items(state, query)
     return symbols
   end
 
-  local query_lc = string.lower(query)
+  local match = util.make_matcher(query, { ignore_case = true, plain = true })
   local out = {}
   for _, s in ipairs(symbols) do
     local hay = table.concat({ s.symbol or "", s.symbol_kind_name or "", s.filename or "" }, " ")
-    if util.contains_ci(hay, query_lc) then
+    if match(hay) then
       out[#out + 1] = s
     end
   end

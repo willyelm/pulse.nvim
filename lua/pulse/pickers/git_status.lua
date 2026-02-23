@@ -1,14 +1,5 @@
 local M = {}
 local util = require("pulse.util")
-local ok_devicons, devicons = pcall(require, "nvim-web-devicons")
-local function devicon_for(path)
-  if not ok_devicons then
-    return ""
-  end
-  local name = vim.fn.fnamemodify(path or "", ":t")
-  local ext = vim.fn.fnamemodify(path or "", ":e")
-  return devicons.get_icon(name, ext, { default = true }) or ""
-end
 local function normalize_status_path(path)
   if not path or path == "" then return "" end
   if path:find(" -> ", 1, true) then
@@ -42,7 +33,8 @@ function M.seed()
 end
 
 function M.items(state, query)
-  local q = string.lower(vim.trim(query or ""))
+  local q = vim.trim(query or "")
+  local match = util.make_matcher(q, { ignore_case = true, plain = true })
   state.files = {}
   state.all_files = {}
   local zero = { added = 0, removed = 0 }
@@ -70,10 +62,9 @@ function M.items(state, query)
       if item.added > 0 then parts[#parts + 1] = "+" .. item.added end
       if item.removed > 0 then parts[#parts + 1] = "-" .. item.removed end
       if item.code ~= "" then parts[#parts + 1] = item.code end
-      item.display_left = string.format("%s %s", devicon_for(item.path), vim.fn.fnamemodify(item.path, ":t"))
       item.display_right = table.concat(parts, " ")
       state.all_files[#state.all_files + 1] = item
-      if util.contains_ci(item.path .. " " .. item.code, q) then
+      if match(item.path .. " " .. item.code) then
         state.files[#state.files + 1] = item
       end
     end

@@ -48,6 +48,7 @@ local function ts_name(text)
   return s:match("<%s*([%w%._:-]+)") or s:match("([%a_][%w_]*)%s*[%(<:{=]") or s:match("([%a_][%w_]*)") or ""
 end
 local function ts_items(query)
+  local match = util.make_matcher(query or "", { ignore_case = true, plain = true })
   local out, cwd = {}, vim.fn.getcwd()
   for _, b in ipairs(vim.api.nvim_list_bufs()) do
     if vim.api.nvim_buf_is_valid(b) and vim.bo[b].buflisted then
@@ -64,7 +65,7 @@ local function ts_items(query)
                 local txt = vim.treesitter.get_node_text(n, b)
                 if type(txt) == "table" then txt = table.concat(txt, "") end
                 local name = ts_name(txt)
-                if name ~= "" and util.contains_ci(name, query or "") then
+                if name ~= "" and match(name) then
                   local r, c = n:range()
                   local k = ts_kind(nt)
                   out[#out + 1] = { kind = "workspace_symbol", symbol = name, symbol_kind = k, symbol_kind_name = kname(k), container = "", depth = 0, filename = f, lnum = r + 1, col = c + 1 }
@@ -88,7 +89,7 @@ end
 
 function M.items(state, query)
   local q = query or ""
-  local q_lc = string.lower(q)
+  local match = util.make_matcher(q, { ignore_case = true, plain = true })
   if state.last_query ~= q then
     state.last_query, state.request_id = q, state.request_id + 1
     local rid = state.request_id
@@ -102,7 +103,7 @@ function M.items(state, query)
   local out = {}
   for _, it in ipairs(state.symbols or {}) do
     local hay = table.concat({ it.symbol or "", it.symbol_kind_name or "", it.container or "", it.filename or "" }, " ")
-    if util.contains_ci(hay, q_lc) then out[#out + 1] = it end
+    if match(hay) then out[#out + 1] = it end
   end
   return out
 end

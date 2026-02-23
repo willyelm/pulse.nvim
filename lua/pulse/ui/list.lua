@@ -46,11 +46,28 @@ local function normalise_item(rendered)
 	end
 	return {
 		left = tostring(rendered.left or ""),
-		left_group = rendered.left_group or "Normal",
+		left_group = (rendered.left_group == nil) and "Normal" or rendered.left_group,
 		right = tostring(rendered.right or ""),
 		right_group = rendered.right_group or "LineNr",
 		left_matches = rendered.left_matches,
 	}
+end
+
+local function normalize_hex(color)
+	if type(color) ~= "string" then
+		return nil
+	end
+	local hex = color:match("^#?([0-9a-fA-F]+)$")
+	if not hex then
+		return nil
+	end
+	if #hex == 3 then
+		hex = hex:gsub(".", "%1%1")
+	end
+	if #hex ~= 6 then
+		return nil
+	end
+	return "#" .. hex:upper()
 end
 
 function List.new(opts)
@@ -65,6 +82,7 @@ function List.new(opts)
 	self.selected = 1
 	self.visible_count = self.min_visible
 	self.ns = vim.api.nvim_create_namespace("pulse_ui_list")
+	self.color_hl_cache = {}
 	pcall(vim.api.nvim_set_hl, 0, MATCH_HL, { bold = true, default = true })
 
 	window.configure_isolated_buffer(self.buf, { buftype = "nofile", modifiable = false })
@@ -72,6 +90,27 @@ function List.new(opts)
 	window.configure_content_window(self.win)
 
 	return self
+end
+
+function List:_match_group(match_spec)
+	if type(match_spec) == "string" and match_spec ~= "" then
+		return match_spec
+	end
+	if type(match_spec) ~= "table" then
+		return MATCH_HL
+	end
+	local hex = normalize_hex(match_spec.fg)
+	if not hex then
+		return MATCH_HL
+	end
+	local hl = self.color_hl_cache[hex]
+	if hl then
+		return hl
+	end
+	hl = "DevIconColor_" .. hex:sub(2)
+	self.color_hl_cache[hex] = hl
+	pcall(vim.api.nvim_set_hl, 0, hl, { fg = hex })
+	return hl
 end
 
 function List:_normalise_selection()
@@ -145,21 +184,21 @@ function List:_visible_lines(width)
 				end_col = SIDE_PADDING + #left,
 			}
 		end
-		if (not selected) and left_matches and #left_matches > 0 then
-			local left_len = #left
-			for _, m in ipairs(left_matches) do
-				local s = math.max(tonumber(m[1]) or -1, 0)
-				local e = math.max(tonumber(m[2]) or -1, s)
-				if s < left_len then
-					highlights[#highlights + 1] = {
-						group = m[3] or MATCH_HL,
-						row = index - 1,
-						start_col = SIDE_PADDING + s,
-						end_col = SIDE_PADDING + math.min(e, left_len),
-					}
+			if (not selected) and left_matches and #left_matches > 0 then
+				local left_len = #left
+				for _, m in ipairs(left_matches) do
+					local s = math.max(tonumber(m[1]) or -1, 0)
+					local e = math.max(tonumber(m[2]) or -1, s)
+					if s < left_len then
+						highlights[#highlights + 1] = {
+							group = self:_match_group(m[3]),
+							row = index - 1,
+							start_col = SIDE_PADDING + s,
+							end_col = SIDE_PADDING + math.min(e, left_len),
+						}
+					end
 				end
 			end
-		end
 		if (not selected) and right_start and right_group and #right > 0 then
 			highlights[#highlights + 1] = {
 				group = right_group,

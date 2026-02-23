@@ -88,9 +88,9 @@ function M.items(state, query)
 		return items
 	end
 
-	local query_lc = string.lower(query)
+	local match = util.make_matcher(query, { ignore_case = true, plain = true })
 	for _, path in ipairs(ensure_repo_files(state)) do
-		if util.contains_ci(path, query_lc) then
+		if match(path) then
 			items[#items + 1] = { kind = "file", path = path }
 		end
 	end

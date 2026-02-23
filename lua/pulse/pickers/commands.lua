@@ -28,13 +28,13 @@ end
 
 function M.items(state, query)
   query = query or ""
-  local query_lc = string.lower(query)
+  local match = util.make_matcher(query, { ignore_case = true, plain = true })
   local items, seen = {}, {}
   local show_history = query == ""
 
   if show_history then
     for _, cmd in ipairs(state.history) do
-      if util.contains_ci(cmd, query_lc) then
+      if match(cmd) then
         seen[cmd] = true
         items[#items + 1] = { kind = "command", command = cmd }
       end
@@ -42,7 +42,7 @@ function M.items(state, query)
   end
 
   for _, cmd in ipairs(state.commands) do
-    if not seen[cmd] and util.contains_ci(cmd, query_lc) then
+    if not seen[cmd] and match(cmd) then
       items[#items + 1] = { kind = "command", command = cmd }
     end
   end

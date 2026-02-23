@@ -14,7 +14,7 @@ function M.seed(ctx)
 end
 
 function M.items(state, query)
-  local q = string.lower(query or "")
+  local match = util.make_matcher(query or "", { ignore_case = true, plain = true })
   local current_bufnr = state.current_bufnr or vim.api.nvim_get_current_buf()
   local out = {}
   for _, d in ipairs(vim.diagnostic.get(nil)) do
@@ -35,7 +35,7 @@ function M.items(state, query)
       severity_name = name,
     }
     local hay = table.concat({ msg, name, item.source, filename }, " ")
-    if util.contains_ci(hay, q) then
+    if match(hay) then
       out[#out + 1] = item
     end
   end
