@@ -87,6 +87,9 @@ jobs:
         env:
           NEW_TAG: ${{ needs.check.outputs.new_tag }}
         run: |
+          git config --global user.email "${{ env.GIT_USER_EMAIL }}"
+          git config --global user.name "${{ env.GIT_USER_NAME }}"
+
           if git diff --quiet -- CHANGELOG.md; then
             exit 0
           fi
