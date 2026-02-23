@@ -31,12 +31,18 @@ local function count_non_headers(items)
 	return count
 end
 
+local function find_preview_item(selected, items_list)
+	if not is_header(selected) then return selected end
+	for _, item in ipairs(items_list) do
+		if not is_header(item) then return item end
+	end
+	return nil
+end
+
 local function total_for_mode(mod, state, found)
 	if mod and type(mod.total_count) == "function" then
 		local ok, total = pcall(mod.total_count, state)
-		if ok and type(total) == "number" then
-			return math.max(total, found)
-		end
+		if ok and type(total) == "number" then return math.max(total, found) end
 	end
 	return found
 end
@@ -44,36 +50,16 @@ end
 local function update_counter(input, mode_name, query, found, total)
 	input:set_prompt(" " .. mode.icon(mode_name) .. " ")
 	local placeholder = mode.placeholder(mode_name)
-	local ghost = ((query or "") == "" and placeholder ~= "") and placeholder or nil
 	input:set_addons({
-		ghost = ghost,
+		ghost = (query or "") == "" and placeholder ~= "" and placeholder or nil,
 		right = { text = string.format("%d/%d", found, total), hl = "LineNr" },
 	})
 end
 
 local function resolve_max_height(height_cfg)
 	local total = vim.o.lines - vim.o.cmdheight
-	if type(height_cfg) == "number" and height_cfg > 0 and height_cfg < 1 then
-		return math.max(math.floor(total * height_cfg), 6)
-	end
-	if type(height_cfg) == "number" then
-		return math.max(math.floor(height_cfg), 6)
-	end
-	return math.max(math.floor(total * 0.5), 6)
-end
-
-local function compute_preview_height(line_count, max_preview)
-	if line_count <= 0 or max_preview <= 0 then
-		return 0
-	end
-	if line_count == 1 then
-		return 1
-	end
-	local h = math.min(line_count, 15, max_preview)
-	if line_count > 5 and h < 5 then
-		return math.min(5, max_preview)
-	end
-	return h
+	local h = type(height_cfg) == "number" and height_cfg or 0.5
+	return math.max((h > 0 and h < 1) and math.floor(total * h) or math.floor(h), 6)
 end
 
 local function new_layout(box)
@@ -81,29 +67,21 @@ local function new_layout(box)
 
 	local function upsert(name, opts)
 		local current = layout.sections[name]
-		if current and current.buf and vim.api.nvim_buf_is_valid(current.buf) then
-			opts.buf = current.buf
-		end
+		if current and current.buf and vim.api.nvim_buf_is_valid(current.buf) then opts.buf = current.buf end
 		layout.sections[name] = box:create_section(name, opts)
 		return layout.sections[name]
 	end
 
 	local function draw_divider(buf, width)
-		local line = string.rep("─", width)
 		vim.bo[buf].modifiable = true
-		vim.api.nvim_buf_set_lines(buf, 0, -1, false, { line })
+		vim.api.nvim_buf_set_lines(buf, 0, -1, false, { string.rep("─", width) })
 		vim.bo[buf].modifiable = false
 	end
 
 	function layout:apply(body_height, preview_height, refs)
 		local width = vim.api.nvim_win_get_width(box.win)
 		local show_preview = preview_height > 0
-		if
-			self.sections.input
-			and self.state.body == body_height
-			and self.state.preview == preview_height
-			and self.state.width == width
-		then
+		if self.sections.input and self.state.body == body_height and self.state.preview == preview_height and self.state.width == width then
 			return
 		end
 
@@ -121,39 +99,25 @@ local function new_layout(box)
 			specs[#specs + 1] = { name = "body_divider", row = 2 + body_height, height = 1, focusable = false, winhl = "Normal:FloatBorder", divider = true }
 			specs[#specs + 1] = { name = "preview", row = 3 + body_height, col = inner_col, width = inner_width, height = preview_height, focusable = true, winhl = "Normal:NormalFloat" }
 		else
-			if self.sections.body_divider then
-				box:close_section("body_divider")
-				self.sections.body_divider = nil
-			end
-			if self.sections.preview then
-				box:close_section("preview")
-				self.sections.preview = nil
-			end
+			box:close_section("body_divider")
+			self.sections.body_divider = nil
+			box:close_section("preview")
+			self.sections.preview = nil
 		end
 
 		for _, s in ipairs(specs) do
 			local section = upsert(s.name, {
-				row = s.row,
-				col = s.col or 0,
-				width = s.width or width,
-				height = s.height,
-				focusable = s.focusable,
-				enter = false,
-				winhl = s.winhl,
+				row = s.row, col = s.col or 0, width = s.width or width,
+				height = s.height, focusable = s.focusable, enter = false, winhl = s.winhl,
 			})
-			if s.divider then
-				draw_divider(section.buf, width)
-			end
+			if s.divider then draw_divider(section.buf, width) end
 		end
 
 		if refs.list then refs.list.win = self.sections.list.win end
 		if refs.input then refs.input:set_win(self.sections.input.win) end
 		if refs.preview then
-			if show_preview then
-				refs.preview:set_target(self.sections.preview.buf, self.sections.preview.win)
-			else
-				refs.preview:set_target(nil, nil)
-			end
+			local buf, win = show_preview and self.sections.preview.buf or nil, show_preview and self.sections.preview.win or nil
+			refs.preview:set_target(buf, win)
 		end
 
 		self.state.body = body_height
@@ -205,20 +169,14 @@ function M.open(opts)
 		vim.keymap.set(modes, lhs, rhs, { buffer = buf, noremap = true, silent = true })
 	end
 	local function close_palette()
-		if closed then
-			return
-		end
+		if closed then return end
 		closed = true
 		for mode_name, state in pairs(states) do
 			local mod = modules[mode_name]
-			if mod and type(mod.dispose) == "function" then
-				pcall(mod.dispose, state)
-			end
+			if mod and type(mod.dispose) == "function" then pcall(mod.dispose, state) end
 		end
 		box:unmount()
-		if vim.api.nvim_win_is_valid(source_win) then
-			vim.api.nvim_set_current_win(source_win)
-		end
+		if vim.api.nvim_win_is_valid(source_win) then vim.api.nvim_set_current_win(source_win) end
 	end
 
 	vim.api.nvim_create_autocmd("WinClosed", {
@@ -229,37 +187,22 @@ function M.open(opts)
 	})
 
 	local function rerender()
-		if closed then
-			return
-		end
+		if closed then return end
 		local max_total = resolve_max_height(picker_opts.height)
-		local preview_item = nil
-		if mode.preview(active_mode) then
-			preview_item = list:selected_item()
-			if is_header(preview_item) then
-				preview_item = nil
-			end
-			if not preview_item then
-				for _, item in ipairs(items) do
-					if not is_header(item) then
-						preview_item = item
-						break
-					end
-				end
-			end
-		end
-		local p = nil
-		local preview_height = 0
+		local preview_item = mode.preview(active_mode) and find_preview_item(list:selected_item(), items) or nil
+		local p, preview_height, body_height
 		if preview_item then
 			local lines, ft, highlights, line_numbers, focus_row = preview_data.for_item(preview_item)
 			p = { lines = lines, ft = ft, highlights = highlights, line_numbers = line_numbers, focus_row = focus_row }
 			local line_count = math.max(#(lines or {}), 1)
-			local max_preview = math.max(max_total - 4, 0)
-			preview_height = compute_preview_height(line_count, max_preview)
+			local available = math.max(max_total - 3, 2)
+			body_height = math.min(list.visible_count, available - 1)
+			preview_height = math.min(line_count, available - body_height)
+		else
+			local available = math.max(max_total - 2, 1)
+			body_height = math.min(list.visible_count, available)
+			preview_height = 0
 		end
-		local frame = (preview_height > 0) and 3 or 2
-		local available = math.max(max_total - frame, 1)
-		local body_height = math.max(math.min(list.visible_count, available - preview_height), 1)
 		layout:apply(body_height, preview_height, { list = list, preview = preview, input = input })
 		list:render(vim.api.nvim_win_get_width(list.win))
 		if p and preview and preview.win and vim.api.nvim_win_is_valid(preview.win) then
@@ -294,7 +237,7 @@ function M.open(opts)
 		buf = layout.sections.list.buf,
 		win = layout.sections.list.win,
 		max_visible = 15,
-		min_visible = 3,
+		min_visible = 1,
 		render_item = display.to_display,
 	})
 	preview = preview_data.new({ buf = layout.sections.preview.buf, win = layout.sections.preview.win })
@@ -308,14 +251,12 @@ function M.open(opts)
 	end
 
 	local function jump_in_source(item)
-		local jumped = false
-		local runner = function()
-			jumped = actions.jump_to(item)
-		end
+		local jumped
+		local function do_jump() jumped = actions.jump_to(item) end
 		if vim.api.nvim_win_is_valid(source_win) then
-			pcall(vim.api.nvim_win_call, source_win, runner)
+			pcall(vim.api.nvim_win_call, source_win, do_jump)
 		else
-			pcall(runner)
+			pcall(do_jump)
 		end
 		return jumped
 	end
@@ -329,9 +270,7 @@ function M.open(opts)
 		active_mode = mode_name
 		local next_items = mod.items(state, query)
 		local found = count_non_headers(next_items)
-		if #next_items > 0 and found == 0 then
-			next_items = {}
-		end
+		if found == 0 and #next_items > 0 then next_items = {} end
 
 		items = next_items
 		list:set_items(next_items)
@@ -369,17 +308,11 @@ function M.open(opts)
 	local function apply_tab_action(selected)
 		selected = selected or list:selected_item()
 		if not selected or is_header(selected) or active_mode == "git_status" then return end
-		if active_mode == "commands" then
-			local cmd = tostring(selected.command or "")
-			if cmd:sub(1, 1) == ":" then
-				cmd = cmd:sub(2)
-			end
-			input:set_value(mode.start("commands") .. cmd)
-			input:focus(true)
-			command_selection_explicit = true
-			return
-		end
-		jump_in_source(selected)
+		if active_mode ~= "commands" then return jump_in_source(selected) end
+		local cmd = tostring(selected.command or ""):gsub("^:", "")
+		input:set_value(mode.start("commands") .. cmd)
+		input:focus(true)
+		command_selection_explicit = true
 	end
 	local function click_tab_action()
 		local mouse = vim.fn.getmousepos()
@@ -401,20 +334,21 @@ function M.open(opts)
 		on_tab = apply_tab_action,
 	})
 
-	for _, spec in ipairs({
-		{ keys = { "<Down>", "<Right>" }, delta = 1 },
-		{ keys = { "<Up>", "<Left>" }, delta = -1 },
-	}) do
-		local delta = spec.delta
-		for _, lhs in ipairs(spec.keys) do
-			map(layout.sections.list.buf, "n", lhs, function() move_selection(delta) end)
+	local list_buf = layout.sections.list.buf
+	local keymaps = {
+		{ buf = list_buf, mode = "n", keys = { "<Down>", "<Right>" }, fn = function() move_selection(1) end },
+		{ buf = list_buf, mode = "n", keys = { "<Up>", "<Left>" }, fn = function() move_selection(-1) end },
+		{ buf = list_buf, mode = "n", keys = { "<LeftMouse>" }, fn = click_tab_action },
+		{ buf = input.buf, mode = { "n", "i" }, keys = { "<LeftMouse>" }, fn = click_tab_action },
+		{ buf = list_buf, mode = "n", keys = { "<CR>" }, fn = function() submit(input:get_value()) end },
+		{ buf = list_buf, mode = "n", keys = { "<Tab>" }, fn = apply_tab_action },
+		{ buf = list_buf, mode = "n", keys = { "<Esc>" }, fn = close_palette },
+	}
+	for _, km in ipairs(keymaps) do
+		for _, key in ipairs(km.keys) do
+			map(km.buf, km.mode, key, km.fn)
 		end
 	end
-	map(layout.sections.list.buf, "n", "<LeftMouse>", click_tab_action)
-	map(input.buf, { "n", "i" }, "<LeftMouse>", click_tab_action)
-	map(layout.sections.list.buf, "n", "<CR>", function() submit(input:get_value()) end)
-	map(layout.sections.list.buf, "n", "<Tab>", apply_tab_action)
-	map(layout.sections.list.buf, "n", "<Esc>", close_palette)
 	vim.api.nvim_create_autocmd("VimResized", {
 		group = lifecycle_group,
 		callback = function() box:update(); rerender() end,

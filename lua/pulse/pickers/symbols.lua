@@ -85,21 +85,11 @@ end
 
 local function treesitter_fallback(bufnr)
   local ok, parser = pcall(vim.treesitter.get_parser, bufnr)
-  if not ok or not parser then
-    return {}
-  end
-
-  local ok_parse, trees = pcall(function()
-    return parser:parse()
-  end)
-  if not ok_parse or not trees or not trees[1] then
-    return {}
-  end
-
+  if not ok or not parser then return {} end
+  local ok2, trees = pcall(function() return parser:parse() end)
+  if not ok2 or not (trees and trees[1]) then return {} end
   local root = trees[1]:root()
-  if not root then
-    return {}
-  end
+  if not root then return {} end
 
   local out = {}
   local filename = vim.api.nvim_buf_get_name(bufnr)

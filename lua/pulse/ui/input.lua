@@ -83,34 +83,14 @@ function Input.new(opts)
   })
 
   local map_opts = { buffer = self.buf, noremap = true, silent = true }
-  local function map(lhs, cb)
-    vim.keymap.set({ "i", "n" }, lhs, cb, map_opts)
-  end
-  local function call(fn, ...)
-    if fn then
-      fn(...)
-    end
-  end
+  local function map(lhs, cb) vim.keymap.set({ "i", "n" }, lhs, cb, map_opts) end
+  local function call(fn, ...) if fn then fn(...) end end
 
-  map("<CR>", function()
-    call(self.on_submit, self:get_value())
-  end)
-  map("<Esc>", function()
-    call(self.on_escape)
-  end)
-  map("<Tab>", function()
-    call(self.on_tab)
-  end)
-  for _, lhs in ipairs({ "<Down>", "<C-n>" }) do
-    map(lhs, function()
-      call(self.on_down)
-    end)
-  end
-  for _, lhs in ipairs({ "<Up>", "<C-p>" }) do
-    map(lhs, function()
-      call(self.on_up)
-    end)
-  end
+  map("<CR>", function() call(self.on_submit, self:get_value()) end)
+  map("<Esc>", function() call(self.on_escape) end)
+  map("<Tab>", function() call(self.on_tab) end)
+  for _, lhs in ipairs({ "<Down>", "<C-n>" }) do map(lhs, function() call(self.on_down) end) end
+  for _, lhs in ipairs({ "<Up>", "<C-p>" }) do map(lhs, function() call(self.on_up) end) end
 
   configure_window(self.win)
   return self

@@ -5,25 +5,16 @@ local MAX_RESULTS = 400
 local uv = vim.uv or vim.loop
 
 local function notify_update(state)
-  if type(state.on_update) ~= "function" then
-    return
-  end
-  if state.update_scheduled then
-    return
-  end
+  if type(state.on_update) ~= "function" or state.update_scheduled then return end
   state.update_scheduled = true
   vim.schedule(function()
     state.update_scheduled = false
-    if type(state.on_update) == "function" then
-      state.on_update()
-    end
+    state.on_update()
   end)
 end
 
 local function stop_job(state)
-  if state.job and state.job > 0 then
-    pcall(vim.fn.jobstop, state.job)
-  end
+  if state.job and state.job > 0 then pcall(vim.fn.jobstop, state.job) end
   state.job = nil
 end
 
@@ -131,14 +122,11 @@ end
 
 function M.seed(ctx)
   return {
-    on_update = ctx and ctx.on_update or nil,
+    on_update = ctx and ctx.on_update,
     cwd = (ctx and ctx.cwd) or vim.fn.getcwd(),
     query = "",
     items = {},
-    pending_items = nil,
     token = 0,
-    job = nil,
-    timer = nil,
     stopped = false,
     update_scheduled = false,
   }

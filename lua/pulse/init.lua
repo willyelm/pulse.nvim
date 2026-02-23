@@ -29,25 +29,12 @@ local function open_panel(initial_prompt, extra_opts)
 end
 
 local function setup_cmdline_replacement()
-  local open_commands = function()
-    open_panel(":")
-  end
-
-  local apply_cmdline_ui = function()
-    vim.o.cmdheight = 0
-  end
+  local open_commands = function() open_panel(":") end
+  local apply_cmdline_ui = function() vim.o.cmdheight = 0 end
   apply_cmdline_ui()
 
-  vim.keymap.set({ "n", "x", "o" }, ":", open_commands, {
-    noremap = true,
-    silent = true,
-    desc = "Pulse Cmdline",
-  })
-  vim.keymap.set("n", "q:", open_commands, {
-    noremap = true,
-    silent = true,
-    desc = "Pulse Cmdline Window",
-  })
+  vim.keymap.set({ "n", "x", "o" }, ":", open_commands, { noremap = true, silent = true, desc = "Pulse Cmdline" })
+  vim.keymap.set("n", "q:", open_commands, { noremap = true, silent = true, desc = "Pulse Cmdline Window" })
 
   local group = vim.api.nvim_create_augroup("PulseCmdlineReplace", { clear = true })
   vim.api.nvim_create_autocmd("VimEnter", {

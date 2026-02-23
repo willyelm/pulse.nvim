@@ -169,23 +169,15 @@ function List:_visible_lines(width)
 			}
 		end
 		if (not selected) and right_start and #right > 0 then
-			local a1, a2 = right:find("%+%d+")
-			if a1 then
-				highlights[#highlights + 1] = {
-					group = ADD_SUM_HL,
-					row = index - 1,
-					start_col = SIDE_PADDING + right_start + a1 - 1,
-					end_col = SIDE_PADDING + right_start + a2,
-				}
-			end
-			local d1, d2 = right:find("%-%d+")
-			if d1 then
-				highlights[#highlights + 1] = {
-					group = DEL_SUM_HL,
-					row = index - 1,
-					start_col = SIDE_PADDING + right_start + d1 - 1,
-					end_col = SIDE_PADDING + right_start + d2,
-				}
+			for _, stat in ipairs({ { "%+%d+", ADD_SUM_HL }, { "%-%d+", DEL_SUM_HL } }) do
+				local p1, p2 = right:find(stat[1])
+				if p1 then
+					highlights[#highlights + 1] = {
+						group = stat[2], row = index - 1,
+						start_col = SIDE_PADDING + right_start + p1 - 1,
+						end_col = SIDE_PADDING + right_start + p2,
+					}
+				end
 			end
 		end
 		if selected then

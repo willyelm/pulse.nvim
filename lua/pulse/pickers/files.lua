@@ -6,12 +6,9 @@ local function normalize_path(path)
 end
 
 local function in_project(path, root)
-	local p = normalize_path(path)
 	local r = normalize_path(root)
-	if r:sub(-1) ~= "/" then
-		r = r .. "/"
-	end
-	return p:sub(1, #r) == r
+	if r:sub(-1) ~= "/" then r = r .. "/" end
+	return normalize_path(path):sub(1, #r) == r
 end
 
 local function collect_opened_files()

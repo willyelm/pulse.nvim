@@ -64,7 +64,7 @@ local function ts_items(query)
                 local txt = vim.treesitter.get_node_text(n, b)
                 if type(txt) == "table" then txt = table.concat(txt, "") end
                 local name = ts_name(txt)
-                if name ~= "" and ci(name, query or "") then
+                if name ~= "" and util.contains_ci(name, query or "") then
                   local r, c = n:range()
                   local k = ts_kind(nt)
                   out[#out + 1] = { kind = "workspace_symbol", symbol = name, symbol_kind = k, symbol_kind_name = kname(k), container = "", depth = 0, filename = f, lnum = r + 1, col = c + 1 }
