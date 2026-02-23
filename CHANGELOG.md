@@ -2,6 +2,13 @@
 
 
 
+
+## [0.1.7] - 2026-02-23
+
+### Changed
+
+- fix: use correct icon colors
+
 ## [0.1.6] - 2026-02-23
 
 ### Changed
