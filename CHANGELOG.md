@@ -1,6 +1,13 @@
 # Changelog
 
 
+
+## [0.1.6] - 2026-02-23
+
+### Changed
+
+- chore: fix relesae action
+
 ## [0.1.3] - 2026-02-22
 
 ### Changed
