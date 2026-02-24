@@ -2,7 +2,6 @@ local M = {}
 
 local ITEM_KIND = {
 	Command = { icon = "" },
-	File = { icon = "󰈔" },
 	Module = { icon = "󰆧" },
 	Namespace = { icon = "󰌗" },
 	Package = { icon = "󰏗" },
@@ -47,11 +46,12 @@ local function row(left, right, left_group, left_matches)
 		left_matches = left_matches,
 	}
 end
-
 local function basename(path)
 	return vim.fn.fnamemodify(path or "", ":t")
 end
-
+local function icon_matches(icon, hl, start_col)
+	return hl and { { start_col or 0, (start_col or 0) + #icon, hl } } or nil
+end
 local function file_right(path)
 	local ft = vim.filetype.match({ filename = path or "" })
 	if ft and ft ~= "" then
@@ -61,18 +61,23 @@ local function file_right(path)
 	return (ext ~= "" and ext) or "file"
 end
 
-local function icon_matches(icon, hl, start_col)
-	return hl and { { start_col or 0, (start_col or 0) + #icon, hl } } or nil
+local function symbol_depth(item)
+	local d = tonumber(item and item.depth) or 0
+	if d > 0 then
+		return d
+	end
+	local container = item and item.container or ""
+	if container == "" then
+		return 0
+	end
+	local parts = vim.split(container:gsub("::", "."), ".", { plain = true, trimempty = true })
+	return #parts
 end
 
 local function kind_icon_hl(kind)
 	local spec = ITEM_KIND[kind] or ITEM_KIND.Symbol
-	local suffix = spec.lsp
-	local lsp = suffix and ("@lsp.type." .. suffix) or nil
-	if lsp and vim.fn.hlexists(lsp) == 1 then
-		return lsp
-	end
-	return spec.hl or "Identifier"
+	local lsp = spec.lsp and ("@lsp.type." .. spec.lsp) or nil
+	return (lsp and vim.fn.hlexists(lsp) == 1) and lsp or (spec.hl or "Identifier")
 end
 
 local function icon_for_item(item_type, name)
@@ -86,13 +91,12 @@ local function icon_for_item(item_type, name)
 	end
 	if item_type == "kind" then
 		local kind = name or "Symbol"
-		local spec = ITEM_KIND[kind] or ITEM_KIND.Symbol
-		return spec.icon, kind_icon_hl(kind)
+		return (ITEM_KIND[kind] or ITEM_KIND.Symbol).icon, kind_icon_hl(kind)
 	end
 	if item_type == "diagnostic" then
 		local sev = string.upper(name or "INFO")
-		local key = "Diagnostic" .. ((sev == "ERROR" and "Error") or (sev == "WARN" and "Warn") or (sev == "HINT" and "Hint") or "Info")
-		local spec = ITEM_KIND[key] or ITEM_KIND.DiagnosticInfo
+		local spec = ITEM_KIND["Diagnostic" .. ((sev == "ERROR" and "Error") or (sev == "WARN" and "Warn") or (sev == "HINT" and "Hint") or "Info")]
+			or ITEM_KIND.DiagnosticInfo
 		return spec.icon, spec.hl
 	end
 	return ITEM_KIND.Symbol.icon, ITEM_KIND.Symbol.hl
@@ -102,18 +106,20 @@ function M.to_display(item)
 	if item.kind == "header" then
 		return row(item.label or "", "", "Title")
 	end
-	if item.kind == "file" then
-		local icon, icon_style = icon_for_item("file", item.path)
-		local name, right = basename(item.path), file_right(item.path)
-		local left, left_matches = string.format("%s %s", icon, name), icon_matches(icon, icon_style) or {}
-		if vim.fn.hlexists(right) == 1 then
-			left_matches[#left_matches + 1] = { #icon + 1, #left, right }
-		end
-		return row(left, right, false, (#left_matches > 0) and left_matches or nil)
-	end
 	if item.kind == "command" then
 		return row(string.format("%s :%s", ITEM_KIND.Command.icon, item.command))
 	end
+
+	if item.kind == "file" then
+		local icon, style = icon_for_item("file", item.path)
+		local name, right = basename(item.path), file_right(item.path)
+		local left, matches = string.format("%s %s", icon, name), icon_matches(icon, style) or {}
+		if vim.fn.hlexists(right) == 1 then
+			matches[#matches + 1] = { #icon + 1, #left, right }
+		end
+		return row(left, right, false, (#matches > 0) and matches or nil)
+	end
+
 	if item.kind == "live_grep" then
 		local line = vim.trim(item.text or "")
 		if line == "" then
@@ -122,14 +128,16 @@ function M.to_display(item)
 		local pos = string.format("%d:%d", item.lnum or 1, item.col or 1)
 		local out = row(line, string.format("%s:%s", basename(item.path), pos))
 		local q = vim.trim(item.query or "")
-		if q ~= "" then
-			local idx = line:lower():find(q:lower(), 1, true)
-			if idx then
-				out.left_matches = { { idx - 1, idx - 1 + #q } }
-			end
+		if q == "" then
+			return out
+		end
+		local idx = line:lower():find(q:lower(), 1, true)
+		if idx then
+			out.left_matches = { { idx - 1, idx - 1 + #q } }
 		end
 		return out
 	end
+
 	if item.kind == "fuzzy_search" then
 		local line = vim.trim(item.text or "")
 		if line == "" then
@@ -140,37 +148,37 @@ function M.to_display(item)
 			out.left_matches = {}
 			for _, col in ipairs(item.match_cols) do
 				if type(col) == "number" and col > 0 then
-					out.left_matches[#out.left_matches + 1] = { col - 1, col }
+					out.left_matches[#out.left_matches + 1] = {
+						col - 1,
+						col,
+					}
 				end
 			end
 		end
 		return out
 	end
+
 	if item.kind == "git_status" then
-		local icon, icon_style = icon_for_item("file", item.path)
+		local icon, style = icon_for_item("file", item.path)
 		return row(
 			string.format("%s %s", icon, basename(item.path)),
 			item.display_right or "",
 			false,
-			icon_matches(icon, icon_style)
+			icon_matches(icon, style)
 		)
 	end
+
 	if item.kind == "diagnostic" then
-		local icon, icon_hl = icon_for_item("diagnostic", item.severity_name)
-		local pos = string.format("%s:%d:%d", basename(item.filename), item.lnum or 1, item.col or 1)
+		local icon, hl = icon_for_item("diagnostic", item.severity_name)
 		local left = string.format("%s %s", icon, (item.message or ""):gsub("\n.*$", ""))
-		return row(left, pos, false, icon_matches(icon, icon_hl))
+		local pos = string.format("%s:%d:%d", basename(item.filename), item.lnum or 1, item.col or 1)
+		return row(left, pos, false, icon_matches(icon, hl))
 	end
 
 	local kind = item.symbol_kind_name or "Symbol"
-	local icon, icon_hl = icon_for_item("kind", kind)
-	local indent = string.rep("  ", math.max(item.depth or 0, 0))
-	return row(
-		string.format("%s%s %s", indent, icon, item.symbol or ""),
-		kind,
-		false,
-		icon_matches(icon, icon_hl, #indent)
-	)
+	local icon, hl = icon_for_item("kind", kind)
+	local indent = string.rep("  ", symbol_depth(item))
+	return row(string.format("%s%s %s", indent, icon, item.symbol or ""), kind, false, icon_matches(icon, hl, #indent))
 end
 
 return M

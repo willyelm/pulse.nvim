@@ -2,16 +2,9 @@ local M = {}
 local util = require("pulse.util")
 
 local SymbolKind = vim.lsp.protocol.SymbolKind or {}
+local NODE_KIND_PATTERNS = { "function", "method", "class", "interface", "enum", "struct", "type", "declaration" }
 
-local function kind_name(kind)
-  if type(kind) == "number" then
-    return SymbolKind[kind] or "Symbol"
-  end
-  if type(kind) == "string" and kind ~= "" then
-    return kind
-  end
-  return "Symbol"
-end
+local function kind_name(kind) return (type(kind) == "number" and SymbolKind[kind]) or ((type(kind) == "string" and kind ~= "") and kind) or "Symbol" end
 
 local function sort_by_line(items)
   table.sort(items, function(a, b)
@@ -20,27 +13,37 @@ local function sort_by_line(items)
     end
     return (a.lnum or 0) < (b.lnum or 0)
   end)
-  return items
+end
+
+local function make_symbol(name, kind, depth, line, col, filename)
+  return {
+    kind = "symbol",
+    symbol = tostring(name or ""):gsub("\n.*$", ""),
+    symbol_kind = kind or 0,
+    symbol_kind_name = kind_name(kind or 0),
+    depth = depth or 0,
+    lnum = (line or 0) + 1,
+    col = (col or 0) + 1,
+    filename = filename or "",
+  }
+end
+
+local function is_symbol_node(node_type)
+  for _, p in ipairs(NODE_KIND_PATTERNS) do
+    if node_type:find(p) then
+      return true
+    end
+  end
+  return false
 end
 
 local function flatten_document_symbols(result, bufnr)
-  local out = {}
-  local filename = vim.api.nvim_buf_get_name(bufnr)
-
+  local out, filename = {}, vim.api.nvim_buf_get_name(bufnr)
   local function walk(nodes, depth)
     for _, s in ipairs(nodes or {}) do
       local r = s.selectionRange or s.range
       if r and r.start and s.name and s.name ~= "" then
-        out[#out + 1] = {
-          kind = "symbol",
-          symbol = tostring(s.name):gsub("\n.*$", ""),
-          symbol_kind = s.kind or 0,
-          symbol_kind_name = kind_name(s.kind or 0),
-          depth = depth,
-          lnum = (r.start.line or 0) + 1,
-          col = (r.start.character or 0) + 1,
-          filename = filename,
-        }
+        out[#out + 1] = make_symbol(s.name, s.kind, depth, r.start.line, r.start.character, filename)
         walk(s.children, depth + 1)
       else
         walk(s.children, depth)
@@ -48,8 +51,8 @@ local function flatten_document_symbols(result, bufnr)
     end
   end
 
-  walk(result, 0)
-  return sort_by_line(out)
+  walk(result, 0); sort_by_line(out)
+  return out
 end
 
 local function flatten_symbol_information(result)
@@ -58,19 +61,11 @@ local function flatten_symbol_information(result)
     local loc = s.location
     local start = loc and loc.range and loc.range.start
     if start and s.name and s.name ~= "" then
-      out[#out + 1] = {
-        kind = "symbol",
-        symbol = tostring(s.name):gsub("\n.*$", ""),
-        symbol_kind = s.kind or 0,
-        symbol_kind_name = kind_name(s.kind or 0),
-        depth = 0,
-        lnum = (start.line or 0) + 1,
-        col = (start.character or 0) + 1,
-        filename = loc.uri and vim.uri_to_fname(loc.uri) or "",
-      }
+      out[#out + 1] = make_symbol(s.name, s.kind, 0, start.line, start.character, loc.uri and vim.uri_to_fname(loc.uri) or "")
     end
   end
-  return sort_by_line(out)
+  sort_by_line(out)
+  return out
 end
 
 local function lsp_symbols(bufnr, result)
@@ -91,13 +86,11 @@ local function treesitter_fallback(bufnr)
   local root = trees[1]:root()
   if not root then return {} end
 
-  local out = {}
-  local filename = vim.api.nvim_buf_get_name(bufnr)
+  local out, filename = {}, vim.api.nvim_buf_get_name(bufnr)
 
   local function walk(node)
     local t = node:type() or ""
-    if t:find("function") or t:find("method") or t:find("class") or t:find("interface") or t:find("enum")
-      or t:find("struct") or t:find("type") or t:find("declaration") then
+    if is_symbol_node(t) then
       local sr, sc = node:range()
       local text = vim.treesitter.get_node_text(node, bufnr)
       if type(text) == "table" then
@@ -105,16 +98,7 @@ local function treesitter_fallback(bufnr)
       end
       local name = vim.trim(tostring(text or ""):gsub("\n.*$", ""))
       if name ~= "" then
-        out[#out + 1] = {
-          kind = "symbol",
-          symbol = name,
-          symbol_kind = 0,
-          symbol_kind_name = "Symbol",
-          depth = 0,
-          lnum = sr + 1,
-          col = sc + 1,
-          filename = filename,
-        }
+        out[#out + 1] = make_symbol(name, 0, 0, sr, sc, filename)
       end
     end
 
@@ -123,8 +107,8 @@ local function treesitter_fallback(bufnr)
     end
   end
 
-  walk(root)
-  return sort_by_line(out)
+  walk(root); sort_by_line(out)
+  return out
 end
 
 function M.seed(ctx)

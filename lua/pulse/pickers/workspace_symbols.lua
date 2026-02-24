@@ -3,11 +3,12 @@ local util = require("pulse.util")
 
 local SymbolKind = vim.lsp.protocol.SymbolKind or {}
 local TS_KIND = { ["function"] = 12, ["method"] = 6, ["class"] = 5, ["interface"] = 11, ["enum"] = 10, ["struct"] = 23, ["type"] = 13 }
+local NODE_KIND_PATTERNS = { "function", "method", "class", "interface", "enum", "struct", "type", "declaration" }
 local function kname(k) return SymbolKind[k] or "Symbol" end
 local function depth(container)
   if not container or container == "" then return 0 end
   local p = vim.split(container:gsub("::", "."), ".", { plain = true, trimempty = true })
-  return math.max(#p - 1, 0)
+  return #p
 end
 local function sort_items(items)
   table.sort(items, function(a, b)
@@ -19,6 +20,28 @@ local function sort_items(items)
   end)
 end
 
+local function mk_item(name, kind, container, filename, line, col, depth_override)
+  local c = container or ""
+  return {
+    kind = "workspace_symbol",
+    symbol = name or "",
+    symbol_kind = kind or 0,
+    symbol_kind_name = kname(kind or 0),
+    container = c,
+    depth = (type(depth_override) == "number") and math.max(depth_override, 0) or depth(c),
+    filename = filename or "",
+    lnum = (line or 0) + 1,
+    col = (col or 0) + 1,
+  }
+end
+
+local function is_symbol_node(nt)
+  for _, p in ipairs(NODE_KIND_PATTERNS) do
+    if nt:find(p) then return true end
+  end
+  return false
+end
+
 local function lsp_fetch(query, cb)
   local pending, out = 0, {}
   for _, c in ipairs(vim.lsp.get_active_clients()) do
@@ -27,8 +50,7 @@ local function lsp_fetch(query, cb)
       c.request("workspace/symbol", { query = query or "" }, function(_, result)
         for _, s in ipairs(result or {}) do
           local loc, st = s.location or {}, (s.location and s.location.range and s.location.range.start) or {}
-          local container = s.containerName or ""
-          out[#out + 1] = { kind = "workspace_symbol", symbol = s.name or "", symbol_kind = s.kind or 0, symbol_kind_name = kname(s.kind or 0), container = container, depth = depth(container), filename = loc.uri and vim.uri_to_fname(loc.uri) or "", lnum = (st.line or 0) + 1, col = (st.character or 0) + 1 }
+          out[#out + 1] = mk_item(s.name, s.kind, s.containerName, loc.uri and vim.uri_to_fname(loc.uri) or "", st.line, st.character)
         end
         pending = pending - 1
         if pending == 0 then sort_items(out); cb(out) end
@@ -59,21 +81,21 @@ local function ts_items(query)
           local okp, trees = pcall(function() return p:parse() end)
           local root = okp and trees and trees[1] and trees[1]:root() or nil
           if root then
-            local function walk(n)
+            local function walk(n, d)
               local nt = n:type() or ""
-              if nt:find("function") or nt:find("method") or nt:find("class") or nt:find("interface") or nt:find("enum") or nt:find("struct") or nt:find("type") or nt:find("declaration") then
+              if is_symbol_node(nt) then
                 local txt = vim.treesitter.get_node_text(n, b)
                 if type(txt) == "table" then txt = table.concat(txt, "") end
                 local name = ts_name(txt)
                 if name ~= "" and match(name) then
                   local r, c = n:range()
                   local k = ts_kind(nt)
-                  out[#out + 1] = { kind = "workspace_symbol", symbol = name, symbol_kind = k, symbol_kind_name = kname(k), container = "", depth = 0, filename = f, lnum = r + 1, col = c + 1 }
+                  out[#out + 1] = mk_item(name, k, "", f, r, c, d)
                 end
               end
-              for ch in n:iter_children() do walk(ch) end
+              for ch in n:iter_children() do walk(ch, d + 1) end
             end
-            walk(root)
+            walk(root, 0)
           end
         end
       end

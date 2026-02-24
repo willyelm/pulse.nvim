@@ -2,10 +2,12 @@
 
 One entry point. Total focus.
 
+![Pulse](./images/pulse-showcase.gif)
+
 ## What is Pulse
 
-A Fast one command-palette picker for Neovim. Pulse uses a prefix
-approach to move quickly between modes:
+A Fast one command-palette for Neovim. Pulse uses a prefix
+approach to move quickly between picker modes:
 
 | Prefix      | Mode                          |
 | ----------- | ----------------------------- |
