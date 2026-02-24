@@ -1,5 +1,12 @@
 # Changelog
 
+
+## [0.1.8] - 2026-02-24
+
+### Changed
+
+- chore: update changelog
+
 ## [0.1.7] - 2026-02-23
 
 ### Changed
