@@ -1,3 +1,5 @@
+![NVIM](https://img.shields.io/badge/Neovim-57A143?style=flat-square&logo=neovim&logoColor=white)
+
 # Pulse.nvim
 
 One entry point. Total focus.
