@@ -3,6 +3,13 @@
 
 
 
+
+## [0.1.11] - 2026-02-24
+
+### Changed
+
+- chore: use gif for showcase
+
 ## [0.1.10] - 2026-02-24
 
 ### Changed
