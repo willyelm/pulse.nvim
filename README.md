@@ -2,7 +2,7 @@
 
 One entry point. Total focus.
 
-<video src="./images/pulse-showcase.webm" autoplay loop muted playsinline></video>
+![Pulse](./images/pulse-showcase.webm)
 
 ## What is Pulse
 
