@@ -2,7 +2,7 @@
 
 One entry point. Total focus.
 
-![Pulse](./images/pulse-showcase.webm)
+![Pulse](./images/pulse-showcase.gif)
 
 ## What is Pulse
 
