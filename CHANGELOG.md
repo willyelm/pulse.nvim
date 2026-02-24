@@ -1,6 +1,13 @@
 # Changelog
 
 
+
+## [0.1.9] - 2026-02-24
+
+### Changed
+
+- chore: use webm for preview image in readme
+
 ## [0.1.8] - 2026-02-24
 
 ### Changed
