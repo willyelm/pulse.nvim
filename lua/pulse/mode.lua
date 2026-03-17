@@ -5,6 +5,7 @@ M.MODES = {
 	commands = { start = ":", icon = "", placeholder = "Run Command", strip = 2, preview = false },
 	git_status = { start = "~", icon = "󰊢", placeholder = "Search Git Status", strip = 2, preview = true },
 	diagnostics = { start = "!", icon = "", placeholder = "Search Diagnostics", strip = 2, preview = true },
+	code_action = { start = ">", icon = "󰌶", placeholder = "Code Actions", strip = 2, preview = false },
 	symbol = { start = "@", icon = "󰘧", placeholder = "Search Symbols In Current Buffer", strip = 2, preview = false },
 	workspace_symbol = { start = "#", icon = "󰒕", placeholder = "Search Workspace Symbols", strip = 2, preview = false },
 	live_grep = { start = "$", icon = "󰍉", placeholder = "Live Grep In Project", strip = 2, preview = true },

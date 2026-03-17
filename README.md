@@ -17,6 +17,7 @@ approach to move quickly between picker modes:
 | `:`         | commands                      |
 | `~`         | git status                    |
 | `!`         | diagnostics                   |
+| `>`         | code actions                  |
 | `@`         | symbols (current buffer)      |
 | `#`         | workspace symbols             |
 | `$`         | live grep                     |
@@ -59,6 +60,7 @@ require("pulse").setup({
 - `:Pulse commands`
 - `:Pulse git_status`
 - `:Pulse diagnostics`
+- `:Pulse code_actions`
 - `:Pulse symbols`
 - `:Pulse workspace_symbols`
 - `:Pulse live_grep`
@@ -92,6 +94,7 @@ vim.keymap.set("n", "<leader>p", "<cmd>Pulse<cr>", { desc = "Pulse" })
 vim.keymap.set("n", "<leader>p:", "<cmd>Pulse commands<cr>", { desc = "Pulse Commands" })
 vim.keymap.set("n", "<leader>p~", "<cmd>Pulse git_status<cr>", { desc = "Pulse Git Status" })
 vim.keymap.set("n", "<leader>p!", "<cmd>Pulse diagnostics<cr>", { desc = "Pulse Diagnostics" })
+vim.keymap.set("n", "<leader>p>", "<cmd>Pulse code_actions<cr>", { desc = "Pulse Code Actions" })
 vim.keymap.set("n", "<leader>p@", "<cmd>Pulse symbols<cr>", { desc = "Pulse Symbols" })
 vim.keymap.set("n", "<leader>p#", "<cmd>Pulse workspace_symbols<cr>", { desc = "Pulse Workspace Symbols" })
 vim.keymap.set("n", "<leader>p$", "<cmd>Pulse live_grep<cr>", { desc = "Pulse Live Grep" })

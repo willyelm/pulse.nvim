@@ -110,6 +110,11 @@ function M.to_display(item)
 		return row(string.format("%s :%s", ITEM_KIND.Command.icon, item.command))
 	end
 
+	if item.kind == "code_action" then
+		local icon, hl = icon_for_item("kind", "Function")
+		return row(string.format("%s %s", icon, item.title or ""), "", false, icon_matches(icon, hl))
+	end
+
 	if item.kind == "file" then
 		local icon, style = icon_for_item("file", item.path)
 		local name, right = basename(item.path), file_right(item.path)

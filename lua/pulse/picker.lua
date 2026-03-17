@@ -7,12 +7,13 @@ local preview_data = require("pulse.preview")
 local modules = {
 	files = require("pulse.pickers.files"),
 	commands = require("pulse.pickers.commands"),
+	git_status = require("pulse.pickers.git_status"),
+	diagnostics = require("pulse.pickers.diagnostics"),
+	code_action = require("pulse.pickers.code_actions"),
 	symbol = require("pulse.pickers.symbols"),
 	workspace_symbol = require("pulse.pickers.workspace_symbols"),
 	live_grep = require("pulse.pickers.live_grep"),
 	fuzzy_search = require("pulse.pickers.fuzzy_search"),
-	git_status = require("pulse.pickers.git_status"),
-	diagnostics = require("pulse.pickers.diagnostics"),
 }
 
 local M = {}
