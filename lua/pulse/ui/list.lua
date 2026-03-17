@@ -40,6 +40,10 @@ local function fit_to_width(text, width)
 	return table.concat(out)
 end
 
+local function add_hl(highlights, group, row, start_col, end_col)
+	highlights[#highlights + 1] = { group = group, row = row, start_col = start_col, end_col = end_col }
+end
+
 local function normalise_item(rendered)
 	if type(rendered) ~= "table" then
 		rendered = {}
@@ -114,17 +118,8 @@ function List:_match_group(match_spec)
 end
 
 function List:_normalise_selection()
-	if #self.items == 0 then
-		self.selected = self.allow_empty_selection and 0 or 1
-		return
-	end
-
-	if self.allow_empty_selection then
-		self.selected = clamp(self.selected or 0, 0, #self.items)
-		return
-	end
-
-	self.selected = clamp(self.selected or 1, 1, #self.items)
+	local min_sel = (self.allow_empty_selection and 0 or 1)
+	self.selected = clamp(self.selected or min_sel, min_sel, #self.items)
 end
 
 function List:_visible_lines(width)
@@ -136,7 +131,8 @@ function List:_visible_lines(width)
 	if #self.items == 0 then
 		local text = "(No items)"
 		local fit = fit_to_width(text, content_width)
-		local pad = math.max(content_width - vim.fn.strdisplaywidth(fit), 0)
+		local fit_width = vim.fn.strdisplaywidth(fit)
+		local pad = math.max(content_width - fit_width, 0)
 		lines[1] = string.rep(" ", SIDE_PADDING) .. fit .. string.rep(" ", pad + SIDE_PADDING)
 		highlights[1] = { group = "Comment", row = 0, start_col = SIDE_PADDING, end_col = SIDE_PADDING + #fit }
 		while #lines < self.visible_count do
@@ -158,17 +154,15 @@ function List:_visible_lines(width)
 		if right ~= "" then
 			local right_text = fit_to_width(right, content_width)
 			local right_width = vim.fn.strdisplaywidth(right_text)
-			local left_cap = math.max(content_width - right_width - 1, 0)
-			left = fit_to_width(left, left_cap)
+			left = fit_to_width(left, math.max(content_width - right_width - 1, 0))
 			local left_width = vim.fn.strdisplaywidth(left)
 			local gap = math.max(content_width - left_width - right_width, 0)
 			text = left .. string.rep(" ", gap) .. right_text
-			text_width = vim.fn.strdisplaywidth(text)
 			right_start = #left + gap
 		else
 			text = left
-			text_width = vim.fn.strdisplaywidth(text)
 		end
+		text_width = vim.fn.strdisplaywidth(text)
 
 		local padded = string.rep(" ", SIDE_PADDING)
 			.. text
@@ -176,56 +170,33 @@ function List:_visible_lines(width)
 			.. string.rep(" ", SIDE_PADDING)
 		lines[index] = padded
 
-		if (not selected) and left_group and #left > 0 then
-			highlights[#highlights + 1] = {
-				group = left_group,
-				row = index - 1,
-				start_col = SIDE_PADDING,
-				end_col = SIDE_PADDING + #left,
-			}
-		end
-			if (not selected) and left_matches and #left_matches > 0 then
+			if selected then
+			add_hl(highlights, "Visual", index - 1, 0, -1)
+		else
+			if left_group and #left > 0 then
+				add_hl(highlights, left_group, index - 1, SIDE_PADDING, SIDE_PADDING + #left)
+			end
+			if left_matches and #left_matches > 0 then
 				local left_len = #left
 				for _, m in ipairs(left_matches) do
 					local s = math.max(tonumber(m[1]) or -1, 0)
-					local e = math.max(tonumber(m[2]) or -1, s)
 					if s < left_len then
-						highlights[#highlights + 1] = {
-							group = self:_match_group(m[3]),
-							row = index - 1,
-							start_col = SIDE_PADDING + s,
-							end_col = SIDE_PADDING + math.min(e, left_len),
-						}
+						local e = math.min(math.max(tonumber(m[2]) or -1, s), left_len)
+						add_hl(highlights, self:_match_group(m[3]), index - 1, SIDE_PADDING + s, SIDE_PADDING + e)
 					end
 				end
 			end
-		if (not selected) and right_start and right_group and #right > 0 then
-			highlights[#highlights + 1] = {
-				group = right_group,
-				row = index - 1,
-				start_col = SIDE_PADDING + right_start,
-				end_col = SIDE_PADDING + #text,
-			}
-		end
-		if (not selected) and right_start and #right > 0 then
-			for _, stat in ipairs({ { "%+%d+", ADD_SUM_HL }, { "%-%d+", DEL_SUM_HL } }) do
-				local p1, p2 = right:find(stat[1])
-				if p1 then
-					highlights[#highlights + 1] = {
-						group = stat[2], row = index - 1,
-						start_col = SIDE_PADDING + right_start + p1 - 1,
-						end_col = SIDE_PADDING + right_start + p2,
-					}
+			if right_start and right_group and #right > 0 then
+				add_hl(highlights, right_group, index - 1, SIDE_PADDING + right_start, SIDE_PADDING + #text)
+			end
+			if right_start and #right > 0 then
+				for _, stat in ipairs({ { "%+%d+", ADD_SUM_HL }, { "%-%d+", DEL_SUM_HL } }) do
+					local p1, p2 = right:find(stat[1])
+					if p1 then
+						add_hl(highlights, stat[2], index - 1, SIDE_PADDING + right_start + p1 - 1, SIDE_PADDING + right_start + p2)
+					end
 				end
 			end
-		end
-		if selected then
-			highlights[#highlights + 1] = {
-				group = "Visual",
-				row = index - 1,
-				start_col = 0,
-				end_col = -1,
-			}
 		end
 	end
 

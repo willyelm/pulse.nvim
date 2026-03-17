@@ -86,11 +86,18 @@ function Input.new(opts)
   local function map(lhs, cb) vim.keymap.set({ "i", "n" }, lhs, cb, map_opts) end
   local function call(fn, ...) if fn then fn(...) end end
 
-  map("<CR>", function() call(self.on_submit, self:get_value()) end)
-  map("<Esc>", function() call(self.on_escape) end)
-  map("<Tab>", function() call(self.on_tab) end)
-  for _, lhs in ipairs({ "<Down>", "<C-n>" }) do map(lhs, function() call(self.on_down) end) end
-  for _, lhs in ipairs({ "<Up>", "<C-p>" }) do map(lhs, function() call(self.on_up) end) end
+  local keymaps = {
+    { "<CR>", function() call(self.on_submit, self:get_value()) end },
+    { "<Esc>", function() call(self.on_escape) end },
+    { "<Tab>", function() call(self.on_tab) end },
+    { { "<Down>", "<C-n>" }, function() call(self.on_down) end },
+    { { "<Up>", "<C-p>" }, function() call(self.on_up) end },
+  }
+  for _, km in ipairs(keymaps) do
+    local keys, fn = km[1], km[2]
+    if type(keys) == "string" then keys = { keys } end
+    for _, lhs in ipairs(keys) do map(lhs, fn) end
+  end
 
   configure_window(self.win)
   return self

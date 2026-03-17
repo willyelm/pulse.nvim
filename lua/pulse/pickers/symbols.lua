@@ -2,7 +2,7 @@ local M = {}
 local util = require("pulse.util")
 
 local SymbolKind = vim.lsp.protocol.SymbolKind or {}
-local NODE_KIND_PATTERNS = { "function", "method", "class", "interface", "enum", "struct", "type", "declaration" }
+local NODE_KINDS = { ["function"] = true, method = true, class = true, interface = true, enum = true, struct = true, type = true, declaration = true }
 
 local function kind_name(kind) return (type(kind) == "number" and SymbolKind[kind]) or ((type(kind) == "string" and kind ~= "") and kind) or "Symbol" end
 
@@ -29,10 +29,8 @@ local function make_symbol(name, kind, depth, line, col, filename)
 end
 
 local function is_symbol_node(node_type)
-  for _, p in ipairs(NODE_KIND_PATTERNS) do
-    if node_type:find(p) then
-      return true
-    end
+  for kind in pairs(NODE_KINDS) do
+    if node_type:find(kind) then return true end
   end
   return false
 end

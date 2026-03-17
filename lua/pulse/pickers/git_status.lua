@@ -58,11 +58,11 @@ function M.items(state, query)
         added = stat.added,
         removed = stat.removed,
       }
-      local parts = {}
-      if item.added > 0 then parts[#parts + 1] = "+" .. item.added end
-      if item.removed > 0 then parts[#parts + 1] = "-" .. item.removed end
-      if item.code ~= "" then parts[#parts + 1] = item.code end
-      item.display_right = table.concat(parts, " ")
+      local display = {}
+      if item.added > 0 then display[#display + 1] = "+" .. item.added end
+      if item.removed > 0 then display[#display + 1] = "-" .. item.removed end
+      if item.code ~= "" then display[#display + 1] = item.code end
+      item.display_right = table.concat(display, " ")
       state.all_files[#state.all_files + 1] = item
       if match(item.path .. " " .. item.code) then
         state.files[#state.files + 1] = item

@@ -57,34 +57,24 @@ local function ensure_repo_files(state)
 end
 
 function M.items(state, query)
-	query = query or ""
 	local items, seen = {}, {}
 
-	if query == "" then
-		local active = {}
-		for _, path in ipairs(state.opened) do
-			if not seen[path] then
-				seen[path] = true
-				active[#active + 1] = { kind = "file", path = path }
+	if not query or query == "" then
+		local function add_section(label, paths)
+			local section = {}
+			for _, path in ipairs(paths) do
+				if not seen[path] then
+					seen[path] = true
+					section[#section + 1] = { kind = "file", path = path }
+				end
+			end
+			if #section > 0 then
+				items[#items + 1] = { kind = "header", label = label }
+				vim.list_extend(items, section)
 			end
 		end
-		if #active > 0 then
-			items[#items + 1] = { kind = "header", label = "Active" }
-			vim.list_extend(items, active)
-		end
-
-		local recent = {}
-		for _, path in ipairs(state.recent) do
-			if not seen[path] then
-				seen[path] = true
-				recent[#recent + 1] = { kind = "file", path = path }
-			end
-		end
-		if #recent > 0 then
-			items[#items + 1] = { kind = "header", label = "Recent Files" }
-			vim.list_extend(items, recent)
-		end
-
+		add_section("Active", state.opened)
+		add_section("Recent Files", state.recent)
 		return items
 	end
 
@@ -94,7 +84,6 @@ function M.items(state, query)
 			items[#items + 1] = { kind = "file", path = path }
 		end
 	end
-
 	return items
 end
 

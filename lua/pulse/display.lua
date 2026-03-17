@@ -52,6 +52,9 @@ end
 local function icon_matches(icon, hl, start_col)
 	return hl and { { start_col or 0, (start_col or 0) + #icon, hl } } or nil
 end
+local function format_icon_item(icon, text, right_text, hl)
+	return row(string.format("%s %s", icon, text), right_text, false, icon_matches(icon, hl))
+end
 local function file_right(path)
 	local ft = vim.filetype.match({ filename = path or "" })
 	if ft and ft ~= "" then
@@ -112,7 +115,12 @@ function M.to_display(item)
 
 	if item.kind == "code_action" then
 		local icon, hl = icon_for_item("kind", "Function")
-		return row(string.format("%s %s", icon, item.title or ""), "", false, icon_matches(icon, hl))
+		local action_kind = (item.action and item.action.kind) or ""
+		-- Format kind nicely (e.g. "refactor.extract" -> "refactor")
+		if action_kind ~= "" then
+			action_kind = action_kind:match("^([^.]+)") or action_kind
+		end
+		return row(string.format("%s %s", icon, item.title or ""), action_kind, false, icon_matches(icon, hl))
 	end
 
 	if item.kind == "file" then
@@ -165,19 +173,13 @@ function M.to_display(item)
 
 	if item.kind == "git_status" then
 		local icon, style = icon_for_item("file", item.path)
-		return row(
-			string.format("%s %s", icon, basename(item.path)),
-			item.display_right or "",
-			false,
-			icon_matches(icon, style)
-		)
+		return format_icon_item(icon, basename(item.path), item.display_right or "", style)
 	end
 
 	if item.kind == "diagnostic" then
 		local icon, hl = icon_for_item("diagnostic", item.severity_name)
-		local left = string.format("%s %s", icon, (item.message or ""):gsub("\n.*$", ""))
 		local pos = string.format("%s:%d:%d", basename(item.filename), item.lnum or 1, item.col or 1)
-		return row(left, pos, false, icon_matches(icon, hl))
+		return format_icon_item(icon, (item.message or ""):gsub("\n.*$", ""), pos, hl)
 	end
 
 	local kind = item.symbol_kind_name or "Symbol"

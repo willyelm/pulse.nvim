@@ -257,7 +257,7 @@ function M.open(opts)
 		if vim.api.nvim_win_is_valid(source_win) then
 			pcall(vim.api.nvim_win_call, source_win, do_jump)
 		else
-			pcall(do_jump)
+			do_jump()
 		end
 		return jumped
 	end

@@ -29,6 +29,10 @@ local function normalise_lines(lines)
   return out
 end
 
+local function add_hl(highlights, group, row, start_col, end_col, priority)
+  highlights[#highlights + 1] = { group = group, row = row, start_col = start_col, end_col = end_col, priority = priority }
+end
+
 local function add_query_matches(highlights, lines, query)
   local q = (query or ""):lower()
   if q == "" then return end
@@ -37,7 +41,7 @@ local function add_query_matches(highlights, lines, query)
     while true do
       local idx = lower:find(q, from, true)
       if not idx then break end
-      highlights[#highlights + 1] = { group = "Search", row = row - 1, start_col = idx - 1, end_col = idx - 1 + #q }
+      add_hl(highlights, "Search", row - 1, idx - 1, idx - 1 + #q)
       from = idx + 1
     end
   end
@@ -183,13 +187,10 @@ function Preview:set(lines, filetype, highlights, line_numbers, focus_row)
   end
 
   for _, hl in ipairs(highlights or {}) do
-    if type(hl.priority) == "number" and type(hl.end_col) == "number" and hl.end_col >= 0 then
+    if hl.priority and hl.end_col and hl.end_col >= 0 then
       pcall(vim.api.nvim_buf_set_extmark, self.buf, self.ns, hl.row, hl.start_col, {
-        end_row = hl.row,
-        end_col = hl.end_col,
-        hl_group = hl.group,
-        hl_mode = hl.hl_mode or "replace",
-        priority = hl.priority,
+        end_row = hl.row, end_col = hl.end_col, hl_group = hl.group,
+        hl_mode = hl.hl_mode or "replace", priority = hl.priority,
       })
     else
       pcall(vim.api.nvim_buf_add_highlight, self.buf, self.ns, hl.group, hl.row, hl.start_col, hl.end_col)
