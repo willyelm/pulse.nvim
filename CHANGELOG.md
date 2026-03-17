@@ -5,6 +5,17 @@
 
 
 
+
+## [0.2.0] - 2026-03-17
+
+### New
+
+- add code_actions picker with > prefix
+
+### Changed
+
+- fix: improve code_actions hints and enhance overall performance
+
 ## [0.1.12] - 2026-02-24
 
 ### Changed
