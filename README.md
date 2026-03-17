@@ -17,7 +17,7 @@ approach to move quickly between picker modes:
 | `:`         | commands                      |
 | `~`         | git status                    |
 | `!`         | diagnostics                   |
-| `>`         | code actions                  |
+| `>`         | code actions (current buffer) |
 | `@`         | symbols (current buffer)      |
 | `#`         | workspace symbols             |
 | `$`         | live grep                     |

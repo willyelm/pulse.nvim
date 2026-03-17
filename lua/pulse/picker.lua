@@ -227,6 +227,7 @@ function M.open(opts)
 					end
 				end,
 				bufnr = source_bufnr,
+				win = source_win,
 				cwd = cwd,
 			})
 		end
