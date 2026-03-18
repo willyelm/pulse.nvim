@@ -7,6 +7,13 @@
 
 
 
+
+## [0.2.2] - 2026-03-18
+
+### Changed
+
+- fix: use picker drive execute commands
+
 ## [0.2.1] - 2026-03-18
 
 ### Changed
