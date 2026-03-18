@@ -6,6 +6,14 @@
 
 
 
+
+## [0.2.1] - 2026-03-18
+
+### Changed
+
+- fix: improve workspace_symbols tree and correctness
+- fix: use actual editor buffer for code_actions
+
 ## [0.2.0] - 2026-03-17
 
 ### New
