@@ -107,7 +107,13 @@ end
 
 function M.to_display(item)
 	if item.kind == "header" then
-		return row(item.label or "", "", "Title")
+		if item.path then
+			local icon, style = icon_for_item("file", item.path)
+			local left = string.format("%s %s", icon, item.label or "")
+			local matches = icon_matches(icon, style) or {}
+			return row(left, "", false, (#matches > 0) and matches or nil)
+		end
+		return row(item.label or "", "", "Label")
 	end
 	if item.kind == "command" then
 		return row(string.format("%s :%s", ITEM_KIND.Command.icon, item.command))
