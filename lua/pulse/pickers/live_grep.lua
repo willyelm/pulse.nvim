@@ -2,7 +2,6 @@ local M = {}
 
 local DEBOUNCE_MS = 60
 local MAX_RESULTS = 400
-local uv = vim.uv or vim.loop
 
 local function notify_update(state)
   if type(state.on_update) ~= "function" or state.update_scheduled then return end
@@ -149,7 +148,8 @@ function M.items(state, query)
     local token = state.token
 
     stop_timer(state)
-    state.timer = uv.new_timer()
+    ---@diagnostic disable-next-line: undefined-field
+    state.timer = (vim.uv or vim.loop).new_timer()
     state.timer:start(DEBOUNCE_MS, 0, function()
       vim.schedule(function()
         if token ~= state.token or state.query ~= q then

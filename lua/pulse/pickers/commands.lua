@@ -1,6 +1,22 @@
 local M = {}
 local util = require("pulse.util")
 
+local function execute(item)
+  local ex = vim.trim((item and item.command) or ""):gsub("^:", "")
+  if ex == "" then
+    return false
+  end
+  vim.schedule(function()
+    local ok, err = pcall(function()
+      vim.cmd(ex)
+    end)
+    if not ok then
+      vim.notify(tostring(err), vim.log.levels.ERROR)
+    end
+  end)
+  return true
+end
+
 function M.seed()
   local history = {}
   local seen = {}
@@ -36,18 +52,22 @@ function M.items(state, query)
     for _, cmd in ipairs(state.history) do
       if match(cmd) then
         seen[cmd] = true
-        items[#items + 1] = { kind = "command", command = cmd }
+        items[#items + 1] = { kind = "command", command = cmd, execute = execute }
       end
     end
   end
 
   for _, cmd in ipairs(state.commands) do
     if not seen[cmd] and match(cmd) then
-      items[#items + 1] = { kind = "command", command = cmd }
+      items[#items + 1] = { kind = "command", command = cmd, execute = execute }
     end
   end
 
   return items
+end
+
+function M.execute(cmd)
+  return execute({ command = cmd })
 end
 
 return M

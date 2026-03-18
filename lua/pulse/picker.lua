@@ -296,9 +296,9 @@ function M.open(opts)
 		if mode_name == "commands" then
 			close_palette()
 			if command_selection_explicit and selected and selected.kind == "command" then
-				actions.execute_command(selected.command)
+				selected.execute(selected)
 			elseif query ~= "" then
-				actions.execute_command(query)
+				modules.commands.execute(query)
 			end
 			return
 		end
