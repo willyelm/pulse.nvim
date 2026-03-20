@@ -116,13 +116,29 @@ end
 
 local function display_file(item)
 	local icon, style = icon_for_item("file", item.path)
-	local name = file_name(item.path)
+	local name = item.label or file_name(item.path)
 	local right = file_type(item.path)
-	local left, matches = string.format("%s %s", icon, name), (style and { { 0, #icon, style } } or nil) or {}
-	if vim.fn.hlexists(right) == 1 then
-		matches[#matches + 1] = { #icon + 1, #left, right }
+	local indent = string.rep("  ", tonumber(item.depth) or 0)
+	local left, matches = string.format("%s%s %s", indent, icon, name), (style and { { #indent, #indent + #icon, style } } or nil) or {}
+	local left_group = item.ignored and "Comment" or false
+	local right_group = item.ignored and "Comment" or "LineNr"
+	if item.ignored then
+		matches = { { #indent, #indent + #icon, "Comment" } }
 	end
-	return row(left, right, false, (#matches > 0) and matches or nil)
+	if not item.ignored and vim.fn.hlexists(right) == 1 then
+		matches[#matches + 1] = { #indent + #icon + 1, #left, right }
+	end
+	local out = row(left, right, left_group, (#matches > 0) and matches or nil)
+	out.right_group = right_group
+	return out
+end
+
+local function display_folder(item)
+	local indent = string.rep("  ", tonumber(item.depth) or 0)
+	local icon = item.expanded and "󰷏" or "󰉋"
+	local group = item.ignored and "Comment" or false
+	local icon_hl = item.ignored and "Comment" or "Directory"
+	return row(string.format("%s%s %s", indent, icon, item.label or file_name(item.path)), "", group, { { #indent, #indent + #icon, icon_hl } })
 end
 
 local function display_grep(item)
@@ -200,6 +216,7 @@ local RENDERERS = {
 	command = display_command,
 	code_action = display_code_action,
 	file = display_file,
+	folder = display_folder,
 	live_grep = display_grep,
 	fuzzy_search = display_grep,
 	git_status = display_git_status,

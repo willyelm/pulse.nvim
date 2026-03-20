@@ -225,6 +225,11 @@ function M:set_items(items)
 	self:_normalise_selection()
 end
 
+function M:set_max_visible(max_visible)
+	self.max_visible = math.max(tonumber(max_visible) or self.min_visible, self.min_visible)
+	self:set_items(self.items)
+end
+
 function M:set_selected(index)
 	self.selected = index
 	self:_normalise_selection()

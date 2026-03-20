@@ -34,6 +34,67 @@ local function item_count(items)
 	return count
 end
 
+local function item_key(item)
+	if not item or is_header(item) then
+		return nil
+	end
+	if item.kind == "folder" or item.kind == "file" then
+		return item.kind .. ":" .. tostring(item.path)
+	end
+	if item.filename then
+		return tostring(item.kind) .. ":" .. tostring(item.filename) .. ":" .. tostring(item.lnum) .. ":" .. tostring(item.col)
+	end
+	if item.path then
+		return tostring(item.kind) .. ":" .. tostring(item.path) .. ":" .. tostring(item.lnum) .. ":" .. tostring(item.col)
+	end
+	if item.command then
+		return "command:" .. tostring(item.command)
+	end
+	if item.symbol then
+		return tostring(item.kind) .. ":" .. tostring(item.symbol) .. ":" .. tostring(item.filename or item.path) .. ":" .. tostring(item.lnum)
+	end
+	return nil
+end
+
+local function find_item_index(items, key)
+	if not key then
+		return nil
+	end
+	for i, item in ipairs(items or {}) do
+		if item_key(item) == key then
+			return i
+		end
+	end
+end
+
+local function should_show_preview(preview_cfg, item)
+	return item and ((type(preview_cfg) == "function" and preview_cfg(item) == true) or preview_cfg == true)
+end
+
+local function available_body_height(max_total, show_panels)
+	local panel_rows = show_panels and 2 or 0
+	return math.max(max_total - 2 - panel_rows, 1), panel_rows
+end
+
+local function resolve_heights(list, max_total, panel_rows, preview_item, preview_item_fn)
+	local body_height = list.visible_count
+	local preview_height = 0
+	local preview_spec
+
+	if not preview_item then
+		return body_height, preview_height, preview_spec
+	end
+
+	local lines, ft, highlights, line_numbers, focus_row = preview_data.for_item(preview_item, preview_item_fn)
+	local line_count = math.max(#(lines or {}), 1)
+	local available = math.max(max_total - 3 - panel_rows, 2)
+	body_height = math.min(list.visible_count, available - 1)
+	preview_height = math.min(line_count, available - body_height)
+	preview_spec = { lines, ft, highlights, line_numbers, focus_row }
+
+	return body_height, preview_height, preview_spec
+end
+
 function M.open(opts)
 	panel.setup_hl()
 
@@ -50,11 +111,12 @@ function M.open(opts)
 	local cwd = vim.fn.getcwd()
 	local states, items = {}, {}
 	local active_panels = {}
-	local closed, input, refresh = false, nil, nil
+	local closed, input, refresh, jump_in_source = false, nil, nil, nil
 	local registry = config.options._picker_registry or {}
 	local current = {
 		mode_name = nil,
 		mod = nil,
+		state = nil,
 		query = "",
 		panel = nil,
 		panel_header = nil,
@@ -170,10 +232,12 @@ function M.open(opts)
 	local function hook_ctx(item)
 		return {
 			item = item,
+			state = current.state,
 			query = current.query,
 			close = close_palette,
 			jump = jump_in_source,
 			input = input,
+			refresh = refresh,
 			mode = current.mod and current.mod.mode,
 		}
 	end
@@ -192,21 +256,12 @@ function M.open(opts)
 
 		local preview_cfg = current.mod and current.mod.preview
 		local preview_item = active_or_first(list:selected_item(), items)
-		local show_preview = preview_item and ((type(preview_cfg) == "function" and preview_cfg(preview_item) == true) or preview_cfg == true)
-		local panel_rows = panels.buf and 2 or 0
+		local show_preview = should_show_preview(preview_cfg, preview_item)
 		local max_total = layout_mod.resolve_max_height(picker_opts.height)
-		local body_height = math.min(list.visible_count, math.max(max_total - 2 - panel_rows, 1))
-		local preview_height = 0
-		local preview_spec
-
-		if show_preview and preview_item then
-			local lines, ft, highlights, line_numbers, focus_row = preview_data.for_item(preview_item, current.mod and current.mod.preview_item)
-			local line_count = math.max(#(lines or {}), 1)
-			local available = math.max(max_total - 3 - panel_rows, 2)
-			body_height = math.min(list.visible_count, available - 1)
-			preview_height = math.min(line_count, available - body_height)
-			preview_spec = { lines, ft, highlights, line_numbers, focus_row }
-		end
+		local body_available, panel_rows = available_body_height(max_total, panels.buf ~= nil)
+		list:set_max_visible(body_available)
+		local body_height, preview_height, preview_spec =
+			resolve_heights(list, max_total, panel_rows, show_preview and preview_item or nil, current.mod and current.mod.preview_item)
 
 		layout:apply(body_height, preview_height, {
 			list = list,
@@ -230,7 +285,7 @@ function M.open(opts)
 		rerender()
 	end
 
-	local function jump_in_source(item)
+	function jump_in_source(item)
 		local jumped
 		local function do_jump()
 			jumped = actions.jump_to(item)
@@ -250,6 +305,7 @@ function M.open(opts)
 		local state = ensure_state(mode_name)
 		local mode_switched = mode_name ~= current.mode_name
 		local active_panel = panel.active_name(active_panels, mode_name, mod and mod.panels, picker_opts.initial_panel)
+		local selected_key = item_key(current_item())
 
 		local next_items = mod.items(state, query, active_panel)
 		local found = item_count(next_items)
@@ -260,6 +316,7 @@ function M.open(opts)
 
 		current.mode_name = mode_name
 		current.mod = mod
+		current.state = state
 		current.query = query
 		current.panel = active_panel
 		current.panel_header = panel.header_item(mod and mod.panels, active_panel)
@@ -271,6 +328,8 @@ function M.open(opts)
 			local allows_empty = mod and mod.allow_empty_selection == true
 			list:set_allow_empty_selection(allows_empty)
 			list:set_selected(allows_empty and 0 or 1)
+		elseif selected_key then
+			list:set_selected(find_item_index(items, selected_key) or list.selected)
 		elseif prompt == vim.g.pulse_last_prompt and vim.g.pulse_last_selected then
 			-- Restore previous selection if prompt matches
 			list:set_selected(vim.g.pulse_last_selected)
