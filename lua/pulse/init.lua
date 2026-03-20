@@ -29,12 +29,11 @@ function M.filetype_for(path)
 end
 
 local function open_panel(initial_prompt, extra_opts)
-	if vim.fn.getcmdwintype() ~= "" then
-		vim.notify("Pulse: cannot open inside the command-line window", vim.log.levels.WARN)
-		return
+	if not initial_prompt or initial_prompt == "" then
+		initial_prompt = vim.g.pulse_last_prompt or ""
 	end
 	picker.open(vim.tbl_deep_extend("force", {
-		initial_prompt = initial_prompt or "",
+		initial_prompt = initial_prompt,
 	}, config.options, extra_opts or {}))
 end
 

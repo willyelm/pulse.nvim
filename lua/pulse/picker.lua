@@ -141,6 +141,10 @@ function M.open(opts)
 			return
 		end
 		closed = true
+		if input then
+			vim.g.pulse_last_prompt = input:get_value()
+			vim.g.pulse_last_selected = list.selected
+		end
 		for mode_name, state in pairs(states) do
 			local mod = registry[mode_name]
 			if mod and type(mod.dispose) == "function" then
@@ -325,6 +329,9 @@ function M.open(opts)
 			local allows_empty = mod and mod.allow_empty_selection == true
 			list:set_allow_empty_selection(allows_empty)
 			list:set_selected(allows_empty and 0 or 1)
+		elseif prompt == vim.g.pulse_last_prompt and vim.g.pulse_last_selected then
+			-- Restore previous selection if prompt matches
+			list:set_selected(vim.g.pulse_last_selected)
 		end
 
 		local total = found
