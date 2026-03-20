@@ -8,6 +8,17 @@
 
 
 
+
+## [0.3.0] - 2026-03-20
+
+### New
+
+- separate picker loader with picker api
+
+### Changed
+
+- fix: preserve latest prompt and itemselection
+
 ## [0.2.2] - 2026-03-18
 
 ### Changed
