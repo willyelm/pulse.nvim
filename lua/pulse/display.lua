@@ -55,6 +55,19 @@ local function kind_icon_hl(kind)
 	return (lsp and vim.fn.hlexists(lsp) == 1) and lsp or (spec.hl or "Identifier")
 end
 
+local function file_name(path)
+	return vim.fn.fnamemodify(path or "", ":t")
+end
+
+local function file_type(path)
+	local ft = vim.filetype.match({ filename = path or "" })
+	if ft and ft ~= "" then
+		return ft
+	end
+	ft = vim.fn.fnamemodify(path or "", ":e")
+	return ft ~= "" and ft or "file"
+end
+
 local function icon_for_item(item_type, name)
 	if item_type == "file" then
 		if not ok_devicons then
@@ -84,7 +97,10 @@ local function display_header(item)
 		local matches = (style and { { 0, #icon, style } } or nil) or {}
 		return row(left, "", false, (#matches > 0) and matches or nil)
 	end
-	return row(item.label or "", "", "Label")
+	if item.panel_highlights then
+		return row(item.label or "", "", false, item.panel_highlights)
+	end
+	return row(item.label or "", "", "Comment")
 end
 
 local function display_command(item)
@@ -100,9 +116,8 @@ end
 
 local function display_file(item)
 	local icon, style = icon_for_item("file", item.path)
-	local name = vim.fn.fnamemodify(item.path, ":t")
-	local ft = vim.filetype.match({ filename = item.path or "" })
-	local right = (ft and ft ~= "") and ft or (vim.fn.fnamemodify(item.path or "", ":e") ~= "" and vim.fn.fnamemodify(item.path or "", ":e") or "file")
+	local name = file_name(item.path)
+	local right = file_type(item.path)
 	local left, matches = string.format("%s %s", icon, name), (style and { { 0, #icon, style } } or nil) or {}
 	if vim.fn.hlexists(right) == 1 then
 		matches[#matches + 1] = { #icon + 1, #left, right }
@@ -113,10 +128,10 @@ end
 local function display_grep(item)
 	local line = vim.trim(item.text or "")
 	if line == "" then
-		line = vim.fn.fnamemodify(item.path or item.filename, ":t")
+		line = file_name(item.path or item.filename)
 	end
 	local pos = string.format("%d:%d", item.lnum or 1, item.col or 1)
-	local out = row(line, string.format("%s:%s", vim.fn.fnamemodify(item.path or item.filename, ":t"), pos))
+	local out = row(line, string.format("%s:%s", file_name(item.path or item.filename), pos))
 
 	local q = vim.trim(item.query or "")
 	if q ~= "" then
@@ -139,7 +154,7 @@ end
 
 local function display_git_status(item)
 	local icon, style = icon_for_item("file", item.path)
-	local display = format_icon_item(icon, vim.fn.fnamemodify(item.path, ":t"), item.display_right or "", style)
+	local display = format_icon_item(icon, file_name(item.path), item.display_right or "", style)
 
 	-- Add highlighting for additions and deletions in right column
 	local right_str = item.display_right or ""
@@ -162,7 +177,7 @@ end
 
 local function display_diagnostic(item)
 	local icon, hl = icon_for_item("diagnostic", item.severity_name)
-	local pos = string.format("%s:%d:%d", vim.fn.fnamemodify(item.filename, ":t"), item.lnum or 1, item.col or 1)
+	local pos = string.format("%s:%d:%d", file_name(item.filename), item.lnum or 1, item.col or 1)
 	return format_icon_item(icon, (item.message or ""):gsub("\n.*$", ""), pos, hl)
 end
 

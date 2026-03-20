@@ -4,6 +4,8 @@ local display = require("pulse.display")
 local mode = require("pulse.mode")
 local preview_data = require("pulse.preview")
 local config = require("pulse.config")
+local layout_mod = require("pulse.layout")
+local panel = require("pulse.panel")
 
 local M = {}
 
@@ -11,94 +13,30 @@ local function is_header(item)
 	return item and item.kind == "header"
 end
 
-local function resolve_max_height(height_cfg)
-	local total = vim.o.lines - vim.o.cmdheight
-	local h = type(height_cfg) == "number" and height_cfg or 0.5
-	return math.max((h > 0 and h < 1) and math.floor(total * h) or math.floor(h), 6)
+local function active_or_first(selected, items)
+	if selected and not is_header(selected) then
+		return selected
+	end
+	for _, item in ipairs(items or {}) do
+		if not is_header(item) then
+			return item
+		end
+	end
 end
 
-local function new_layout(box)
-	local layout = { sections = {}, last_dims = {} }
-
-	local function upsert(name, opts)
-		local current = layout.sections[name]
-		if current and current.buf and vim.api.nvim_buf_is_valid(current.buf) then
-			opts.buf = current.buf
+local function item_count(items)
+	local count = 0
+	for _, item in ipairs(items or {}) do
+		if not is_header(item) then
+			count = count + 1
 		end
-		layout.sections[name] = box:create_section(name, opts)
-		return layout.sections[name]
 	end
-
-	local function draw_divider(buf, width)
-		vim.bo[buf].modifiable = true
-		vim.api.nvim_buf_set_lines(buf, 0, -1, false, { string.rep("─", width) })
-		vim.bo[buf].modifiable = false
-	end
-
-	function layout:apply(body_height, preview_height, refs)
-		local width = vim.api.nvim_win_get_width(box.win)
-		local show_preview = preview_height > 0
-		if
-			self.sections.input
-			and self.last_dims.body == body_height
-			and self.last_dims.preview == preview_height
-			and self.last_dims.width == width
-		then
-			return
-		end
-
-		box:update({ height = body_height + (show_preview and preview_height or 0) + (show_preview and 3 or 2) })
-		width = vim.api.nvim_win_get_width(box.win)
-
-		local specs = {
-			{ name = "input", row = 0, height = 1, focusable = true, winhl = "Normal:NormalFloat" },
-			{ name = "divider", row = 1, height = 1, focusable = false, winhl = "Normal:FloatBorder", divider = true },
-			{ name = "list", row = 2, height = body_height, focusable = true, winhl = "Normal:NormalFloat,CursorLine:CursorLine" },
-		}
-
-		if show_preview then
-			specs[#specs + 1] = { name = "body_divider", row = 2 + body_height, height = 1, focusable = false, winhl = "Normal:FloatBorder", divider = true }
-			specs[#specs + 1] = { name = "preview", row = 3 + body_height, height = preview_height, focusable = true, winhl = "Normal:NormalFloat" }
-		else
-			box:close_section("body_divider")
-			box:close_section("preview")
-			self.sections.body_divider = nil
-			self.sections.preview = nil
-		end
-
-		for _, s in ipairs(specs) do
-			local section = upsert(s.name, {
-				row = s.row,
-				col = 0,
-				width = width,
-				height = s.height,
-				focusable = s.focusable,
-				enter = false,
-				winhl = s.winhl,
-			})
-			if s.divider then
-				draw_divider(section.buf, width)
-			end
-		end
-
-		if refs.list then
-			refs.list.win = self.sections.list.win
-		end
-		if refs.input then
-			refs.input:set_win(self.sections.input.win)
-		end
-		if refs.preview then
-			local buf, win = show_preview and self.sections.preview.buf or nil, show_preview and self.sections.preview.win or nil
-			refs.preview:set_target(buf, win)
-		end
-
-		self.last_dims = { body = body_height, preview = preview_height, width = width }
-	end
-
-	return layout
+	return count
 end
 
 function M.open(opts)
+	panel.setup_hl()
+
 	local picker_opts = vim.tbl_deep_extend("force", {
 		initial_mode = "insert",
 		position = "top",
@@ -111,9 +49,16 @@ function M.open(opts)
 	local source_win = vim.api.nvim_get_current_win()
 	local cwd = vim.fn.getcwd()
 	local states, items = {}, {}
-	local active_mode = "files"
+	local active_panels = {}
 	local closed, input, refresh = false, nil, nil
 	local registry = config.options._picker_registry or {}
+	local current = {
+		mode_name = nil,
+		mod = nil,
+		query = "",
+		panel = nil,
+		panel_header = nil,
+	}
 
 	local box = ui.box.new({
 		width = picker_opts.width or 0.70,
@@ -134,7 +79,9 @@ function M.open(opts)
 
 	local lifecycle_group = vim.api.nvim_create_augroup("PulseUIPalette" .. box.buf, { clear = true })
 	local list, preview
-	local layout = new_layout(box)
+	local panels = { buf = nil, win = nil }
+	local panels_ns = vim.api.nvim_create_namespace("pulse_ui_panels")
+	local layout = layout_mod.new(box)
 
 	local function close_palette()
 		if closed then
@@ -163,74 +110,6 @@ function M.open(opts)
 		once = true,
 		callback = close_palette,
 	})
-
-	local function rerender()
-		if closed then
-			return
-		end
-		local max_total = resolve_max_height(picker_opts.height)
-		local selected = list:selected_item()
-		local preview_item
-
-		-- Determine if preview should be shown
-		local mod = registry[active_mode]
-		local should_preview = false
-		if mod then
-			local preview_cfg = mod.preview
-			if type(preview_cfg) == "function" then
-				-- Dynamic preview: call function with selected item
-				if not is_header(selected) then
-					should_preview = preview_cfg(selected) == true
-				else
-					-- Try first non-header item
-					for _, item in ipairs(items) do
-						if not is_header(item) then
-							should_preview = preview_cfg(item) == true
-							break
-						end
-					end
-				end
-			elseif preview_cfg == true then
-				-- Static preview enabled
-				should_preview = true
-			end
-		end
-
-		if should_preview then
-			if not is_header(selected) then
-				preview_item = selected
-			else
-				for _, item in ipairs(items) do
-					if not is_header(item) then
-						preview_item = item
-						break
-					end
-				end
-			end
-		end
-
-		local preview_height, body_height
-		if preview_item then
-			local lines, ft, highlights, line_numbers, focus_row = preview_data.for_item(preview_item)
-			local line_count = math.max(#(lines or {}), 1)
-			local available = math.max(max_total - 3, 2)
-			body_height = math.min(list.visible_count, available - 1)
-			preview_height = math.min(line_count, available - body_height)
-
-			layout:apply(body_height, preview_height, { list = list, preview = preview, input = input })
-
-			-- Set preview content AFTER layout is applied to ensure window is valid
-			if preview and preview.win and vim.api.nvim_win_is_valid(preview.win) then
-				preview:set(lines, ft, highlights, line_numbers, focus_row)
-			end
-		else
-			body_height = math.min(list.visible_count, math.max(max_total - 2, 1))
-			preview_height = 0
-			layout:apply(body_height, preview_height, { list = list, preview = preview, input = input })
-		end
-
-		list:render(vim.api.nvim_win_get_width(list.win))
-	end
 
 	local function ensure_state(mode_name)
 		if states[mode_name] then
@@ -261,20 +140,93 @@ function M.open(opts)
 	})
 	preview = preview_data.new({ buf = layout.sections.preview.buf, win = layout.sections.preview.win })
 
+	local function switch_panel(direction)
+		local mod = current.mod
+		local idx = panel.active_index(mod and mod.panels, current.panel)
+		local picker_panels = mod and mod.panels
+		if not idx or not picker_panels then
+			return false
+		end
+
+		local next_idx = idx + direction
+		if next_idx < 1 or next_idx > #picker_panels then
+			return false
+		end
+
+		active_panels[current.mode_name] = picker_panels[next_idx].name
+		vim.schedule(function()
+			if not closed and refresh then
+				refresh()
+			end
+		end)
+		return true
+	end
+
+	local function current_item()
+		local selected = list:selected_item()
+		return (selected and not is_header(selected)) and selected or nil
+	end
+
+	local function hook_ctx(item)
+		return {
+			item = item,
+			query = current.query,
+			close = close_palette,
+			jump = jump_in_source,
+			input = input,
+			mode = current.mod and current.mod.mode,
+		}
+	end
+
+	local function update_active_item()
+		local item = current_item()
+		if current.mod and type(current.mod.on_active) == "function" and item then
+			current.mod.on_active(hook_ctx(item))
+		end
+	end
+
+	local function rerender()
+		if closed then
+			return
+		end
+
+		local preview_cfg = current.mod and current.mod.preview
+		local preview_item = active_or_first(list:selected_item(), items)
+		local show_preview = preview_item and ((type(preview_cfg) == "function" and preview_cfg(preview_item) == true) or preview_cfg == true)
+		local panel_rows = panels.buf and 2 or 0
+		local max_total = layout_mod.resolve_max_height(picker_opts.height)
+		local body_height = math.min(list.visible_count, math.max(max_total - 2 - panel_rows, 1))
+		local preview_height = 0
+		local preview_spec
+
+		if show_preview and preview_item then
+			local lines, ft, highlights, line_numbers, focus_row = preview_data.for_item(preview_item, current.mod and current.mod.preview_item)
+			local line_count = math.max(#(lines or {}), 1)
+			local available = math.max(max_total - 3 - panel_rows, 2)
+			body_height = math.min(list.visible_count, available - 1)
+			preview_height = math.min(line_count, available - body_height)
+			preview_spec = { lines, ft, highlights, line_numbers, focus_row }
+		end
+
+		layout:apply(body_height, preview_height, {
+			list = list,
+			preview = preview,
+			input = input,
+			panels = panels,
+			show_panels = current.panel_header ~= nil,
+		})
+		panel.render(panels, panels_ns, current.panel_header)
+
+		if preview_spec and preview and preview.win and vim.api.nvim_win_is_valid(preview.win) then
+			preview:set(unpack(preview_spec))
+		end
+
+		list:render(vim.api.nvim_win_get_width(list.win))
+	end
+
 	local function move_selection(delta)
 		list:move(delta, is_header)
-		local selected = list:selected_item()
-		local mod = registry[active_mode]
-		if mod and type(mod.on_active) == "function" and selected and not is_header(selected) then
-			mod.on_active({
-				item = selected,
-				query = select(2, mode.parse_prompt(input:get_value())),
-				close = close_palette,
-				jump = jump_in_source,
-				input = input,
-				mode = registry[active_mode] and registry[active_mode].mode,
-			})
-		end
+		update_active_item()
 		rerender()
 	end
 
@@ -291,39 +243,29 @@ function M.open(opts)
 		return jumped
 	end
 
-	local function update_counter(mode_name, query, found, total)
-		local picker = registry[mode_name]
-		local picker_mode = picker and picker.mode
-		input:set_prompt(" " .. (picker_mode and picker_mode.icon or "") .. " ")
-		local placeholder = picker_mode and picker_mode.placeholder or ""
-		input:set_addons({
-			ghost = (query or "") == "" and placeholder ~= "" and placeholder or nil,
-			right = { text = string.format("%d/%d", found, total), hl = "LineNr" },
-		})
-	end
-
 	function refresh()
 		local prompt = input:get_value()
 		local mode_name, query = mode.parse_prompt(prompt)
 		local mod = registry[mode_name]
 		local state = ensure_state(mode_name)
-		local mode_switched = mode_name ~= active_mode
-		active_mode = mode_name
+		local mode_switched = mode_name ~= current.mode_name
+		local active_panel = panel.active_name(active_panels, mode_name, mod and mod.panels, picker_opts.initial_panel)
 
-		local next_items = mod.items(state, query)
-		local found = 0
-		for _, item in ipairs(next_items or {}) do
-			if not is_header(item) then
-				found = found + 1
-			end
-		end
+		local next_items = mod.items(state, query, active_panel)
+		local found = item_count(next_items)
 
 		if found == 0 and #next_items > 0 then
 			next_items = {}
 		end
 
+		current.mode_name = mode_name
+		current.mod = mod
+		current.query = query
+		current.panel = active_panel
+		current.panel_header = panel.header_item(mod and mod.panels, active_panel)
 		items = next_items
-		list:set_items(next_items)
+
+		list:set_items(items)
 
 		if mode_switched then
 			local allows_empty = mod and mod.allow_empty_selection == true
@@ -336,53 +278,31 @@ function M.open(opts)
 
 		local total = found
 		if mod and type(mod.total_count) == "function" then
-			local ok, count = pcall(mod.total_count, state)
+			local ok, count = pcall(mod.total_count, state, active_panel)
 			if ok and type(count) == "number" then
 				total = math.max(count, found)
 			end
 		end
 
-		update_counter(mode_name, query, found, total)
+		local picker_mode = mod and mod.mode
+		local placeholder = picker_mode and picker_mode.placeholder or ""
+		input:set_prompt(" " .. (picker_mode and picker_mode.icon or "") .. " ")
+		input:set_addons({
+			ghost = query == "" and placeholder ~= "" and placeholder or nil,
+			right = { text = string.format("%d/%d", found, total), hl = "LineNr" },
+		})
 
-		if is_header(list:selected_item()) then
-			list:move(1, is_header)
-		end
-
-		-- Call on_active hook for newly selected item
-		local selected = list:selected_item()
-		if mod and type(mod.on_active) == "function" and selected and not is_header(selected) then
-			mod.on_active({
-				item = selected,
-				query = query,
-				close = close_palette,
-				jump = jump_in_source,
-				input = input,
-				mode = registry[active_mode] and registry[active_mode].mode,
-			})
-		end
+		if is_header(list:selected_item()) then list:move(1, is_header) end
+		update_active_item()
 
 		rerender()
 	end
 
-	local function make_hook_ctx(mode_name, item)
-		return {
-			item = item,
-			query = select(2, mode.parse_prompt(input:get_value())),
-			close = close_palette,
-			jump = jump_in_source,
-			input = input,
-			mode = registry[mode_name] and registry[mode_name].mode,
-		}
-	end
+	local function submit()
+		local item = current_item()
 
-	local function submit(prompt)
-		local mode_name, query = mode.parse_prompt(prompt)
-		local selected = list:selected_item()
-		local mod = registry[mode_name]
-		local item = (selected and not is_header(selected)) and selected or nil
-
-		if mod and type(mod.on_submit) == "function" then
-			mod.on_submit(make_hook_ctx(mode_name, item))
+		if current.mod and type(current.mod.on_submit) == "function" then
+			current.mod.on_submit(hook_ctx(item))
 			return
 		end
 
@@ -392,19 +312,18 @@ function M.open(opts)
 	end
 
 	local function apply_tab_action(selected)
-		selected = selected or list:selected_item()
-		if not selected or is_header(selected) then
+		selected = selected or current_item()
+		if not selected then
 			return
 		end
 
-		local mod = registry[active_mode]
-		local on_tab = mod and mod.on_tab
+		local on_tab = current.mod and current.mod.on_tab
 		if on_tab == false then
 			return
 		end
 
 		if type(on_tab) == "function" then
-			on_tab(make_hook_ctx(active_mode, selected))
+			on_tab(hook_ctx(selected))
 			return
 		end
 
@@ -413,11 +332,56 @@ function M.open(opts)
 
 	local function click_tab_action()
 		local mouse = vim.fn.getmousepos()
-		if type(mouse) == "table" and mouse.winid == list.win then
+		if type(mouse) ~= "table" then
+			return
+		end
+		if panels.win and mouse.winid == panels.win then
+			local mod = current.mod
+			local picker_panels = mod and mod.panels
+			if not picker_panels or #picker_panels < 2 then
+				return
+			end
+			local col = math.max((mouse.column or 1) - 2, 0)
+			local name = panel.hit_test(picker_panels, col)
+			if name then
+				active_panels[current.mode_name] = name
+				refresh()
+				return
+			end
+		elseif mouse.winid == list.win then
 			list:set_selected(tonumber(mouse.line) or 1)
 			rerender()
 			apply_tab_action()
 		end
+	end
+
+	local function on_input_left()
+		local current_idx = panel.active_index(current.mod and current.mod.panels, current.panel)
+		if not current_idx then
+			return false
+		end
+
+		local line = input:get_value()
+		local cursor = vim.api.nvim_win_get_cursor(input.win)
+		if cursor[2] >= #line and current_idx > 1 then
+			return switch_panel(-1)
+		end
+		return false
+	end
+
+	local function on_input_right()
+		local mod = current.mod
+		local current_idx = panel.active_index(mod and mod.panels, current.panel)
+		if not current_idx then
+			return false
+		end
+
+		local line = input:get_value()
+		local cursor = vim.api.nvim_win_get_cursor(input.win)
+		if cursor[2] >= #line then
+			return current_idx < #(mod.panels or {}) and switch_panel(1) or false
+		end
+		return false
 	end
 
 	local files_picker = registry["files"]
@@ -431,17 +395,31 @@ function M.open(opts)
 		on_down = function() move_selection(1) end,
 		on_up = function() move_selection(-1) end,
 		on_tab = apply_tab_action,
+		on_left = on_input_left,
+		on_right = on_input_right,
 	})
 
-	-- Setup keymaps
+
+	-- Setup keymaps for list
 	local list_buf = layout.sections.list.buf
 	vim.keymap.set("n", "<Down>", function() move_selection(1) end, { buffer = list_buf, noremap = true, silent = true })
-	vim.keymap.set("n", "<Right>", function() move_selection(1) end, { buffer = list_buf, noremap = true, silent = true })
 	vim.keymap.set("n", "<Up>", function() move_selection(-1) end, { buffer = list_buf, noremap = true, silent = true })
-	vim.keymap.set("n", "<Left>", function() move_selection(-1) end, { buffer = list_buf, noremap = true, silent = true })
+	-- Left/Right switch panels if multiple panels exist
+	vim.keymap.set("n", "<Right>", function()
+		local mod = current.mod
+		if mod and mod.panels and #mod.panels > 1 then
+			switch_panel(1)
+		end
+	end, { buffer = list_buf, noremap = true, silent = true })
+	vim.keymap.set("n", "<Left>", function()
+		local mod = current.mod
+		if mod and mod.panels and #mod.panels > 1 then
+			switch_panel(-1)
+		end
+	end, { buffer = list_buf, noremap = true, silent = true })
 	vim.keymap.set("n", "<LeftMouse>", click_tab_action, { buffer = list_buf, noremap = true, silent = true })
 	vim.keymap.set({ "n", "i" }, "<LeftMouse>", click_tab_action, { buffer = input.buf, noremap = true, silent = true })
-	vim.keymap.set("n", "<CR>", function() submit(input:get_value()) end, { buffer = list_buf, noremap = true, silent = true })
+	vim.keymap.set("n", "<CR>", submit, { buffer = list_buf, noremap = true, silent = true })
 	vim.keymap.set("n", "<Tab>", apply_tab_action, { buffer = list_buf, noremap = true, silent = true })
 	vim.keymap.set("n", "<Esc>", close_palette, { buffer = list_buf, noremap = true, silent = true })
 

@@ -1,4 +1,6 @@
 local M = {}
+local diff_ui = require("pulse.ui.diff")
+local preview = require("pulse.preview")
 
 M.mode = {
 	name = "git_status",
@@ -9,6 +11,43 @@ M.mode = {
 
 M.preview = function(item)
 	return item and item.added + item.removed > 0
+end
+
+local function read_head_file(path)
+  local rel = vim.fn.fnamemodify(path or "", ":.")
+  if rel == "" then
+    return {}
+  end
+  local lines = vim.fn.systemlist({ "git", "--no-pager", "show", "HEAD:" .. rel })
+  return (vim.v.shell_error == 0) and lines or {}
+end
+
+local function read_worktree_file(path)
+  local r = (path and vim.fn.filereadable(path) == 1) and path or vim.fn.fnamemodify(path or "", ":p")
+  return (vim.fn.filereadable(r) == 1) and vim.fn.readfile(r) or {}
+end
+
+local function git_patch_for(path)
+  local diff = vim.fn.systemlist({ "git", "--no-pager", "diff", "--", path })
+  if vim.v.shell_error == 0 and #diff > 0 then
+    return diff
+  end
+  diff = vim.fn.systemlist({ "git", "--no-pager", "diff", "--cached", "--", path })
+  if vim.v.shell_error == 0 and #diff > 0 then
+    return diff
+  end
+  return { "No git diff for " .. tostring(path) }
+end
+
+function M.preview_item(item)
+  local path = item.path or item.filename
+  local old_lines, new_lines = read_head_file(path), read_worktree_file(path)
+  if #old_lines == 0 and #new_lines == 0 then
+    return git_patch_for(path), "text", {}, nil, 1
+  end
+  local lines, highlights, focus_row = diff_ui.from_lines(old_lines, new_lines, { context = 3 })
+  local _, filetype = preview.file_snippet(path, 1)
+  return lines, filetype, highlights, nil, focus_row
 end
 
 M.on_tab = false

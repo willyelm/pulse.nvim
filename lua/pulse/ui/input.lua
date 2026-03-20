@@ -59,6 +59,8 @@ function M.new(opts)
   self.on_down = opts.on_down
   self.on_up = opts.on_up
   self.on_tab = opts.on_tab
+  self.on_left = opts.on_left
+  self.on_right = opts.on_right
   self.augroup = vim.api.nvim_create_augroup("PulseUIInput" .. tostring(self.buf), { clear = true })
   self.ns = vim.api.nvim_create_namespace("pulse_ui_input")
   self.addons = {}
@@ -83,6 +85,14 @@ function M.new(opts)
   local map_opts = { buffer = self.buf, noremap = true, silent = true }
   local function map(lhs, cb) vim.keymap.set({ "i", "n" }, lhs, cb, map_opts) end
   local function call(fn, ...) if fn then fn(...) end end
+  local function map_expr(lhs, fallback, cb)
+    vim.keymap.set({ "i", "n" }, lhs, function()
+      if cb and cb() then
+        return ""
+      end
+      return fallback
+    end, vim.tbl_extend("force", map_opts, { expr = true }))
+  end
 
   local keymaps = {
     { "<CR>", function() call(self.on_submit, self:get_value()) end },
@@ -96,6 +106,9 @@ function M.new(opts)
     if type(keys) == "string" then keys = { keys } end
     for _, lhs in ipairs(keys) do map(lhs, fn) end
   end
+
+  map_expr("<Left>", "<Left>", function() return self.on_left and self.on_left() end)
+  map_expr("<Right>", "<Right>", function() return self.on_right and self.on_right() end)
 
   configure_window(self.win)
   return self

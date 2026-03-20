@@ -13,9 +13,20 @@ return {
 
 	find_by_command = function(name)
 		local registry = config.options._picker_registry or {}
+		-- First try exact mode match
 		for mode_name, picker in pairs(registry) do
 			if (picker.mode.command_name or mode_name) == name then
-				return mode_name
+				return mode_name, nil
+			end
+		end
+		-- Try panel match
+		for mode_name, picker in pairs(registry) do
+			if picker.panels then
+				for _, panel in ipairs(picker.panels) do
+					if panel.name == name then
+						return mode_name, panel.name
+					end
+				end
 			end
 		end
 	end,

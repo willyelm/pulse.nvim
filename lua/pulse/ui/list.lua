@@ -41,6 +41,12 @@ local function add_hl(highlights, group, row, start_col, end_col)
 	highlights[#highlights + 1] = { group = group, row = row, start_col = start_col, end_col = end_col }
 end
 
+local function set_lines(buf, lines)
+	vim.bo[buf].modifiable = true
+	vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
+	vim.bo[buf].modifiable = false
+end
+
 local function normalise_item(rendered)
 	if type(rendered) ~= "table" then
 		rendered = {}
@@ -120,6 +126,19 @@ function M:_normalise_selection()
 	self.selected = clamp(self.selected or min_sel, min_sel, #self.items)
 end
 
+function M:_add_matches(highlights, row, offset, text_len, matches)
+	if not matches or #matches == 0 then
+		return
+	end
+	for _, m in ipairs(matches) do
+		local s = math.max(tonumber(m[1]) or -1, 0)
+		if s < text_len then
+			local e = math.min(math.max(tonumber(m[2]) or -1, s), text_len)
+			add_hl(highlights, self:_match_group(m[3]), row, offset + s, offset + e)
+		end
+	end
+end
+
 function M:_visible_lines(width)
 	local lines = {}
 	local highlights = {}
@@ -133,70 +152,39 @@ function M:_visible_lines(width)
 		local pad = math.max(content_width - fit_width, 0)
 		lines[1] = string.rep(" ", SIDE_PADDING) .. fit .. string.rep(" ", pad + SIDE_PADDING)
 		highlights[1] = { group = "Comment", row = 0, start_col = SIDE_PADDING, end_col = SIDE_PADDING + #fit }
-		while #lines < self.visible_count do
-			lines[#lines + 1] = string.rep(" ", total_width)
-		end
-		return lines, highlights
-	end
+	else
+		for index, item in ipairs(self.items) do
+			local spec = normalise_item(self.render_item(item, content_width))
+			local left = fit_to_width(spec.left, content_width)
+			local right = spec.right
+			local right_start, text = nil, left
 
-	for index, item in ipairs(self.items) do
-		local spec = normalise_item(self.render_item(item, content_width))
-		local selected = (index == self.selected)
-		local left = fit_to_width(spec.left, content_width)
-		local left_group = spec.left_group
-		local left_matches = type(spec.left_matches) == "table" and spec.left_matches or nil
-		local right = spec.right
-		local right_group = spec.right_group
-		local right_matches = type(spec.right_matches) == "table" and spec.right_matches or nil
-		local text, text_width, right_start = "", 0, nil
-
-		if right ~= "" then
-			local right_text = fit_to_width(right, content_width)
-			local right_width = vim.fn.strdisplaywidth(right_text)
-			left = fit_to_width(left, math.max(content_width - right_width - 1, 0))
-			local left_width = vim.fn.strdisplaywidth(left)
-			local gap = math.max(content_width - left_width - right_width, 0)
-			text = left .. string.rep(" ", gap) .. right_text
-			right_start = #left + gap
-		else
-			text = left
-		end
-		text_width = vim.fn.strdisplaywidth(text)
-
-		local padded = string.rep(" ", SIDE_PADDING)
-			.. text
-			.. string.rep(" ", math.max(content_width - text_width, 0))
-			.. string.rep(" ", SIDE_PADDING)
-		lines[index] = padded
-
-		if selected then
-			add_hl(highlights, "Visual", index - 1, 0, #padded)
-		else
-			if left_group and #left > 0 then
-				add_hl(highlights, left_group, index - 1, SIDE_PADDING, SIDE_PADDING + #left)
+			if right ~= "" then
+				right = fit_to_width(right, content_width)
+				local right_width = vim.fn.strdisplaywidth(right)
+				left = fit_to_width(left, math.max(content_width - right_width - 1, 0))
+				local gap = math.max(content_width - vim.fn.strdisplaywidth(left) - right_width, 0)
+				text = left .. string.rep(" ", gap) .. right
+				right_start = #left + gap
 			end
-			if left_matches and #left_matches > 0 then
-				local left_len = #left
-				for _, m in ipairs(left_matches) do
-					local s = math.max(tonumber(m[1]) or -1, 0)
-					if s < left_len then
-						local e = math.min(math.max(tonumber(m[2]) or -1, s), left_len)
-						add_hl(highlights, self:_match_group(m[3]), index - 1, SIDE_PADDING + s, SIDE_PADDING + e)
-					end
+
+			local padded = string.rep(" ", SIDE_PADDING)
+				.. text
+				.. string.rep(" ", math.max(content_width - vim.fn.strdisplaywidth(text), 0))
+				.. string.rep(" ", SIDE_PADDING)
+			lines[index] = padded
+
+			if index == self.selected then
+				add_hl(highlights, "Visual", index - 1, 0, #padded)
+			else
+				if spec.left_group and #left > 0 then
+					add_hl(highlights, spec.left_group, index - 1, SIDE_PADDING, SIDE_PADDING + #left)
 				end
-			end
-			if right_start and right_group and #right > 0 then
-				add_hl(highlights, right_group, index - 1, SIDE_PADDING + right_start, SIDE_PADDING + #text)
-			end
-			if right_start and right_matches and #right_matches > 0 then
-				local right_len = #right
-				for _, m in ipairs(right_matches) do
-					local s = math.max(tonumber(m[1]) or -1, 0)
-					if s < right_len then
-						local e = math.min(math.max(tonumber(m[2]) or -1, s), right_len)
-						add_hl(highlights, self:_match_group(m[3]), index - 1, SIDE_PADDING + right_start + s, SIDE_PADDING + right_start + e)
-					end
+				self:_add_matches(highlights, index - 1, SIDE_PADDING, #left, spec.left_matches)
+				if right_start and spec.right_group and #right > 0 then
+					add_hl(highlights, spec.right_group, index - 1, SIDE_PADDING + right_start, SIDE_PADDING + #text)
 				end
+				self:_add_matches(highlights, index - 1, SIDE_PADDING + (right_start or 0), #right, spec.right_matches)
 			end
 		end
 	end
@@ -213,9 +201,7 @@ function M:render(width)
 	self:_normalise_selection()
 
 	local lines, highlights = self:_visible_lines(width)
-	vim.bo[self.buf].modifiable = true
-	vim.api.nvim_buf_set_lines(self.buf, 0, -1, false, lines)
-	vim.bo[self.buf].modifiable = false
+	set_lines(self.buf, lines)
 
 	vim.api.nvim_buf_clear_namespace(self.buf, self.ns, 0, -1)
 	for _, item in ipairs(highlights) do

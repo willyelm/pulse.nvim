@@ -1,7 +1,6 @@
 local M = {}
 M.__index = M
 local window = require("pulse.ui.window")
-local diff_ui = require("pulse.ui.diff")
 
 local function normalise_lines(lines)
 	local out = {}
@@ -63,50 +62,8 @@ local function file_snippet(path, lnum, query, match_cols)
 	return lines, filetype, highlights, numbers, (line_no - start_l + 1)
 end
 
-local function read_head_file(path)
-	local rel = vim.fn.fnamemodify(path or "", ":.")
-	if rel == "" then
-		return {}
-	end
-	local lines = vim.fn.systemlist({ "git", "--no-pager", "show", "HEAD:" .. rel })
-	return (vim.v.shell_error == 0) and lines or {}
-end
-
-local function read_worktree_file(path)
-	local r = (path and vim.fn.filereadable(path) == 1) and path or vim.fn.fnamemodify(path or "", ":p")
-	return (vim.fn.filereadable(r) == 1) and vim.fn.readfile(r) or {}
-end
-
-local function git_patch_for(path)
-	local diff = vim.fn.systemlist({ "git", "--no-pager", "diff", "--", path })
-	if vim.v.shell_error == 0 and #diff > 0 then
-		return diff
-	end
-	diff = vim.fn.systemlist({ "git", "--no-pager", "diff", "--cached", "--", path })
-	if vim.v.shell_error == 0 and #diff > 0 then
-		return diff
-	end
-	return { "No git diff for " .. tostring(path) }
-end
-
 local function preview_header(item)
 	return { (item and item.label) or "No selection" }, "text", {}, nil, 1
-end
-
-local function preview_git_status(item)
-	local path = item.path or item.filename
-	local old_lines, new_lines = read_head_file(path), read_worktree_file(path)
-	if #old_lines == 0 and #new_lines == 0 then
-		return git_patch_for(path), "text", {}, nil, 1
-	end
-	local lines, highlights, focus_row = diff_ui.from_lines(old_lines, new_lines, { context = 3 })
-	local ft = vim.filetype.match({ filename = path or "" })
-	local filetype = (ft and ft ~= "") and ft or (vim.fn.fnamemodify(path or "", ":e") ~= "" and vim.fn.fnamemodify(path or "", ":e") or "file")
-	return lines, filetype, highlights, nil, focus_row
-end
-
-local function preview_grep(item)
-	return file_snippet(item.path or item.filename, item.lnum, item.query, item.match_cols)
 end
 
 local function preview_diagnostic(item)
@@ -120,10 +77,6 @@ local function preview_diagnostic(item)
 	local snippet, ft = file_snippet(item.filename, item.lnum)
 	vim.list_extend(out, snippet)
 	return out, ft, {}, nil, 1
-end
-
-local function preview_file(item)
-	return file_snippet(item.path or item.filename, item.lnum)
 end
 
 local function preview_command(item)
@@ -140,19 +93,23 @@ end
 
 local PREVIEWS = {
 	header = preview_header,
-	git_status = preview_git_status,
-	live_grep = preview_grep,
-	fuzzy_search = preview_grep,
+	live_grep = function(item) return file_snippet(item.path or item.filename, item.lnum, item.query, item.match_cols) end,
+	fuzzy_search = function(item) return file_snippet(item.path or item.filename, item.lnum, item.query, item.match_cols) end,
 	diagnostic = preview_diagnostic,
-	file = preview_file,
-	symbol = preview_file,
-	workspace_symbol = preview_file,
+	file = function(item) return file_snippet(item.path or item.filename, item.lnum) end,
+	symbol = function(item) return file_snippet(item.path or item.filename, item.lnum) end,
+	workspace_symbol = function(item) return file_snippet(item.path or item.filename, item.lnum) end,
 	command = preview_command,
 }
 
-function M.for_item(item)
+M.file_snippet = file_snippet
+
+function M.for_item(item, provider)
 	if not item or item.kind == "header" then
 		return preview_header(item)
+	end
+	if type(provider) == "function" then
+		return provider(item)
 	end
 	local preview = PREVIEWS[item.kind]
 	if preview then

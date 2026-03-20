@@ -9,6 +9,12 @@ M.mode = {
 
 M.preview = false
 
+M.panels = {
+	{ name = "files_all", label = "All" },
+	{ name = "files_open", label = "Open" },
+	{ name = "files_recent", label = "Recent" },
+}
+
 local function normalize_path(path)
 	return vim.fn.fnamemodify(path, ":p")
 end
@@ -65,31 +71,28 @@ local function ensure_repo_files(state)
 	return state.files
 end
 
-function M.items(state, query)
+function M.items(state, query, panel_name)
 	local pulse = require("pulse")
-	local items, seen = {}, {}
+	local items = {}
+	local paths
+
+	if panel_name == "files_open" then
+		paths = state.opened
+	elseif panel_name == "files_recent" then
+		paths = state.recent
+	else
+		paths = ensure_repo_files(state)
+	end
 
 	if not query or query == "" then
-		local function add_section(label, paths)
-			local section = {}
-			for _, path in ipairs(paths) do
-				if not seen[path] then
-					seen[path] = true
-					section[#section + 1] = { kind = "file", path = path }
-				end
-			end
-			if #section > 0 then
-				items[#items + 1] = { kind = "header", label = label }
-				vim.list_extend(items, section)
-			end
+		for _, path in ipairs(paths) do
+			items[#items + 1] = { kind = "file", path = path }
 		end
-		add_section("Active", state.opened)
-		add_section("Recent Files", state.recent)
 		return items
 	end
 
 	local match = pulse.make_matcher(query, { ignore_case = true, plain = true })
-	for _, path in ipairs(ensure_repo_files(state)) do
+	for _, path in ipairs(paths) do
 		if match(path) then
 			items[#items + 1] = { kind = "file", path = path }
 		end
@@ -97,7 +100,13 @@ function M.items(state, query)
 	return items
 end
 
-function M.total_count(state)
+function M.total_count(state, panel_name)
+	if panel_name == "files_open" then
+		return #(state.opened or {})
+	end
+	if panel_name == "files_recent" then
+		return #(state.recent or {})
+	end
 	return #(ensure_repo_files(state) or {})
 end
 
