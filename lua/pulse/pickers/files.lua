@@ -1,5 +1,13 @@
 local M = {}
-local util = require("pulse.util")
+
+M.mode = {
+	name = "files",
+	start = "",
+	icon = "󰈔",
+	placeholder = "Search Files",
+}
+
+M.preview = false
 
 local function normalize_path(path)
 	return vim.fn.fnamemodify(path, ":p")
@@ -39,7 +47,8 @@ local function collect_recent_files(project_root)
 	return recent
 end
 
-function M.seed(project_root)
+function M.init(ctx)
+	local project_root = type(ctx) == "string" and ctx or (ctx and ctx.cwd) or vim.fn.getcwd()
 	return {
 		opened = collect_opened_files(),
 		recent = collect_recent_files(project_root),
@@ -57,6 +66,7 @@ local function ensure_repo_files(state)
 end
 
 function M.items(state, query)
+	local pulse = require("pulse")
 	local items, seen = {}, {}
 
 	if not query or query == "" then
@@ -78,7 +88,7 @@ function M.items(state, query)
 		return items
 	end
 
-	local match = util.make_matcher(query, { ignore_case = true, plain = true })
+	local match = pulse.make_matcher(query, { ignore_case = true, plain = true })
 	for _, path in ipairs(ensure_repo_files(state)) do
 		if match(path) then
 			items[#items + 1] = { kind = "file", path = path }

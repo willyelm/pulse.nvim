@@ -1,17 +1,15 @@
 local M = {}
-local Input = {}
-Input.__index = Input
+M.__index = M
 
 local window = require("pulse.ui.window")
 local mode = require("pulse.mode")
-local MODE_PREFIX = mode.starts()
 local MODE_HL = "PulseModePrefix"
 
 local function configure_window(win)
-  window.configure_content_window(win)
   if not (win and vim.api.nvim_win_is_valid(win)) then
     return
   end
+  window.configure_content_window(win)
   vim.wo[win].colorcolumn = ""
   vim.wo[win].cursorcolumn = false
   vim.wo[win].cursorline = false
@@ -50,8 +48,8 @@ local function strip_prompt_prefix(line, prompt)
   return line
 end
 
-function Input.new(opts)
-  local self = setmetatable({}, Input)
+function M.new(opts)
+  local self = setmetatable({}, M)
   self.buf = assert(opts.buf, "input requires a buffer")
   self.win = assert(opts.win, "input requires a window")
   self.prompt = opts.prompt or ""
@@ -103,13 +101,13 @@ function Input.new(opts)
   return self
 end
 
-function Input:set_win(win)
+function M:set_win(win)
   self.win = win
   configure_window(self.win)
   self:set_addons(self.addons)
 end
 
-function Input:set_prompt(prompt)
+function M:set_prompt(prompt)
   prompt = prompt or ""
   if self.prompt == prompt then
     return
@@ -127,18 +125,18 @@ function Input:set_prompt(prompt)
   self._mute_change = false
 end
 
-function Input:get_value()
+function M:get_value()
   local line = (vim.api.nvim_buf_get_lines(self.buf, 0, 1, false)[1] or "")
   return strip_prompt_prefix(line, self.prompt)
 end
 
-function Input:set_value(value)
+function M:set_value(value)
   vim.api.nvim_buf_set_lines(self.buf, 0, -1, false, { tostring(value or "") })
   cursor_to_eol(self.win, self.buf)
   self:set_addons(self.addons)
 end
 
-function Input:focus(insert_mode)
+function M:focus(insert_mode)
   if not (self.win and vim.api.nvim_win_is_valid(self.win)) then
     return
   end
@@ -151,7 +149,7 @@ function Input:focus(insert_mode)
   end
 end
 
-function Input:set_addons(addons)
+function M:set_addons(addons)
   self.addons = addons or {}
   if not vim.api.nvim_buf_is_valid(self.buf) then
     return
@@ -160,8 +158,13 @@ function Input:set_addons(addons)
   vim.api.nvim_buf_clear_namespace(self.buf, self.ns, 0, -1)
 
   local first = self:get_value():sub(1, 1)
-  if MODE_PREFIX[first] then
-    pcall(vim.api.nvim_buf_add_highlight, self.buf, self.ns, MODE_HL, 0, 0, 1)
+  local by_start = mode.by_start()
+  if by_start[first] then
+    pcall(vim.api.nvim_buf_set_extmark, self.buf, self.ns, 0, 0, {
+      end_row = 0,
+      end_col = 1,
+      hl_group = MODE_HL,
+    })
   end
 
   local right = normalise_chunks(self.addons.right, "LineNr")
@@ -182,10 +185,6 @@ function Input:set_addons(addons)
       hl_mode = "replace",
     })
   end
-end
-
-M.new = function(opts)
-  return Input.new(opts)
 end
 
 return M

@@ -1,5 +1,13 @@
 local M = {}
-local util = require("pulse.util")
+
+M.mode = {
+	name = "code_action",
+	start = ">",
+	icon = "󰌶",
+	placeholder = "Code Actions",
+}
+
+M.preview = false
 
 local function apply_action(action, client, req_ctx)
 	if action.edit then
@@ -45,7 +53,7 @@ local function execute(item)
 	return true
 end
 
-function M.seed(ctx)
+function M.init(ctx)
 	local bufnr = ctx and ctx.bufnr or vim.api.nvim_get_current_buf()
 	local win = ctx and ctx.win or 0
 	local state = { actions = {} }
@@ -93,7 +101,8 @@ function M.seed(ctx)
 end
 
 function M.items(state, query)
-	local match = util.make_matcher(query or "", { ignore_case = true, plain = true })
+	local pulse = require("pulse")
+	local match = pulse.make_matcher(query or "", { ignore_case = true, plain = true })
 	local out = {}
 	for _, action in ipairs(state.actions) do
 		if match(action.title) then table.insert(out, action) end

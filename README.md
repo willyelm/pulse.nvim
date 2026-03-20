@@ -44,6 +44,9 @@ approach to move quickly between picker modes:
 
 ```lua
 require("pulse").setup({
+  -- Load specific pickers (default: all 9 internal pickers)
+  -- pickers = { "files", "commands", "git_status" },
+
   cmdline = false, -- set true to enable experimental ':' cmdline replacement
   initial_mode = "insert",
   position = "top",
@@ -52,6 +55,19 @@ require("pulse").setup({
   border = "rounded",
 })
 ```
+
+**Default pickers** (all loaded if not specified):
+- `files` - Project files
+- `commands` - Vim commands
+- `git_status` - Git changes
+- `diagnostics` - LSP diagnostics
+- `code_action` - Code actions (current buffer)
+- `symbol` - Symbols (current buffer)
+- `workspace_symbol` - Workspace symbols
+- `live_grep` - Search with ripgrep
+- `fuzzy_search` - Fuzzy search (current buffer)
+
+Override with `pickers` option to load only what you need.
 
 ## Open Pulse
 

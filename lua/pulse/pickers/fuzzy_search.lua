@@ -1,5 +1,14 @@
 local M = {}
 
+M.mode = {
+	name = "fuzzy_search",
+	start = "?",
+	icon = "󱉶",
+	placeholder = "Fuzzy Search In Current Buffer",
+}
+
+M.preview = true
+
 local MAX_RESULTS = 400
 
 local function refresh_lines(state)
@@ -58,7 +67,7 @@ local function fuzzy_score(haystack, n)
   return score, first_idx or 1, cols
 end
 
-function M.seed(ctx)
+function M.init(ctx)
   local bufnr = (ctx and ctx.bufnr) or vim.api.nvim_get_current_buf()
   return {
     bufnr = bufnr,

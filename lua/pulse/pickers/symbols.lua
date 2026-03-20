@@ -1,5 +1,13 @@
 local M = {}
-local util = require("pulse.util")
+
+M.mode = {
+	name = "symbol",
+	start = "@",
+	icon = "󰘧",
+	placeholder = "Search Symbols In Current Buffer",
+}
+
+M.preview = false
 
 local SymbolKind = vim.lsp.protocol.SymbolKind or {}
 local NODE_KINDS = { ["function"] = true, method = true, class = true, interface = true, enum = true, struct = true, type = true, declaration = true }
@@ -109,7 +117,7 @@ local function treesitter_fallback(bufnr)
   return out
 end
 
-function M.seed(ctx)
+function M.init(ctx)
   local bufnr = (ctx and ctx.bufnr) or vim.api.nvim_get_current_buf()
   local state = { symbols = treesitter_fallback(bufnr) }
 
@@ -128,13 +136,14 @@ function M.seed(ctx)
 end
 
 function M.items(state, query)
+  local pulse = require("pulse")
   local symbols = state.symbols or {}
   query = query or ""
   if query == "" then
     return symbols
   end
 
-  local match = util.make_matcher(query, { ignore_case = true, plain = true })
+  local match = pulse.make_matcher(query, { ignore_case = true, plain = true })
   local out = {}
   for _, s in ipairs(symbols) do
     local hay = table.concat({ s.symbol or "", s.symbol_kind_name or "", s.filename or "" }, " ")

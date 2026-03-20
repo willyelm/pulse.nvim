@@ -1,11 +1,8 @@
 local M = {}
-local List = {}
-List.__index = List
+M.__index = M
 local window = require("pulse.ui.window")
 local MATCH_HL = "PulseListMatch"
 local SIDE_PADDING = 1
-local ADD_SUM_HL = (vim.fn.hlexists("PulseAdd") == 1) and "PulseAdd" or "Added"
-local DEL_SUM_HL = (vim.fn.hlexists("PulseDelete") == 1) and "PulseDelete" or "Removed"
 
 local function clamp(value, min_value, max_value)
 	return math.min(math.max(value, min_value), max_value)
@@ -54,6 +51,7 @@ local function normalise_item(rendered)
 		right = tostring(rendered.right or ""),
 		right_group = rendered.right_group or "LineNr",
 		left_matches = rendered.left_matches,
+		right_matches = rendered.right_matches,
 	}
 end
 
@@ -74,8 +72,8 @@ local function normalize_hex(color)
 	return "#" .. hex:upper()
 end
 
-function List.new(opts)
-	local self = setmetatable({}, List)
+function M.new(opts)
+	local self = setmetatable({}, M)
 	self.buf = assert(opts.buf, "list requires a buffer")
 	self.win = assert(opts.win, "list requires a window")
 	self.max_visible = opts.max_visible or 15
@@ -96,7 +94,7 @@ function List.new(opts)
 	return self
 end
 
-function List:_match_group(match_spec)
+function M:_match_group(match_spec)
 	if type(match_spec) == "string" and match_spec ~= "" then
 		return match_spec
 	end
@@ -117,12 +115,12 @@ function List:_match_group(match_spec)
 	return hl
 end
 
-function List:_normalise_selection()
+function M:_normalise_selection()
 	local min_sel = (self.allow_empty_selection and 0 or 1)
 	self.selected = clamp(self.selected or min_sel, min_sel, #self.items)
 end
 
-function List:_visible_lines(width)
+function M:_visible_lines(width)
 	local lines = {}
 	local highlights = {}
 	local total_width = math.max(width or 0, 1)
@@ -149,6 +147,7 @@ function List:_visible_lines(width)
 		local left_matches = type(spec.left_matches) == "table" and spec.left_matches or nil
 		local right = spec.right
 		local right_group = spec.right_group
+		local right_matches = type(spec.right_matches) == "table" and spec.right_matches or nil
 		local text, text_width, right_start = "", 0, nil
 
 		if right ~= "" then
@@ -170,8 +169,8 @@ function List:_visible_lines(width)
 			.. string.rep(" ", SIDE_PADDING)
 		lines[index] = padded
 
-			if selected then
-			add_hl(highlights, "Visual", index - 1, 0, -1)
+		if selected then
+			add_hl(highlights, "Visual", index - 1, 0, #padded)
 		else
 			if left_group and #left > 0 then
 				add_hl(highlights, left_group, index - 1, SIDE_PADDING, SIDE_PADDING + #left)
@@ -189,11 +188,13 @@ function List:_visible_lines(width)
 			if right_start and right_group and #right > 0 then
 				add_hl(highlights, right_group, index - 1, SIDE_PADDING + right_start, SIDE_PADDING + #text)
 			end
-			if right_start and #right > 0 then
-				for _, stat in ipairs({ { "%+%d+", ADD_SUM_HL }, { "%-%d+", DEL_SUM_HL } }) do
-					local p1, p2 = right:find(stat[1])
-					if p1 then
-						add_hl(highlights, stat[2], index - 1, SIDE_PADDING + right_start + p1 - 1, SIDE_PADDING + right_start + p2)
+			if right_start and right_matches and #right_matches > 0 then
+				local right_len = #right
+				for _, m in ipairs(right_matches) do
+					local s = math.max(tonumber(m[1]) or -1, 0)
+					if s < right_len then
+						local e = math.min(math.max(tonumber(m[2]) or -1, s), right_len)
+						add_hl(highlights, self:_match_group(m[3]), index - 1, SIDE_PADDING + right_start + s, SIDE_PADDING + right_start + e)
 					end
 				end
 			end
@@ -207,8 +208,7 @@ function List:_visible_lines(width)
 	return lines, highlights
 end
 
-function List:render(width)
-	window.configure_content_window(self.win)
+function M:render(width)
 	width = math.max(width or (self.win and vim.api.nvim_win_get_width(self.win)) or 20, 1)
 	self:_normalise_selection()
 
@@ -219,7 +219,11 @@ function List:render(width)
 
 	vim.api.nvim_buf_clear_namespace(self.buf, self.ns, 0, -1)
 	for _, item in ipairs(highlights) do
-		pcall(vim.api.nvim_buf_add_highlight, self.buf, self.ns, item.group, item.row, item.start_col, item.end_col)
+		pcall(vim.api.nvim_buf_set_extmark, self.buf, self.ns, item.row, item.start_col, {
+			end_row = item.row,
+			end_col = item.end_col,
+			hl_group = item.group,
+		})
 	end
 
 	if self.win and vim.api.nvim_win_is_valid(self.win) then
@@ -228,31 +232,31 @@ function List:render(width)
 	end
 end
 
-function List:set_items(items)
+function M:set_items(items)
 	self.items = items or {}
 	local count = #self.items
 	self.visible_count = (count == 0) and self.min_visible or clamp(count, self.min_visible, self.max_visible)
 	self:_normalise_selection()
 end
 
-function List:set_selected(index)
+function M:set_selected(index)
 	self.selected = index
 	self:_normalise_selection()
 end
 
-function List:selected_item()
+function M:selected_item()
 	if (self.selected or 0) < 1 then
 		return nil
 	end
 	return self.items[self.selected]
 end
 
-function List:set_allow_empty_selection(allow)
+function M:set_allow_empty_selection(allow)
 	self.allow_empty_selection = allow == true
 	self:_normalise_selection()
 end
 
-function List:move(delta, skip)
+function M:move(delta, skip)
 	if #self.items == 0 then
 		return
 	end
@@ -262,12 +266,7 @@ function List:move(delta, skip)
 	local start = self.selected
 
 	for _ = 1, n do
-		self.selected = self.selected + step
-		if self.selected < 1 then
-			self.selected = n
-		elseif self.selected > n then
-			self.selected = 1
-		end
+		self.selected = ((self.selected - 1 + step) % n) + 1
 		local item = self.items[self.selected]
 		if not skip or not skip(item) then
 			return
@@ -275,10 +274,6 @@ function List:move(delta, skip)
 	end
 
 	self.selected = start
-end
-
-M.new = function(opts)
-	return List.new(opts)
 end
 
 return M

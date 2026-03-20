@@ -5,20 +5,26 @@ function M.configure_content_window(win)
     return
   end
 
-  vim.wo[win].number = false
-  vim.wo[win].relativenumber = false
-  vim.wo[win].signcolumn = "no"
-  vim.wo[win].foldcolumn = "0"
-  vim.wo[win].foldenable = false
-  vim.wo[win].foldmethod = "manual"
-  vim.wo[win].foldexpr = "0"
-  vim.wo[win].foldtext = ""
-  vim.wo[win].statuscolumn = ""
-  vim.wo[win].conceallevel = 0
-  vim.wo[win].concealcursor = ""
-  vim.wo[win].scrolloff = 0
-  vim.wo[win].sidescrolloff = 0
-  vim.wo[win].wrap = false
+  local opts = {
+    number = false,
+    relativenumber = false,
+    signcolumn = "no",
+    foldcolumn = "0",
+    foldenable = false,
+    foldmethod = "manual",
+    foldexpr = "0",
+    foldtext = "",
+    statuscolumn = "",
+    conceallevel = 0,
+    concealcursor = "",
+    scrolloff = 0,
+    sidescrolloff = 0,
+    wrap = false,
+    cursorline = true,
+  }
+  for k, v in pairs(opts) do
+    vim.wo[win][k] = v
+  end
 end
 
 function M.configure_isolated_buffer(buf, opts)

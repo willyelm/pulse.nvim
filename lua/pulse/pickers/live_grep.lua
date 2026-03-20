@@ -1,5 +1,14 @@
 local M = {}
 
+M.mode = {
+	name = "live_grep",
+	start = "$",
+	icon = "󰍉",
+	placeholder = "Live Grep In Project",
+}
+
+M.preview = true
+
 local DEBOUNCE_MS = 60
 local MAX_RESULTS = 400
 
@@ -119,7 +128,7 @@ local function start_search(state, query, token)
   end
 end
 
-function M.seed(ctx)
+function M.init(ctx)
   return {
     on_update = ctx and ctx.on_update,
     cwd = (ctx and ctx.cwd) or vim.fn.getcwd(),

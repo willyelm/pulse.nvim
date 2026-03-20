@@ -1,5 +1,15 @@
 local M = {}
-local util = require("pulse.util")
+local pulse = require("pulse")
+
+M.mode = {
+	name = "workspace_symbol",
+	start = "#",
+	icon = "󰒕",
+	placeholder = "Search Workspace Symbols",
+}
+
+M.preview = false
+
 local SymbolKind = vim.lsp.protocol.SymbolKind or {}
 
 local function lsp_fetch(query, cb)
@@ -31,7 +41,7 @@ local function lsp_fetch(query, cb)
 end
 
 local function ts_items(query)
-	local match = util.make_matcher(query or "", { ignore_case = true, plain = true })
+	local match = pulse.make_matcher(query or "", { ignore_case = true, plain = true })
 	local out, cwd = {}, vim.fn.getcwd()
 	local patterns = { "function", "method", "class", "interface", "enum", "struct", "type", "declaration" }
 
@@ -71,7 +81,7 @@ local function ts_items(query)
 	return out
 end
 
-function M.seed(ctx)
+function M.init(ctx)
 	return { symbols = {}, last_query = nil, request_id = 0, on_update = ctx and ctx.on_update, fetching = false }
 end
 
@@ -95,7 +105,7 @@ function M.items(state, query)
 
 	local filtered = state.symbols
 	if q ~= "" then
-		local match = util.make_matcher(q, { ignore_case = true, plain = true })
+		local match = pulse.make_matcher(q, { ignore_case = true, plain = true })
 		filtered = {}
 		for _, item in ipairs(state.symbols) do
 			local hay = table.concat({ item.symbol or "", item.symbol_kind_name or "", item.container or "", item.filename or "" }, " ")

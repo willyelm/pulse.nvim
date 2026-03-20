@@ -1,5 +1,18 @@
 local M = {}
-local util = require("pulse.util")
+
+M.mode = {
+	name = "git_status",
+	start = "~",
+	icon = "󰊢",
+	placeholder = "Search Git Status",
+}
+
+M.preview = function(item)
+	return item and item.added + item.removed > 0
+end
+
+M.on_tab = false
+
 local function normalize_status_path(path)
   if not path or path == "" then return "" end
   if path:find(" -> ", 1, true) then
@@ -28,13 +41,17 @@ local function build_numstat_map()
   absorb(vim.fn.systemlist({ "git", "diff", "--cached", "--numstat" }))
   return map
 end
-function M.seed()
-  return { files = {}, all_files = {} }
+function M.init(ctx)
+	-- Define highlight groups for git stats
+	pcall(vim.api.nvim_set_hl, 0, "PulseAdd", { link = "Added", default = true })
+	pcall(vim.api.nvim_set_hl, 0, "PulseDelete", { link = "Removed", default = true })
+	return { files = {}, all_files = {} }
 end
 
 function M.items(state, query)
+  local pulse = require("pulse")
   local q = vim.trim(query or "")
-  local match = util.make_matcher(q, { ignore_case = true, plain = true })
+  local match = pulse.make_matcher(q, { ignore_case = true, plain = true })
   state.files = {}
   state.all_files = {}
   local zero = { added = 0, removed = 0 }
