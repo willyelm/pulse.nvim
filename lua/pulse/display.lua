@@ -115,18 +115,32 @@ local function display_code_action(item)
 end
 
 local function display_file(item)
-	local icon, style = icon_for_item("file", item.path)
 	local name = item.label or file_name(item.path)
 	local right = file_type(item.path)
 	local indent = string.rep("  ", tonumber(item.depth) or 0)
-	local left, matches = string.format("%s%s %s", indent, icon, name), (style and { { #indent, #indent + #icon, style } } or nil) or {}
+	local icon = nil
+	local left, matches
+	if item.no_icon then
+		left = indent .. name
+		matches = {}
+	else
+		local style
+		icon, style = icon_for_item("file", item.path)
+		left = string.format("%s%s %s", indent, icon, name)
+		matches = (style and { { #indent, #indent + #icon, style } } or nil) or {}
+	end
 	local left_group = item.ignored and "Comment" or false
 	local right_group = item.ignored and "Comment" or "LineNr"
 	if item.ignored then
-		matches = { { #indent, #indent + #icon, "Comment" } }
+		if item.no_icon then
+			matches = {}
+		else
+			matches = { { #indent, #indent + #(icon or ""), "Comment" } }
+		end
 	end
-	if not item.ignored and vim.fn.hlexists(right) == 1 then
-		matches[#matches + 1] = { #indent + #icon + 1, #left, right }
+	local name_start = item.no_icon and #indent or (#indent + #(icon or "") + 1)
+	if not item.ignored and vim.fn.hlexists(right) == 1 and name ~= "" then
+		matches[#matches + 1] = { name_start, #left, right }
 	end
 	local out = row(left, right, left_group, (#matches > 0) and matches or nil)
 	out.right_group = right_group
@@ -135,8 +149,11 @@ end
 
 local function display_folder(item)
 	local indent = string.rep("  ", tonumber(item.depth) or 0)
-	local icon = item.expanded and "󰷏" or "󰉋"
 	local group = item.ignored and "Comment" or false
+	if item.no_icon then
+		return row(indent .. (item.label or file_name(item.path)), "", group)
+	end
+	local icon = item.expanded and "󰷏" or "󰉋"
 	local icon_hl = item.ignored and "Comment" or "Directory"
 	return row(string.format("%s%s %s", indent, icon, item.label or file_name(item.path)), "", group, { { #indent, #indent + #icon, icon_hl } })
 end

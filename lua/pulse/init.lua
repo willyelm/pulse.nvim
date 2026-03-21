@@ -100,6 +100,17 @@ function M.setup(opts)
 	if config.options.cmdline then
 		setup_cmdline_replacement()
 	end
+	local files = registry().files
+	if files and type(files.setup_directory_hijack) == "function" then
+		files.setup_directory_hijack({
+			is_enabled = function()
+				return config.for_picker("files").open_on_directory == true
+			end,
+			open = function(path)
+				open_panel(mode.switch_prompt("", "files"), { cwd = path })
+			end,
+		})
+	end
 end
 
 return M

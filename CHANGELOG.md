@@ -1,5 +1,12 @@
 # Changelog
 
+## [Unreleased]
+
+### Changed
+
+- add per-picker config support with initial `files` options
+- add `files.open_on_directory` to open Pulse files for `nvim .`
+
 ## [0.2.2] - 2026-03-18
 
 ### Changed

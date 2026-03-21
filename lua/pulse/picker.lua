@@ -166,6 +166,7 @@ local function picker_state(mode_name)
 		bufnr = state.source_bufnr,
 		win = state.source_win,
 		cwd = state.cwd,
+		opts = config.for_picker(mode_name),
 	})
 	state.states[mode_name] = current
 	return current
@@ -460,7 +461,7 @@ local function show(opts)
 	state.session = session_mod.ensure(state.picker_opts)
 	state.source_bufnr = vim.api.nvim_get_current_buf()
 	state.source_win = vim.api.nvim_get_current_win()
-	state.cwd = vim.fn.getcwd()
+	state.cwd = state.picker_opts.cwd or vim.fn.getcwd()
 
 	local ok, err = state.session:mount(refresh)
 	if not ok then

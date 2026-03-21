@@ -44,14 +44,23 @@ approach to move quickly between picker modes:
 
 ```lua
 require("pulse").setup({
-  -- Load specific pickers
-  -- pickers = { "files", "commands", "git_status" },
   cmdline = false, -- set true to enable experimental ':' cmdline replacement
   initial_mode = "insert",
   position = "top",
   width = 0.50,
   height = 0.75,
   border = "rounded",
+  pickers = {
+    files = {
+      icons = true,
+      filters = { "^%.git$", "%.DS_Store$" },
+      git = {
+        enable = true,
+        ignore = true,
+      },
+      open_on_directory = false,
+    },
+  },
 })
 ```
 
@@ -67,7 +76,96 @@ require("pulse").setup({
 - `live_grep` - Search with ripgrep
 - `fuzzy_search` - Fuzzy search (current buffer)
 
-Override with `pickers` option to load only what you need.
+To load a specific set only:
+
+```lua
+require("pulse").setup({
+  pickers = { "files", "commands", "git_status" },
+})
+```
+
+## Per Picker Config
+
+Each picker can receive its own config directly through `pickers`:
+
+```lua
+require("pulse").setup({
+  pickers = {
+    files = {
+      icons = false,
+      filters = { "^%.git$", "%.DS_Store$" },
+      git = {
+        enable = true,
+        ignore = false,
+      },
+    },
+  },
+})
+```
+
+You can also disable a default setting:
+
+```lua
+require("pulse").setup({
+  pickers = {
+    git_status = false,
+    files = {
+      icons = false,
+    },
+  },
+})
+```
+
+Current `files` options:
+
+- `icons`
+- `filters`
+- `git.enable`
+- `git.ignore`
+- `open_on_directory`
+
+## Use Files As Default Tree
+
+To open Pulse files instead of netrw for directory buffers like `nvim .`, set the netrw globals before setup and enable `open_on_directory` on the files picker:
+
+```lua
+vim.g.loaded_netrw = 1
+vim.g.loaded_netrwPlugin = 1
+
+require("pulse").setup({
+  pickers = {
+    files = {
+      open_on_directory = true,
+    },
+  },
+})
+```
+
+With `lazy.nvim`, that typically looks like:
+
+```lua
+vim.g.loaded_netrw = 1
+vim.g.loaded_netrwPlugin = 1
+
+{
+  "willyelm/pulse.nvim",
+  lazy = false,
+  dependencies = {
+    "nvim-tree/nvim-web-devicons",
+  },
+  opts = {
+    cmdline = true,
+    position = "top",
+    height = 0.9,
+    width = 0.7,
+    pickers = {
+      files = {
+        open_on_directory = true,
+      },
+    },
+  },
+}
+```
 
 ## Open Pulse
 
@@ -107,14 +205,14 @@ In `commands` mode:
 
 ```lua
 vim.keymap.set("n", "<leader>p", "<cmd>Pulse<cr>", { desc = "Pulse" })
-vim.keymap.set("n", "<leader>p:", "<cmd>Pulse commands<cr>", { desc = "Pulse Commands" })
-vim.keymap.set("n", "<leader>p~", "<cmd>Pulse git_status<cr>", { desc = "Pulse Git Status" })
-vim.keymap.set("n", "<leader>p!", "<cmd>Pulse diagnostics<cr>", { desc = "Pulse Diagnostics" })
-vim.keymap.set("n", "<leader>p>", "<cmd>Pulse code_actions<cr>", { desc = "Pulse Code Actions" })
-vim.keymap.set("n", "<leader>p@", "<cmd>Pulse symbols<cr>", { desc = "Pulse Symbols" })
-vim.keymap.set("n", "<leader>p#", "<cmd>Pulse workspace_symbols<cr>", { desc = "Pulse Workspace Symbols" })
-vim.keymap.set("n", "<leader>p$", "<cmd>Pulse live_grep<cr>", { desc = "Pulse Live Grep" })
-vim.keymap.set("n", "<leader>p?", "<cmd>Pulse fuzzy_search<cr>", { desc = "Pulse Fuzzy Search" })
+vim.keymap.set("n", "<leader>p", "<cmd>Pulse commands<cr>", { desc = "Pulse Commands" })
+vim.keymap.set("n", "<leader>pg", "<cmd>Pulse git_status<cr>", { desc = "Pulse Git Status" })
+vim.keymap.set("n", "<leader>pd", "<cmd>Pulse diagnostics<cr>", { desc = "Pulse Diagnostics" })
+vim.keymap.set("n", "<leader>pc>", "<cmd>Pulse code_actions<cr>", { desc = "Pulse Code Actions" })
+vim.keymap.set("n", "<leader>ps", "<cmd>Pulse symbols<cr>", { desc = "Pulse Symbols" })
+vim.keymap.set("n", "<leader>pw", "<cmd>Pulse workspace_symbols<cr>", { desc = "Pulse Workspace Symbols" })
+vim.keymap.set("n", "<leader>pl", "<cmd>Pulse live_grep<cr>", { desc = "Pulse Live Grep" })
+vim.keymap.set("n", "<leader>pf", "<cmd>Pulse fuzzy_search<cr>", { desc = "Pulse Fuzzy Search" })
 ```
 
 ## Theming

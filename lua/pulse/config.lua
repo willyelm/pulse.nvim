@@ -21,10 +21,75 @@ local M = {
 }
 M.options = M.defaults
 
+local function is_list(value)
+	if type(value) ~= "table" then
+		return false
+	end
+	if vim.islist then
+		return vim.islist(value)
+	end
+	local count = 0
+	for key in pairs(value) do
+		if type(key) ~= "number" or key < 1 or key % 1 ~= 0 then
+			return false
+		end
+		count = count + 1
+	end
+	for i = 1, count do
+		if value[i] == nil then
+			return false
+		end
+	end
+	return true
+end
+
+local function picker_config(opts)
+	local configured = opts and opts.pickers
+	local legacy = (opts and opts.picker_options) or {}
+	if configured == nil then
+		return M.defaults.pickers, legacy
+	end
+	if is_list(configured) then
+		return configured, legacy
+	end
+	if type(configured) ~= "table" then
+		return M.defaults.pickers, legacy
+	end
+
+	local resolved = {}
+	local per_picker = vim.deepcopy(legacy)
+	local added = {}
+	for _, name in ipairs(M.defaults.pickers) do
+		local entry = configured[name]
+		if entry ~= false then
+			resolved[#resolved + 1] = name
+			added[name] = true
+			if type(entry) == "table" then
+				per_picker[name] = vim.tbl_deep_extend("force", per_picker[name] or {}, entry)
+			end
+		end
+	end
+	for name, entry in pairs(configured) do
+		if type(name) == "string" and not added[name] and entry ~= false then
+			resolved[#resolved + 1] = name
+			if type(entry) == "table" then
+				per_picker[name] = vim.tbl_deep_extend("force", per_picker[name] or {}, entry)
+			end
+		end
+	end
+	return resolved, per_picker
+end
+
+function M.for_picker(mode_name)
+	local per_picker = M.options._picker_options or {}
+	return per_picker[mode_name] or {}
+end
+
 function M.setup(opts)
-	local pickers_config = (opts and opts.pickers) or M.defaults.pickers
+	local pickers_config, per_picker = picker_config(opts)
 	local safe_opts = opts and vim.tbl_extend("force", {}, opts) or {}
 	safe_opts.pickers = nil
+	safe_opts.picker_options = nil
 	M.options = vim.tbl_deep_extend("force", vim.deepcopy(M.defaults), safe_opts)
 
 	local pickers = {}
@@ -85,6 +150,7 @@ function M.setup(opts)
 	end
 
 	M.options.pickers = pickers
+	M.options._picker_options = per_picker
 	M.options._picker_registry = registry
 	M.options._by_start = by_start
 	M.options._default_mode = default_mode

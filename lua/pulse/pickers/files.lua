@@ -1,5 +1,15 @@
 local M = {}
 
+local DEFAULT_OPTS = {
+	icons = true,
+	open_on_directory = false,
+	filters = {},
+	git = {
+		enable = true,
+		ignore = true,
+	},
+}
+
 M.mode = {
 	name = "files",
 	start = "",
@@ -14,6 +24,14 @@ M.panels = {
 	{ name = "files_open", label = "Open" },
 	{ name = "files_recent", label = "Recent" },
 }
+
+local function picker_opts(opts)
+	return vim.tbl_deep_extend("force", vim.deepcopy(DEFAULT_OPTS), opts or {})
+end
+
+local function current_opts(state)
+	return (state and state.opts) or DEFAULT_OPTS
+end
 
 local function normalize_path(path)
 	return vim.fn.fnamemodify(path, ":p")
@@ -53,10 +71,30 @@ local function collect_recent_files(project_root)
 	return recent
 end
 
+local function is_filtered(path, opts)
+	local name = vim.fn.fnamemodify(path or "", ":t")
+	for _, pattern in ipairs((opts and opts.filters) or {}) do
+		if type(pattern) == "string" and pattern ~= "" then
+			if name:match(pattern) or tostring(path or ""):match(pattern) then
+				return true
+			end
+		end
+	end
+	return false
+end
+
+local function filtered_paths(paths, opts)
+	return vim.tbl_filter(function(path)
+		return not is_filtered(path, opts)
+	end, paths or {})
+end
+
 function M.init(ctx)
 	local project_root = type(ctx) == "string" and ctx or (ctx and ctx.cwd) or vim.fn.getcwd()
+	local opts = picker_opts(ctx and ctx.opts)
 	return {
 		root = project_root,
+		opts = opts,
 		opened = collect_opened_files(),
 		recent = collect_recent_files(project_root),
 		files = nil,
@@ -91,29 +129,34 @@ local function collect_project_files(state)
 	end
 
 	local root = state.root or vim.fn.getcwd()
+	local opts = current_opts(state)
 	local files = {}
 	local ignored = {}
 	local seen = {}
 
 	local function add_paths(paths, is_ignored)
 		for _, path in ipairs(paths or {}) do
-			if path ~= "" and not seen[path] then
+			if path ~= "" and not seen[path] and not is_filtered(path, opts) then
 				seen[path] = true
 				files[#files + 1] = path
 			end
-			if is_ignored and path ~= "" then
+			if is_ignored and path ~= "" and not is_filtered(path, opts) then
 				ignored[path] = true
 			end
 		end
 	end
 
-	if vim.fn.isdirectory(root .. "/.git") == 1 then
+	if opts.git.enable and vim.fn.isdirectory(root .. "/.git") == 1 then
 		add_paths(vim.fn.systemlist({ "git", "-C", root, "ls-files", "--cached", "--others", "--exclude-standard" }), false)
-		add_paths(vim.fn.systemlist({ "git", "-C", root, "ls-files", "--ignored", "--others", "--exclude-standard" }), true)
-		add_paths(vim.fn.systemlist({ "git", "-C", root, "ls-files", "--ignored", "--others", "--exclude-standard", "--directory" }), true)
+		if opts.git.ignore then
+			add_paths(vim.fn.systemlist({ "git", "-C", root, "ls-files", "--ignored", "--others", "--exclude-standard" }), true)
+			add_paths(vim.fn.systemlist({ "git", "-C", root, "ls-files", "--ignored", "--others", "--exclude-standard", "--directory" }), true)
+		else
+			add_paths(vim.fn.systemlist({ "rg", "--files", "--hidden", "--no-ignore", "-g", "!.git", root }), false)
+		end
 	else
-		local visible = vim.fn.systemlist({ "rg", "--files", "--hidden", "-g", "!.git" })
-		local all = vim.fn.systemlist({ "rg", "--files", "--hidden", "--no-ignore", "-g", "!.git" })
+		local visible = vim.fn.systemlist({ "rg", "--files", "--hidden", "-g", "!.git", root })
+		local all = vim.fn.systemlist({ "rg", "--files", "--hidden", "--no-ignore", "-g", "!.git", root })
 		if vim.v.shell_error == 0 then
 			local visible_set = {}
 			for _, path in ipairs(visible or {}) do
@@ -133,7 +176,18 @@ local function collect_project_files(state)
 	return state.files, state.ignored
 end
 
-local function build_tree_items(paths, ignored, expanded)
+local function item(kind, path, label, depth, ignored, opts, extra)
+	return vim.tbl_extend("force", {
+		kind = kind,
+		path = path,
+		label = label,
+		depth = depth or 0,
+		no_icon = opts.icons == false,
+		ignored = ignored == true,
+	}, extra or {})
+end
+
+local function build_tree_items(paths, ignored, expanded, opts)
 	local root = { dirs = {}, files = {} }
 
 	for _, path in ipairs(paths or {}) do
@@ -200,14 +254,9 @@ local function build_tree_items(paths, ignored, expanded)
 
 		for _, name in ipairs(dir_names) do
 			local child = node.dirs[name]
-			items[#items + 1] = {
-				kind = "folder",
-				path = child.path,
-				label = child.name,
-				depth = depth,
+			items[#items + 1] = item("folder", child.path, child.name, depth, child.ignored, opts, {
 				expanded = expanded[child.path] == true,
-				ignored = child.ignored,
-			}
+			})
 			if expanded[child.path] == true then
 				append(child, depth + 1)
 			end
@@ -215,13 +264,7 @@ local function build_tree_items(paths, ignored, expanded)
 
 		for _, name in ipairs(file_names) do
 			local file = node.files[name]
-			items[#items + 1] = {
-				kind = "file",
-				path = file.path,
-				label = file.name,
-				depth = depth,
-				ignored = file.ignored,
-			}
+			items[#items + 1] = item("file", file.path, file.name, depth, file.ignored, opts)
 		end
 	end
 
@@ -261,33 +304,16 @@ local function build_search_items(state, paths, ignored)
 		end)
 
 		if dir ~= "" and #files > 1 then
-			items[#items + 1] = {
-				kind = "folder",
-				path = dir,
-				label = dir .. "/",
-				depth = 0,
+			items[#items + 1] = item("folder", dir, dir .. "/", 0, false, state.opts, {
 				expanded = true,
-				ignored = false,
 				search_group = true,
-			}
+			})
 			for _, file in ipairs(files) do
-				items[#items + 1] = {
-					kind = "file",
-					path = file.path,
-					label = file.name,
-					depth = 1,
-					ignored = file.ignored,
-				}
+				items[#items + 1] = item("file", file.path, file.name, 1, file.ignored, state.opts)
 			end
 		else
 			for _, file in ipairs(files) do
-				items[#items + 1] = {
-					kind = "file",
-					path = file.path,
-					label = file.rel,
-					depth = 0,
-					ignored = file.ignored,
-				}
+				items[#items + 1] = item("file", file.path, file.rel, 0, file.ignored, state.opts)
 			end
 		end
 	end
@@ -295,28 +321,29 @@ local function build_search_items(state, paths, ignored)
 	return items
 end
 
+local function panel_paths(state, panel_name)
+	if panel_name == "files_open" then
+		state.opened = filtered_paths(collect_opened_files(), current_opts(state))
+		return state.opened, {}
+	end
+	if panel_name == "files_recent" then
+		state.recent = filtered_paths(collect_recent_files(state.root), current_opts(state))
+		return state.recent, {}
+	end
+	return collect_project_files(state)
+end
+
 function M.items(state, query, panel_name)
 	local pulse = require("pulse")
 	local items = {}
-	local paths
-	local ignored = {}
-
-	if panel_name == "files_open" then
-		state.opened = collect_opened_files()
-		paths = state.opened
-	elseif panel_name == "files_recent" then
-		state.recent = collect_recent_files(state.root)
-		paths = state.recent
-	else
-		paths, ignored = collect_project_files(state)
-	end
+	local paths, ignored = panel_paths(state, panel_name)
 
 	if not query or query == "" then
 		if panel_name == "files_all" then
-			return build_tree_items(paths, ignored, state.expanded or {})
+			return build_tree_items(paths, ignored, state.expanded or {}, state.opts)
 		end
 		for _, path in ipairs(paths) do
-			items[#items + 1] = { kind = "file", path = path, label = relative_path(state.root, path) }
+			items[#items + 1] = item("file", path, relative_path(state.root, path), 0, false, state.opts)
 		end
 		return items
 	end
@@ -359,15 +386,39 @@ function M.on_submit(ctx)
 end
 
 function M.total_count(state, panel_name)
-	if panel_name == "files_open" then
-		state.opened = collect_opened_files()
-		return #(state.opened or {})
-	end
-	if panel_name == "files_recent" then
-		state.recent = collect_recent_files(state.root)
-		return #(state.recent or {})
-	end
-	return #(collect_project_files(state))
+	local paths = panel_paths(state, panel_name)
+	return #(paths)
+end
+
+function M.setup_directory_hijack(opts)
+	local group = vim.api.nvim_create_augroup("PulseFilesDirectoryHijack", { clear = true })
+	vim.api.nvim_create_autocmd({ "VimEnter", "BufEnter" }, {
+		group = group,
+		callback = function(args)
+			if not (opts and opts.is_enabled and opts.is_enabled()) then
+				return
+			end
+			if vim.b[args.buf].pulse_directory_hijacked then
+				return
+			end
+			vim.schedule(function()
+				if not vim.api.nvim_buf_is_valid(args.buf) then
+					return
+				end
+				local path = vim.api.nvim_buf_get_name(args.buf)
+				if path == "" or vim.fn.isdirectory(path) ~= 1 then
+					return
+				end
+
+				vim.b[args.buf].pulse_directory_hijacked = true
+				vim.cmd("silent keepalt enew")
+				if vim.api.nvim_buf_is_valid(args.buf) then
+					pcall(vim.api.nvim_buf_delete, args.buf, { force = true })
+				end
+				opts.open(path)
+			end)
+		end,
+	})
 end
 
 return M
