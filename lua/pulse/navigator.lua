@@ -3,7 +3,7 @@ local actions = require("pulse.actions")
 local display = require("pulse.display")
 local layout = require("pulse.layout")
 local mode = require("pulse.mode")
-local preview_data = require("pulse.preview")
+local context_view = require("pulse.context")
 local config = require("pulse.config")
 local panel = require("pulse.panel")
 local session_mod = require("pulse.session")
@@ -14,7 +14,7 @@ local state = {
 	session = nil,
 	list = nil,
 	input = nil,
-	preview = nil,
+	context = nil,
 	items = {},
 	states = {},
 	active_panels = {},
@@ -22,7 +22,7 @@ local state = {
 	source_bufnr = nil,
 	source_win = nil,
 	cwd = nil,
-	picker_opts = nil,
+	navigator_opts = nil,
 	current = {
 		mode_name = nil,
 		mod = nil,
@@ -35,7 +35,7 @@ local state = {
 
 local refresh
 
-local function picker_opts(opts)
+local function navigator_opts(opts)
 	return session_mod.normalize_opts(vim.tbl_deep_extend("force", config.options or {}, opts or {}))
 end
 
@@ -152,7 +152,7 @@ local function update_active(reason)
 	end
 end
 
-local function picker_state(mode_name)
+local function navigator_state(mode_name)
 	local current = state.states[mode_name]
 	if current then
 		return current
@@ -168,31 +168,26 @@ local function picker_state(mode_name)
 		bufnr = state.source_bufnr,
 		win = state.source_win,
 		cwd = state.cwd,
-		opts = config.for_picker(mode_name),
+		opts = config.for_navigator(mode_name),
 	})
 	state.states[mode_name] = current
 	return current
 end
 
-local function should_show_preview(preview_cfg, item)
-	return item and ((type(preview_cfg) == "function" and preview_cfg(item) == true) or preview_cfg == true)
+local function should_show_context(context_cfg, item)
+	return item and ((type(context_cfg) == "function" and context_cfg(item) == true) or context_cfg == true)
 end
 
-local function preview_spec(item, mod)
-	if not item or not mod or type(mod.preview_item) ~= "function" then
+local function context_spec(item, mod)
+	if not item or not mod or type(mod.context_item) ~= "function" then
 		return 0, nil
 	end
-	local lines, ft, highlights, line_numbers, focus_row = mod.preview_item(item)
+	local lines, ft, highlights, line_numbers, focus_row = mod.context_item(item)
 	return math.max(#(lines or {}), 1), { lines, ft, highlights, line_numbers, focus_row }
 end
 
-local function list_need()
-	local count = item_count(state.items)
-	return math.max(count == 0 and state.list.min_visible or count, state.list.min_visible)
-end
-
-local function split_body_height(total, list_height, preview_height)
-	if preview_height <= 0 then
+local function split_body_height(total, list_height, context_height)
+	if context_height <= 0 then
 		return math.min(list_height, total), 0
 	end
 
@@ -200,32 +195,34 @@ local function split_body_height(total, list_height, preview_height)
 	local half_low = math.floor(available / 2)
 	local half_high = available - half_low
 
-	if list_height > half_low and preview_height > half_low then
+	if list_height > half_low and context_height > half_low then
 		return half_high, half_low
 	end
 
-	local resolved_preview = math.min(preview_height, math.max(available - list_height, 1))
-	return available - resolved_preview, resolved_preview
+	local resolved_context = math.min(context_height, math.max(available - list_height, 1))
+	return available - resolved_context, resolved_context
 end
 
 local function resolve_body_layout()
 	local item = current_item() or first_selectable(state.items)
 	local show_panels = state.current.panel_header ~= nil
 	local panel_rows = show_panels and 2 or 0
-	local total_height = math.max(layout.resolve_max_height(state.picker_opts.height) - 2 - panel_rows, 1)
-	local list_height = math.min(list_need(), total_height)
-	local preview_height, spec = 0, nil
+	local total_height = math.max(layout.resolve_max_height(state.navigator_opts.height) - 2 - panel_rows, 1)
+	local item_total = item_count(state.items)
+	local list_need = math.max(item_total == 0 and state.list.min_visible or item_total, state.list.min_visible)
+	local list_height = math.min(list_need, total_height)
+	local context_height, spec = 0, nil
 
-	if should_show_preview(state.current.mod and state.current.mod.preview, item) then
-		preview_height, spec = preview_spec(item, state.current.mod)
-		list_height, preview_height = split_body_height(total_height, list_height, preview_height)
+	if should_show_context(state.current.mod and state.current.mod.context, item) then
+		context_height, spec = context_spec(item, state.current.mod)
+		list_height, context_height = split_body_height(total_height, list_height, context_height)
 	end
 
 	return {
 		show_panels = show_panels,
 		list_height = list_height,
-		preview_height = preview_height,
-		preview_spec = spec,
+		context_height = context_height,
+		context_spec = spec,
 	}
 end
 
@@ -236,17 +233,17 @@ local function render()
 
 	local body = resolve_body_layout()
 	state.list:set_max_visible(body.list_height)
-	state.session.layout:apply(state.list.visible_count, body.preview_height, {
+	state.session.layout:apply(state.list.visible_count, body.context_height, {
 		list = state.list,
-		preview = state.preview,
+		context = state.context,
 		input = state.input,
 		panels = state.session.panels,
 		show_panels = body.show_panels,
 	})
 
 	panel.render(state.session.panels, state.session.panels_ns, state.current.panel_header)
-	if body.preview_spec and state.preview and state.preview.win and vim.api.nvim_win_is_valid(state.preview.win) then
-		state.preview:set(unpack(body.preview_spec))
+	if body.context_spec and state.context and state.context.win and vim.api.nvim_win_is_valid(state.context.win) then
+		state.context:set(unpack(body.context_spec))
 	end
 	state.list:render(vim.api.nvim_win_get_width(state.list.win))
 end
@@ -261,11 +258,11 @@ refresh = function()
 	local prompt = state.input:get_value()
 	local mode_name, query = mode.parse_prompt(prompt)
 	local mod = state.registry[mode_name]
-	local picker = picker_state(mode_name)
+	local navigator = navigator_state(mode_name)
 	local mode_switched = mode_name ~= state.current.mode_name
 	local selected = item_key(current_item())
-	local active_panel = panel.active_name(state.active_panels, mode_name, mod and mod.panels, state.picker_opts.initial_panel)
-	local items = mod.items(picker, query, active_panel)
+	local active_panel = panel.active_name(state.active_panels, mode_name, mod and mod.panels, state.navigator_opts.initial_panel)
+	local items = mod.items(navigator, query, active_panel)
 	local found = item_count(items)
 
 	if found == 0 and #items > 0 then
@@ -274,7 +271,7 @@ refresh = function()
 
 	state.current.mode_name = mode_name
 	state.current.mod = mod
-	state.current.state = picker
+	state.current.state = navigator
 	state.current.query = query
 	state.current.panel = active_panel
 	state.current.panel_header = panel.header_item(mod and mod.panels, active_panel)
@@ -290,16 +287,16 @@ refresh = function()
 
 	local total = found
 	if mod and type(mod.total_count) == "function" then
-		local ok, count = pcall(mod.total_count, picker, active_panel)
+		local ok, count = pcall(mod.total_count, navigator, active_panel)
 		if ok and type(count) == "number" then
 			total = math.max(count, found)
 		end
 	end
 
-	local picker_mode = mod and mod.mode or {}
-	state.input:set_prompt(" " .. (picker_mode.icon or "") .. " ")
+	local navigator_mode = mod and mod.mode or {}
+	state.input:set_prompt(" " .. (navigator_mode.icon or "") .. " ")
 	state.input:set_addons({
-		ghost = query == "" and picker_mode.placeholder or nil,
+		ghost = query == "" and navigator_mode.placeholder or nil,
 		right = { text = string.format("%d/%d", found, total), hl = "LineNr" },
 	})
 
@@ -430,13 +427,13 @@ local function bind_widgets()
 			min_visible = 1,
 			render_item = display.to_display,
 		})
-		state.preview = preview_data.new({ buf = sections.preview.buf, win = sections.preview.win })
+		state.context = context_view.new({ buf = sections.context.buf, win = sections.context.win })
 
-		local files_picker = state.registry.files
+		local files_navigator = state.registry.files
 		state.input = ui.input.new({
 			buf = sections.input.buf,
 			win = sections.input.win,
-			prompt = " " .. ((files_picker and files_picker.mode and files_picker.mode.icon) or "") .. " ",
+			prompt = " " .. ((files_navigator and files_navigator.mode and files_navigator.mode.icon) or "") .. " ",
 			on_change = refresh,
 			on_submit = submit,
 			on_escape = hide,
@@ -452,34 +449,34 @@ local function bind_widgets()
 
 	state.input:set_win(sections.input.win)
 	state.list:set_win(sections.list.win)
-	local preview = sections.preview
-	state.preview:set_target(preview and preview.buf or nil, preview and preview.win or nil)
+	local context = sections.context
+	state.context:set_target(context and context.buf or nil, context and context.win or nil)
 end
 
 local function show(opts)
 	panel.setup_hl()
-	state.registry = config.options._picker_registry or {}
-	state.picker_opts = picker_opts(opts)
-	state.session = session_mod.ensure(state.picker_opts)
+	state.registry = config.options._navigator_registry or {}
+	state.navigator_opts = navigator_opts(opts)
+	state.session = session_mod.ensure(state.navigator_opts)
 	state.source_bufnr = vim.api.nvim_get_current_buf()
 	state.source_win = vim.api.nvim_get_current_win()
-	state.cwd = state.picker_opts.cwd or vim.fn.getcwd()
+	state.cwd = state.navigator_opts.cwd or vim.fn.getcwd()
 
 	local ok, err = state.session:mount(refresh)
 	if not ok then
-		vim.notify("Pulse: unable to open panel (" .. tostring(err) .. ")", vim.log.levels.WARN)
+		vim.notify("Pulse: unable to open navigator (" .. tostring(err) .. ")", vim.log.levels.WARN)
 		return
 	end
 
 	state.session.layout:apply(10, 8, {})
 	bind_widgets()
 
-	if state.picker_opts.initial_prompt and state.picker_opts.initial_prompt ~= "" then
-		state.input:set_value(state.picker_opts.initial_prompt)
+	if state.navigator_opts.initial_prompt and state.navigator_opts.initial_prompt ~= "" then
+		state.input:set_value(state.navigator_opts.initial_prompt)
 	end
 
 	refresh()
-	state.input:focus(state.picker_opts.initial_mode ~= "normal")
+	state.input:focus(state.navigator_opts.initial_mode ~= "normal")
 end
 
 function M.open(opts)
@@ -487,8 +484,8 @@ function M.open(opts)
 end
 
 function M.toggle(opts)
-	state.picker_opts = picker_opts(opts)
-	state.session = state.session or session_mod.ensure(state.picker_opts)
+	state.navigator_opts = navigator_opts(opts)
+	state.session = state.session or session_mod.ensure(state.navigator_opts)
 	if is_visible() then
 		hide()
 	else

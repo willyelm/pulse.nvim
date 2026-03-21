@@ -1,5 +1,5 @@
 local M = {}
-local preview = require("pulse.preview")
+local context = require("pulse.context")
 
 M.mode = {
 	name = "fuzzy_search",
@@ -8,10 +8,10 @@ M.mode = {
 	placeholder = "Fuzzy Search In Current Buffer",
 }
 
-M.preview = true
+M.context = true
 
-function M.preview_item(item)
-  return preview.file_snippet(item.path or item.filename, item.lnum, item.query, item.match_cols)
+function M.context_item(item)
+  return context.file_snippet(item.path or item.filename, item.lnum, item.query, item.match_cols)
 end
 
 local MAX_RESULTS = 400

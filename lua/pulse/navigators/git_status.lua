@@ -1,6 +1,6 @@
 local M = {}
 local diff_ui = require("pulse.ui.diff")
-local preview = require("pulse.preview")
+local context = require("pulse.context")
 
 M.mode = {
 	name = "git_status",
@@ -9,7 +9,7 @@ M.mode = {
 	placeholder = "Search Git Status",
 }
 
-M.preview = function(item)
+M.context = function(item)
 	return item and item.added + item.removed > 0
 end
 
@@ -39,14 +39,14 @@ local function git_patch_for(path)
   return { "No git diff for " .. tostring(path) }
 end
 
-function M.preview_item(item)
+function M.context_item(item)
   local path = item.path or item.filename
   local old_lines, new_lines = read_head_file(path), read_worktree_file(path)
   if #old_lines == 0 and #new_lines == 0 then
     return git_patch_for(path), "text", {}, nil, 1
   end
   local lines, highlights, focus_row = diff_ui.from_lines(old_lines, new_lines, { context = 3 })
-  local _, filetype = preview.file_snippet(path, 1)
+  local _, filetype = context.file_snippet(path, 1)
   return lines, filetype, highlights, nil, focus_row
 end
 

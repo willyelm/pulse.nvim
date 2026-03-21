@@ -1,11 +1,11 @@
 local config = require("pulse.config")
-local picker = require("pulse.picker")
+local navigator = require("pulse.navigator")
 local mode = require("pulse.mode")
 
 local M = {}
 
 local function registry()
-	return config.options._picker_registry or {}
+	return config.options._navigator_registry or {}
 end
 
 function M.make_matcher(query, opts)
@@ -32,7 +32,7 @@ function M.filetype_for(path)
 end
 
 local function open_panel(initial_prompt, extra_opts, initial_panel)
-	picker.open(vim.tbl_deep_extend("force", config.options, extra_opts or {}, {
+	navigator.open(vim.tbl_deep_extend("force", config.options, extra_opts or {}, {
 		initial_prompt = initial_prompt,
 		initial_panel = initial_panel,
 	}))
@@ -64,16 +64,16 @@ end
 local function pulse_command(opts)
 	local name = (opts and opts.args and opts.args ~= "") and opts.args or nil
 	if not name then
-		picker.toggle(config.options)
+		navigator.toggle(config.options)
 		return
 	end
 
 	local mode_name, panel_name = mode.find_by_command(name)
 	if not registry()[mode_name] then
-		vim.notify("Pulse: unknown picker '" .. tostring(name) .. "'", vim.log.levels.ERROR)
+		vim.notify("Pulse: unknown navigator '" .. tostring(name) .. "'", vim.log.levels.ERROR)
 		return
 	end
-	local next_prompt = mode.switch_prompt(picker.get_prompt() or "", mode_name)
+	local next_prompt = mode.switch_prompt(navigator.get_prompt() or "", mode_name)
 	open_panel(next_prompt, nil, panel_name)
 end
 
@@ -81,10 +81,10 @@ function M.setup(opts)
 	config.setup(opts)
 
 	local completions = {}
-	for mode_name, picker in pairs(registry()) do
+	for mode_name, navigator_module in pairs(registry()) do
 		completions[#completions + 1] = mode_name
-		if picker.panels then
-			for _, panel in ipairs(picker.panels) do
+		if navigator_module.panels then
+			for _, panel in ipairs(navigator_module.panels) do
 				completions[#completions + 1] = panel.name
 			end
 		end
@@ -104,7 +104,7 @@ function M.setup(opts)
 	if files and type(files.setup_directory_hijack) == "function" then
 		files.setup_directory_hijack({
 			is_enabled = function()
-				return config.for_picker("files").open_on_directory == true
+				return config.for_navigator("files").open_on_directory == true
 			end,
 			open = function(path)
 				open_panel(mode.switch_prompt("", "files"), { cwd = path })

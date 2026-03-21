@@ -8,7 +8,7 @@ M.mode = {
 	placeholder = "Search Workspace Symbols",
 }
 
-M.preview = false
+M.context = false
 
 local SymbolKind = vim.lsp.protocol.SymbolKind or {}
 

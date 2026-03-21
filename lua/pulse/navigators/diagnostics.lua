@@ -1,5 +1,5 @@
 local M = {}
-local preview = require("pulse.preview")
+local context = require("pulse.context")
 
 M.mode = {
 	name = "diagnostics",
@@ -8,7 +8,7 @@ M.mode = {
 	placeholder = "Search Diagnostics",
 }
 
-M.preview = true
+M.context = true
 
 local severity_name = {
 	[vim.diagnostic.severity.ERROR] = "ERROR",
@@ -69,7 +69,7 @@ function M.items(state, query)
 	return out
 end
 
-function M.preview_item(item)
+function M.context_item(item)
 	local out = {
 		string.format("[%s] %s", item.severity_name or "INFO", item.source or "diagnostic"),
 		string.format("%s:%d:%d", item.filename or "", item.lnum or 1, item.col or 1),
@@ -77,7 +77,7 @@ function M.preview_item(item)
 		item.message or "",
 		"",
 	}
-	local snippet, ft = preview.file_snippet(item.filename, item.lnum)
+	local snippet, ft = context.file_snippet(item.filename, item.lnum)
 	vim.list_extend(out, snippet)
 	return out, ft, {}, nil, 1
 end

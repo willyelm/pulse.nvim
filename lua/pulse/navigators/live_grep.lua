@@ -1,5 +1,5 @@
 local M = {}
-local preview = require("pulse.preview")
+local context = require("pulse.context")
 
 M.mode = {
 	name = "live_grep",
@@ -8,10 +8,10 @@ M.mode = {
 	placeholder = "Live Grep In Project",
 }
 
-M.preview = true
+M.context = true
 
-function M.preview_item(item)
-  return preview.file_snippet(item.path or item.filename, item.lnum, item.query, item.match_cols)
+function M.context_item(item)
+  return context.file_snippet(item.path or item.filename, item.lnum, item.query, item.match_cols)
 end
 
 local DEBOUNCE_MS = 60

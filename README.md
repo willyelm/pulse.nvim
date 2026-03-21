@@ -8,8 +8,8 @@ One entry point. Total focus.
 
 ## What is Pulse
 
-A Fast one command-palette for Neovim. Pulse uses a prefix
-approach to move quickly between picker modes:
+A fast command palette for Neovim. Pulse uses a prefix
+approach to move quickly between navigator modes:
 
 | Prefix      | Mode                          |
 | ----------- | ----------------------------- |
@@ -27,7 +27,7 @@ approach to move quickly between picker modes:
 
 - Neovim `>= 0.10`
 - `ripgrep` (`rg`)
-- `git` (for git status mode preview)
+- `git` (for git status context)
 - `nvim-tree/nvim-web-devicons` (optional, recommended)
 
 ## Install (lazy.nvim)
@@ -50,7 +50,7 @@ require("pulse").setup({
   width = 0.50,
   height = 0.75,
   border = "rounded",
-  pickers = {
+  navigators = {
     files = {
       icons = true,
       filters = { "^%.git$", "%.DS_Store$" },
@@ -64,7 +64,7 @@ require("pulse").setup({
 })
 ```
 
-**Default pickers** (all loaded if not specified):
+**Default navigators** (all loaded if not specified):
 
 - `files` - Project files
 - `commands` - Vim commands
@@ -80,17 +80,17 @@ To load a specific set only:
 
 ```lua
 require("pulse").setup({
-  pickers = { "files", "commands", "git_status" },
+  navigators = { "files", "commands", "git_status" },
 })
 ```
 
-## Per Picker Config
+## Per Navigator Config
 
-Each picker can receive its own config directly through `pickers`:
+Each navigator can receive its own config directly through `navigators`:
 
 ```lua
 require("pulse").setup({
-  pickers = {
+  navigators = {
     files = {
       icons = false,
       filters = { "^%.git$", "%.DS_Store$" },
@@ -107,7 +107,7 @@ You can also disable a default setting:
 
 ```lua
 require("pulse").setup({
-  pickers = {
+  navigators = {
     git_status = false,
     files = {
       icons = false,
@@ -126,14 +126,14 @@ Current `files` options:
 
 ## Use Files As Default Tree
 
-To open Pulse files instead of netrw for directory buffers like `nvim .`, set the netrw globals before setup and enable `open_on_directory` on the files picker:
+To open Pulse files instead of netrw for directory buffers like `nvim .`, set the netrw globals before setup and enable `open_on_directory` on the files navigator:
 
 ```lua
 vim.g.loaded_netrw = 1
 vim.g.loaded_netrwPlugin = 1
 
 require("pulse").setup({
-  pickers = {
+  navigators = {
     files = {
       open_on_directory = true,
     },
@@ -158,7 +158,7 @@ vim.g.loaded_netrwPlugin = 1
     position = "top",
     height = 0.9,
     width = 0.7,
-    pickers = {
+    navigators = {
       files = {
         open_on_directory = true,
       },
@@ -184,15 +184,15 @@ vim.g.loaded_netrwPlugin = 1
 
 - `<Down>/<C-n>`: next item (from input)
 - `<Up>/<C-p>`: previous item (from input)
-- `Esc`: close picker
+- `Esc`: close navigator
 - `<Tab>`:
-  - files: open preview in source window (picker stays open)
-  - symbols/workspace symbols: jump to location (picker stays open)
-  - live grep/fuzzy search: open/jump to location (picker stays open)
-  - diagnostics: jump to location (picker stays open)
+  - files: open in source window (navigator stays open)
+  - symbols/workspace symbols: jump to location (navigator stays open)
+  - live grep/fuzzy search: open/jump to location (navigator stays open)
+  - diagnostics: jump to location (navigator stays open)
   - commands: replace input with selected command
   - git status: no-op
-- `<CR>`: submit/open and close picker
+- `<CR>`: submit/open and close navigator
 - selection wraps from last->first and first->last
 
 In `commands` mode:

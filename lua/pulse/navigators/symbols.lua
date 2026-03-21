@@ -7,7 +7,7 @@ M.mode = {
 	placeholder = "Search Symbols In Current Buffer",
 }
 
-M.preview = false
+M.context = false
 
 local SymbolKind = vim.lsp.protocol.SymbolKind or {}
 local NODE_KINDS = { ["function"] = true, method = true, class = true, interface = true, enum = true, struct = true, type = true, declaration = true }

@@ -7,7 +7,7 @@ M.mode = {
 	placeholder = "Code Actions",
 }
 
-M.preview = false
+M.context = false
 
 local function apply_action(action, client, req_ctx)
 	if action.edit then

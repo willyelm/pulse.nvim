@@ -66,9 +66,9 @@ M.file_snippet = file_snippet
 
 function M.new(opts)
 	local self = setmetatable({}, M)
-	self.buf = assert(opts.buf, "preview requires a buffer")
-	self.win = assert(opts.win, "preview requires a window")
-	self.ns = vim.api.nvim_create_namespace("pulse_ui_preview")
+	self.buf = assert(opts.buf, "context requires a buffer")
+	self.win = assert(opts.win, "context requires a window")
+	self.ns = vim.api.nvim_create_namespace("pulse_ui_context")
 	self.active_filetype = "text"
 	vim.bo[self.buf].buftype, vim.bo[self.buf].bufhidden, vim.bo[self.buf].buflisted, vim.bo[self.buf].swapfile =
 		"nofile", "hide", false, false

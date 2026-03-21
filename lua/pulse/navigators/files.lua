@@ -17,7 +17,7 @@ M.mode = {
 	placeholder = "Search Files",
 }
 
-M.preview = false
+M.context = false
 
 M.panels = {
 	{ name = "files_all", label = "All" },
@@ -25,7 +25,7 @@ M.panels = {
 	{ name = "files_recent", label = "Recent" },
 }
 
-local function picker_opts(opts)
+local function navigator_opts(opts)
 	return vim.tbl_deep_extend("force", vim.deepcopy(DEFAULT_OPTS), opts or {})
 end
 
@@ -91,7 +91,7 @@ end
 
 function M.init(ctx)
 	local project_root = type(ctx) == "string" and ctx or (ctx and ctx.cwd) or vim.fn.getcwd()
-	local opts = picker_opts(ctx and ctx.opts)
+	local opts = navigator_opts(ctx and ctx.opts)
 	return {
 		root = project_root,
 		opts = opts,
@@ -123,11 +123,18 @@ local function relative_path(root, path)
 	return path
 end
 
-local function collect_project_files(state)
-	if state.files and state.ignored then
-		return state.files, state.ignored
+local function path_exists(root, path)
+	if not path or path == "" then
+		return false
 	end
+	local abs = path:sub(1, 1) == "/" and path or (normalize_path(root) .. "/" .. path)
+	if path:sub(-1) == "/" then
+		return vim.fn.isdirectory(abs:sub(1, -2)) == 1
+	end
+	return vim.fn.filereadable(abs) == 1 or vim.fn.isdirectory(abs) == 1
+end
 
+local function collect_project_files(state)
 	local root = state.root or vim.fn.getcwd()
 	local opts = current_opts(state)
 	local files = {}
@@ -136,11 +143,11 @@ local function collect_project_files(state)
 
 	local function add_paths(paths, is_ignored)
 		for _, path in ipairs(paths or {}) do
-			if path ~= "" and not seen[path] and not is_filtered(path, opts) then
+			if path ~= "" and path_exists(root, path) and not seen[path] and not is_filtered(path, opts) then
 				seen[path] = true
 				files[#files + 1] = path
 			end
-			if is_ignored and path ~= "" and not is_filtered(path, opts) then
+			if is_ignored and path ~= "" and path_exists(root, path) and not is_filtered(path, opts) then
 				ignored[path] = true
 			end
 		end

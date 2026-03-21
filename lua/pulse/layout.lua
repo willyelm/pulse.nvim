@@ -33,25 +33,25 @@ function M.new(box)
 		set_lines(buf, { string.rep("─", width) })
 	end
 
-	function layout:apply(body_height, preview_height, refs)
+	function layout:apply(body_height, context_height, refs)
 		local width = vim.api.nvim_win_get_width(box.win)
-		local show_preview = preview_height > 0
+		local show_context = context_height > 0
 		local show_panels = refs and refs.show_panels == true
 		if
 			self.sections.input
 			and is_open(self.sections.input)
 			and is_open(self.sections.list)
 			and (not show_panels or is_open(self.sections.panels))
-			and (not show_preview or is_open(self.sections.preview))
+			and (not show_context or is_open(self.sections.context))
 			and self.last_dims.body == body_height
-			and self.last_dims.preview == preview_height
+			and self.last_dims.context == context_height
 			and self.last_dims.width == width
 			and self.last_dims.panels == show_panels
 		then
 			return
 		end
 
-		local chrome_height = 2 + (show_panels and 2 or 0) + (show_preview and 1 + preview_height or 0)
+		local chrome_height = 2 + (show_panels and 2 or 0) + (show_context and 1 + context_height or 0)
 		box:update({ height = body_height + chrome_height })
 		width = vim.api.nvim_win_get_width(box.win)
 
@@ -78,12 +78,12 @@ function M.new(box)
 			winhl = "Normal:NormalFloat,CursorLine:CursorLine",
 		}
 
-		if show_preview then
+		if show_context then
 			specs[#specs + 1] = { name = "body_divider", row = list_row + body_height, height = 1, focusable = false, winhl = "Normal:FloatBorder", divider = true }
-			specs[#specs + 1] = { name = "preview", row = list_row + body_height + 1, height = preview_height, focusable = true, winhl = "Normal:NormalFloat" }
+			specs[#specs + 1] = { name = "context", row = list_row + body_height + 1, height = context_height, focusable = true, winhl = "Normal:NormalFloat" }
 		else
 			box:close_section("body_divider")
-			box:close_section("preview")
+			box:close_section("context")
 		end
 
 		for _, s in ipairs(specs) do
@@ -111,13 +111,13 @@ function M.new(box)
 		if refs.input then
 			refs.input:set_win(self.sections.input.win)
 		end
-		if refs.preview then
-			local buf = show_preview and self.sections.preview.buf or nil
-			local win = show_preview and self.sections.preview.win or nil
-			refs.preview:set_target(buf, win)
+		if refs.context then
+			local buf = show_context and self.sections.context.buf or nil
+			local win = show_context and self.sections.context.win or nil
+			refs.context:set_target(buf, win)
 		end
 
-		self.last_dims = { body = body_height, preview = preview_height, width = width, panels = show_panels }
+		self.last_dims = { body = body_height, context = context_height, width = width, panels = show_panels }
 	end
 
 	return layout

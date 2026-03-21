@@ -7,7 +7,7 @@ M.mode = {
 	placeholder = "Run Command",
 }
 
-M.preview = false
+M.context = false
 M.allow_empty_selection = true
 
 local function format_cmd_error(err)

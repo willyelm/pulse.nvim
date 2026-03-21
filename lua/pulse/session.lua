@@ -19,13 +19,13 @@ local session = {
 	panels_ns = vim.api.nvim_create_namespace("pulse_ui_panels"),
 }
 
-local function configure_box(picker_opts)
-	local border = (picker_opts.border == true) and "single" or picker_opts.border
-	local row = (picker_opts.position == "top") and 1 or nil
+local function configure_box(navigator_opts)
+	local border = (navigator_opts.border == true) and "single" or navigator_opts.border
+	local row = (navigator_opts.position == "top") and 1 or nil
 	if not session.box then
 		session.box = ui.box.new({
-			width = picker_opts.width,
-			height = picker_opts.height,
+			width = navigator_opts.width,
+			height = navigator_opts.height,
 			row = row,
 			col = 0.5,
 			border = border,
@@ -38,8 +38,8 @@ local function configure_box(picker_opts)
 		return
 	end
 
-	session.box.opts.width = picker_opts.width
-	session.box.opts.height = picker_opts.height
+	session.box.opts.width = navigator_opts.width
+	session.box.opts.height = navigator_opts.height
 	session.box.opts.row = row
 	session.box.opts.border = border
 end
@@ -95,8 +95,8 @@ function M.normalize_opts(opts)
 	return vim.tbl_deep_extend("force", defaults, opts or {})
 end
 
-function M.ensure(picker_opts)
-	configure_box(M.normalize_opts(picker_opts))
+function M.ensure(navigator_opts)
+	configure_box(M.normalize_opts(navigator_opts))
 	return session
 end
 
