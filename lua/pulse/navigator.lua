@@ -589,9 +589,11 @@ local function show(opts)
 	state.session = session_mod.ensure(state.navigator_opts)
 	state.source_bufnr = vim.api.nvim_get_current_buf()
 	state.source_win = vim.api.nvim_get_current_win()
-	state.cwd = state.navigator_opts.cwd or vim.fn.getcwd()
+	local next_cwd = state.navigator_opts.cwd or vim.fn.getcwd()
+	local preserved_files = (state.cwd == next_cwd) and state.states.files or nil
+	state.cwd = next_cwd
 	state.scope = state.navigator_opts.scope
-	state.states = {}
+	state.states = preserved_files and { files = preserved_files } or {}
 
 	local ok, err = state.session:mount(refresh)
 	if not ok then
