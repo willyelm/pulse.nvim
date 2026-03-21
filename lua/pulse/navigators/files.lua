@@ -89,10 +89,24 @@ local function filtered_paths(paths, opts)
 	end, paths or {})
 end
 
-function M.init(ctx)
+local function opened_set(state)
+	local set = {}
+	for _, path in ipairs(state.opened or collect_opened_files()) do
+		set[path] = true
+		set[normalize_path(path)] = true
+	end
+	return set
+end
+
+local function setup_highlights()
 	pcall(vim.api.nvim_set_hl, 0, "PulseAdd", { link = "Added", default = true })
 	pcall(vim.api.nvim_set_hl, 0, "PulseDelete", { link = "Removed", default = true })
 	pcall(vim.api.nvim_set_hl, 0, "PulseChange", { link = "Changed", default = true })
+	pcall(vim.api.nvim_set_hl, 0, "PulseOpenFile", { bold = true, default = true })
+end
+
+function M.init(ctx)
+	setup_highlights()
 	local project_root = type(ctx) == "string" and ctx or (ctx and ctx.cwd) or vim.fn.getcwd()
 	local opts = navigator_opts(ctx and ctx.opts)
 	return {
@@ -226,6 +240,17 @@ local function right_matches(tokens)
 	return matches
 end
 
+local function display_meta(tokens)
+	return {
+		display_right = join_tokens(tokens),
+		right_matches = right_matches(tokens),
+	}
+end
+
+local function file_display_meta(code, ignored)
+	return display_meta(status_tokens(code or (ignored and "!" or nil)))
+end
+
 local function ordered_statuses(statuses, ignored)
 	local out = {}
 	local order = { "!", "??", "+", "~", "-" }
@@ -238,6 +263,38 @@ local function ordered_statuses(statuses, ignored)
 		end
 	end
 	return out
+end
+
+local function folder_display_meta(statuses, ignored)
+	return display_meta(ordered_statuses(statuses, ignored))
+end
+
+local function add_status_set(target, code)
+	target = target or {}
+	for _, token in ipairs(status_tokens(code)) do
+		target[token] = true
+	end
+	return target
+end
+
+local function ensure_dir(node, name, path, ignored)
+	local child = node.dirs[name]
+	if child then
+		if ignored then
+			child.ignored = true
+		end
+		return child
+	end
+	child = {
+		name = name,
+		path = path,
+		dirs = {},
+		files = {},
+		ignored = ignored == true,
+		statuses = {},
+	}
+	node.dirs[name] = child
+	return child
 end
 
 local function collect_project_files(state)
@@ -305,9 +362,16 @@ local function item(kind, path, label, depth, ignored, opts, extra)
 	}, extra or {})
 end
 
+local function file_item(opts, path, label, depth, ignored, is_open, code)
+	return item("file", path, label, depth, ignored, opts, vim.tbl_extend("force", {
+		is_open = is_open,
+	}, file_display_meta(code, ignored)))
+end
+
 local function build_tree_items(paths, ignored, expanded, opts)
 	local root = { dirs = {}, files = {} }
 	local git_status = opts.git_status or {}
+	local open_map = opts.open_map or {}
 
 	for _, path in ipairs(paths or {}) do
 		local is_dir = path:sub(-1) == "/"
@@ -318,25 +382,8 @@ local function build_tree_items(paths, ignored, expanded, opts)
 
 		for i = 1, math.max(#parts - (is_dir and 0 or 1), 0) do
 			dir = dir and (dir .. "/" .. parts[i]) or parts[i]
-			local child = node.dirs[parts[i]]
-			if not child then
-				child = {
-					name = parts[i],
-					path = dir,
-					dirs = {},
-					files = {},
-					ignored = ignored[dir] == true or ignored[dir .. "/"] == true,
-					statuses = {},
-				}
-				node.dirs[parts[i]] = child
-			end
-			if ignored[dir] == true or ignored[dir .. "/"] == true then
-				child.ignored = true
-			end
-			local dir_status = git_status[dir] or git_status[dir .. "/"]
-			for _, token in ipairs(status_tokens(dir_status)) do
-				child.statuses[token] = true
-			end
+			local child = ensure_dir(node, parts[i], dir, ignored[dir] == true or ignored[dir .. "/"] == true)
+			child.statuses = add_status_set(child.statuses, git_status[dir] or git_status[dir .. "/"])
 			node = child
 		end
 
@@ -346,6 +393,7 @@ local function build_tree_items(paths, ignored, expanded, opts)
 				path = clean_path,
 				ignored = ignored[path] == true,
 				status = git_status[clean_path],
+				is_open = open_map[clean_path] == true or open_map[normalize_path(clean_path)] == true,
 			}
 		end
 	end
@@ -356,21 +404,8 @@ local function build_tree_items(paths, ignored, expanded, opts)
 		local dir = nil
 		for i = 1, math.max(#parts - 1, 0) do
 			dir = dir and (dir .. "/" .. parts[i]) or parts[i]
-			local child = node.dirs[parts[i]]
-			if not child then
-				child = {
-					name = parts[i],
-					path = dir,
-					dirs = {},
-					files = {},
-					ignored = ignored[dir] == true or ignored[dir .. "/"] == true,
-					statuses = {},
-				}
-				node.dirs[parts[i]] = child
-			end
-			for _, token in ipairs(status_tokens(code)) do
-				child.statuses[token] = true
-			end
+			local child = ensure_dir(node, parts[i], dir, ignored[dir] == true or ignored[dir .. "/"] == true)
+			child.statuses = add_status_set(child.statuses, code)
 			node = child
 		end
 	end
@@ -393,10 +428,7 @@ local function build_tree_items(paths, ignored, expanded, opts)
 			if not file.ignored then
 				has_visible = true
 			end
-			for _, token in ipairs(status_tokens(file.status)) do
-				node.statuses = node.statuses or {}
-				node.statuses[token] = true
-			end
+			node.statuses = add_status_set(node.statuses, file.status)
 		end
 
 		node.ignored = forced_ignored or not has_visible
@@ -412,11 +444,9 @@ local function build_tree_items(paths, ignored, expanded, opts)
 
 		for _, name in ipairs(dir_names) do
 			local child = node.dirs[name]
-			items[#items + 1] = item("folder", child.path, child.name, depth, child.ignored, opts, {
+			items[#items + 1] = item("folder", child.path, child.name, depth, child.ignored, opts, vim.tbl_extend("force", {
 				expanded = expanded[child.path] == true,
-				display_right = join_tokens(ordered_statuses(child.statuses, child.ignored)),
-				right_matches = right_matches(ordered_statuses(child.statuses, child.ignored)),
-			})
+			}, folder_display_meta(child.statuses, child.ignored)))
 			if expanded[child.path] == true then
 				append(child, depth + 1)
 			end
@@ -424,10 +454,7 @@ local function build_tree_items(paths, ignored, expanded, opts)
 
 		for _, name in ipairs(file_names) do
 			local file = node.files[name]
-			items[#items + 1] = item("file", file.path, file.name, depth, file.ignored, opts, {
-				display_right = join_tokens(status_tokens(file.status or (file.ignored and "!" or nil))),
-				right_matches = right_matches(status_tokens(file.status or (file.ignored and "!" or nil))),
-			})
+			items[#items + 1] = file_item(opts, file.path, file.name, depth, file.ignored, file.is_open, file.status)
 		end
 	end
 
@@ -440,6 +467,7 @@ local function build_search_items(state, paths, ignored)
 	local groups = {}
 	local order = {}
 	local git_status = state.git_status or {}
+	local open_map = opened_set(state)
 
 	for _, path in ipairs(paths or {}) do
 		local rel = relative_path(state.root, path)
@@ -457,6 +485,7 @@ local function build_search_items(state, paths, ignored)
 			name = vim.fn.fnamemodify(rel, ":t"),
 			ignored = ignored[path] == true,
 			status = git_status[path],
+			is_open = open_map[path] == true or open_map[normalize_path(path)] == true,
 		}
 	end
 
@@ -474,17 +503,11 @@ local function build_search_items(state, paths, ignored)
 				search_group = true,
 			})
 			for _, file in ipairs(files) do
-				items[#items + 1] = item("file", file.path, file.name, 1, file.ignored, state.opts, {
-					display_right = join_tokens(status_tokens(file.status or (file.ignored and "!" or nil))),
-					right_matches = right_matches(status_tokens(file.status or (file.ignored and "!" or nil))),
-				})
+				items[#items + 1] = file_item(state.opts, file.path, file.name, 1, file.ignored, file.is_open, file.status)
 			end
 		else
 			for _, file in ipairs(files) do
-				items[#items + 1] = item("file", file.path, file.rel, 0, file.ignored, state.opts, {
-					display_right = join_tokens(status_tokens(file.status or (file.ignored and "!" or nil))),
-					right_matches = right_matches(status_tokens(file.status or (file.ignored and "!" or nil))),
-				})
+				items[#items + 1] = file_item(state.opts, file.path, file.rel, 0, file.ignored, file.is_open, file.status)
 			end
 		end
 	end
@@ -508,17 +531,23 @@ function M.items(state, query, panel_name)
 	local pulse = require("pulse")
 	local items = {}
 	local paths, ignored = panel_paths(state, panel_name)
+	local open_map = opened_set(state)
 
 	if not query or query == "" then
 		if panel_name == "files_all" then
-			local tree_opts = vim.tbl_extend("force", {}, state.opts, { git_status = state.git_status or {} })
+			local tree_opts = vim.tbl_extend("force", {}, state.opts, { git_status = state.git_status or {}, open_map = open_map })
 			return build_tree_items(paths, ignored, state.expanded or {}, tree_opts)
 		end
 		for _, path in ipairs(paths) do
-			items[#items + 1] = item("file", path, relative_path(state.root, path), 0, ignored[path] == true, state.opts, {
-				display_right = join_tokens(status_tokens((state.git_status or {})[path] or (ignored[path] and "!" or nil))),
-				right_matches = right_matches(status_tokens((state.git_status or {})[path] or (ignored[path] and "!" or nil))),
-			})
+			items[#items + 1] = file_item(
+				state.opts,
+				path,
+				relative_path(state.root, path),
+				0,
+				ignored[path] == true,
+				open_map[path] == true or open_map[normalize_path(path)] == true,
+				(state.git_status or {})[path]
+			)
 		end
 		return items
 	end

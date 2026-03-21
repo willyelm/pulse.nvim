@@ -174,19 +174,19 @@ function M:_visible_lines(width)
 				.. string.rep(" ", math.max(content_width - vim.fn.strdisplaywidth(text), 0))
 				.. string.rep(" ", SIDE_PADDING)
 			lines[index] = padded
+			local row = index - 1
 
 			if index == self.selected then
-				add_hl(highlights, "Visual", index - 1, 0, #padded)
-			else
-				if spec.left_group and #left > 0 then
-					add_hl(highlights, spec.left_group, index - 1, SIDE_PADDING, SIDE_PADDING + #left)
-				end
-				self:_add_matches(highlights, index - 1, SIDE_PADDING, #left, spec.left_matches)
-				if right_start and spec.right_group and #right > 0 then
-					add_hl(highlights, spec.right_group, index - 1, SIDE_PADDING + right_start, SIDE_PADDING + #text)
-				end
-				self:_add_matches(highlights, index - 1, SIDE_PADDING + (right_start or 0), #right, spec.right_matches)
+				add_hl(highlights, "Visual", row, 0, #padded)
 			end
+			if spec.left_group and #left > 0 then
+				add_hl(highlights, spec.left_group, row, SIDE_PADDING, SIDE_PADDING + #left)
+			end
+			self:_add_matches(highlights, row, SIDE_PADDING, #left, spec.left_matches)
+			if right_start and spec.right_group and #right > 0 then
+				add_hl(highlights, spec.right_group, row, SIDE_PADDING + right_start, SIDE_PADDING + #text)
+			end
+			self:_add_matches(highlights, row, SIDE_PADDING + (right_start or 0), #right, spec.right_matches)
 		end
 	end
 
@@ -200,6 +200,10 @@ end
 function M:render(width)
 	width = math.max(width or (self.win and vim.api.nvim_win_get_width(self.win)) or 20, 1)
 	self:_normalise_selection()
+	local view = nil
+	if self.win and vim.api.nvim_win_is_valid(self.win) then
+		view = vim.api.nvim_win_call(self.win, vim.fn.winsaveview)
+	end
 
 	local lines, highlights = self:_visible_lines(width)
 	set_lines(self.buf, lines)
@@ -215,7 +219,23 @@ function M:render(width)
 
 	if self.win and vim.api.nvim_win_is_valid(self.win) then
 		local row = ((#self.items > 0) and (self.selected or 0) > 0) and self.selected or 1
-		pcall(vim.api.nvim_win_set_cursor, self.win, { row, 0 })
+		local height = vim.api.nvim_win_get_height(self.win)
+		local max_top = math.max(#lines - height + 1, 1)
+		local topline = view and view.topline or 1
+		topline = math.min(math.max(topline, 1), max_top)
+		if row < topline then
+			topline = row
+		elseif row > topline + height - 1 then
+			topline = math.max(row - height + 1, 1)
+		end
+		pcall(vim.api.nvim_win_call, self.win, function()
+			vim.fn.winrestview({
+				lnum = row,
+				col = 0,
+				curswant = 0,
+				topline = topline,
+			})
+		end)
 	end
 end
 
