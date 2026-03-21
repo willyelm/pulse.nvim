@@ -1,4 +1,5 @@
 local M = {}
+local scope = require("pulse.scope")
 
 M.mode = {
 	name = "code_action",
@@ -8,6 +9,8 @@ M.mode = {
 }
 
 M.context = false
+M.scope_aware = true
+M.scope_clears_to_files = true
 
 local function apply_action(action, client, req_ctx)
 	if action.edit then
@@ -54,17 +57,41 @@ local function execute(item)
 end
 
 function M.init(ctx)
-	local bufnr = ctx and ctx.bufnr or vim.api.nvim_get_current_buf()
+	local scoped = ctx and ctx.scope
+	local bufnr = (scoped and scoped.kind == "file" and (scoped.bufnr or vim.fn.bufadd(scoped.path)))
+		or (ctx and ctx.bufnr)
+		or vim.api.nvim_get_current_buf()
+	pcall(vim.fn.bufload, bufnr)
 	local win = ctx and ctx.win or 0
-	local state = { actions = {} }
+	local state = {
+		actions = {},
+		input_scope = (scoped and scoped.kind == "file" and scope.file(scoped.path, bufnr)) or scope.from_buffer(bufnr),
+	}
 
-	local ok, cursor = pcall(vim.api.nvim_win_get_cursor, win)
-	if not ok or not cursor then return state end
+	local cursor = nil
+	if scoped and scoped.kind == "file" then
+		local mark = vim.api.nvim_buf_get_mark(bufnr, '"')
+		cursor = { math.max(mark[1], 1), math.max(mark[2], 0) }
+	else
+		local ok, current = pcall(vim.api.nvim_win_get_cursor, win)
+		if ok then
+			cursor = current
+		end
+	end
+	if not cursor then
+		return state
+	end
 
 	local row, col = cursor[1] - 1, cursor[2]
 	for _, client in ipairs(vim.lsp.get_clients({ bufnr = bufnr, method = "textDocument/codeAction" })) do
 		---@type lsp.CodeActionParams
-		local params = vim.lsp.util.make_range_params(win, client.offset_encoding)
+		local params = {
+			textDocument = vim.lsp.util.make_text_document_params(bufnr),
+			range = {
+				start = { line = row, character = col },
+				["end"] = { line = row, character = col },
+			},
+		}
 		params.context = {
 			triggerKind = vim.lsp.protocol.CodeActionTriggerKind.Invoked,
 			diagnostics = {},
@@ -98,6 +125,10 @@ function M.init(ctx)
 	end
 
 	return state
+end
+
+function M.input_scope(state)
+	return state and state.input_scope or nil
 end
 
 function M.items(state, query)

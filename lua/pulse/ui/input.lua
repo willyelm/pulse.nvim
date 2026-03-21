@@ -34,6 +34,9 @@ local function normalise_chunks(spec, default_hl)
   if t ~= "table" then
     return nil
   end
+  if type(spec[1]) == "table" then
+    return spec
+  end
   if spec.text then
     return { { tostring(spec.text), spec.hl or default_hl } }
   end
@@ -71,6 +74,7 @@ function M.new(opts)
   self.on_tab = opts.on_tab
   self.on_left = opts.on_left
   self.on_right = opts.on_right
+  self.on_backspace = opts.on_backspace
   self.augroup = vim.api.nvim_create_augroup("PulseUIInput" .. tostring(self.buf), { clear = true })
   self.ns = vim.api.nvim_create_namespace("pulse_ui_input")
   self.addons = {}
@@ -120,6 +124,7 @@ function M.new(opts)
 
   map_expr("<Left>", "<Left>", function() return self.on_left and self.on_left() end)
   map_expr("<Right>", "<Right>", function() return self.on_right and self.on_right() end)
+  map_expr("<BS>", "<BS>", function() return self.on_backspace and self.on_backspace(self:get_value()) end)
 
   configure_window(self.win)
   return self
@@ -183,6 +188,14 @@ function M:set_addons(addons)
       end_row = 0,
       end_col = 1,
       hl_group = MODE_HL,
+    })
+  end
+
+  for _, match in ipairs(self.addons.prompt_matches or {}) do
+    pcall(vim.api.nvim_buf_set_extmark, self.buf, self.ns, 0, match[1], {
+      end_row = 0,
+      end_col = match[2],
+      hl_group = match[3],
     })
   end
 

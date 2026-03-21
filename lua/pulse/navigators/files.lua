@@ -1,4 +1,5 @@
 local M = {}
+local scope = require("pulse.scope")
 
 local DEFAULT_OPTS = {
 	icons = false,
@@ -118,6 +119,7 @@ function M.init(ctx)
 		ignored = nil,
 		git_status = nil,
 		expanded = {},
+		scope = ctx and ctx.scope or nil,
 	}
 end
 
@@ -139,6 +141,69 @@ local function relative_path(root, path)
 		return vim.fn.fnamemodify(path, ":.")
 	end
 	return path
+end
+
+local function relative_scope_path(root, scoped)
+	if not (scoped and scoped.path) then
+		return nil
+	end
+	local rel = vim.fn.fnamemodify(scoped.path, ":.")
+	if rel == "." or rel == "" then
+		return nil
+	end
+	if rel:sub(1, 3) == "../" then
+		return nil
+	end
+	return rel:gsub("/$", "")
+end
+
+local function scoped_display_path(state, path)
+	local rel = relative_path(state.root, path)
+	local scoped = relative_scope_path(state.root, state.scope)
+	if not scoped or scoped == "" then
+		return rel
+	end
+	local prefix = scoped .. "/"
+	if rel == scoped then
+		return vim.fn.fnamemodify(rel, ":t")
+	end
+	if rel:sub(1, #prefix) == prefix then
+		return rel:sub(#prefix + 1)
+	end
+	return rel
+end
+
+local function apply_scope(state, paths, ignored, statuses)
+	local scoped = relative_scope_path(state.root, state.scope)
+	if not (scoped and state.scope and state.scope.kind == "folder") then
+		return paths, ignored, statuses
+	end
+
+	local prefix = scoped .. "/"
+	local scoped_paths = {}
+	local scoped_ignored = {}
+	local scoped_statuses = {}
+	local function in_scope(path)
+		local rel = relative_path(state.root, path)
+		return rel == scoped or rel:sub(1, #prefix) == prefix
+	end
+
+	for _, path in ipairs(paths or {}) do
+		if in_scope(path) then
+			scoped_paths[#scoped_paths + 1] = path
+		end
+	end
+	for path, value in pairs(ignored or {}) do
+		if in_scope(path) then
+			scoped_ignored[path] = value
+		end
+	end
+	for path, value in pairs(statuses or {}) do
+		if in_scope(path) then
+			scoped_statuses[path] = value
+		end
+	end
+	return scoped_paths, scoped_ignored, scoped_statuses
 end
 
 local function path_exists(root, path)
@@ -372,11 +437,16 @@ local function build_tree_items(paths, ignored, expanded, opts)
 	local root = { dirs = {}, files = {} }
 	local git_status = opts.git_status or {}
 	local open_map = opts.open_map or {}
+	local prefix = (opts.scope_prefix and opts.scope_prefix ~= "") and (opts.scope_prefix .. "/") or nil
 
 	for _, path in ipairs(paths or {}) do
 		local is_dir = path:sub(-1) == "/"
 		local clean_path = is_dir and path:sub(1, -2) or path
-		local parts = vim.split(clean_path, "/", { plain = true, trimempty = true })
+		local display_path = clean_path
+		if prefix and clean_path:sub(1, #prefix) == prefix then
+			display_path = clean_path:sub(#prefix + 1)
+		end
+		local parts = vim.split(display_path, "/", { plain = true, trimempty = true })
 		local node = root
 		local dir = nil
 
@@ -481,7 +551,7 @@ local function build_search_items(state, paths, ignored)
 		end
 		groups[dir][#groups[dir] + 1] = {
 			path = path,
-			rel = rel,
+			rel = scoped_display_path(state, path),
 			name = vim.fn.fnamemodify(rel, ":t"),
 			ignored = ignored[path] == true,
 			status = git_status[path],
@@ -493,12 +563,13 @@ local function build_search_items(state, paths, ignored)
 	local items = {}
 	for _, dir in ipairs(order) do
 		local files = groups[dir]
+		local dir_label = dir == "" and "" or scoped_display_path(state, dir)
 		table.sort(files, function(a, b)
 			return sort_names(a.name, b.name)
 		end)
 
 		if dir ~= "" and #files > 1 then
-			items[#items + 1] = item("folder", dir, dir .. "/", 0, false, state.opts, {
+			items[#items + 1] = item("folder", dir, dir_label, 0, false, state.opts, {
 				expanded = true,
 				search_group = true,
 			})
@@ -531,18 +602,23 @@ function M.items(state, query, panel_name)
 	local pulse = require("pulse")
 	local items = {}
 	local paths, ignored = panel_paths(state, panel_name)
+	paths, ignored, state.git_status = apply_scope(state, paths, ignored, state.git_status or {})
 	local open_map = opened_set(state)
 
 	if not query or query == "" then
 		if panel_name == "files_all" then
-			local tree_opts = vim.tbl_extend("force", {}, state.opts, { git_status = state.git_status or {}, open_map = open_map })
+			local tree_opts = vim.tbl_extend("force", {}, state.opts, {
+				git_status = state.git_status or {},
+				open_map = open_map,
+				scope_prefix = relative_scope_path(state.root, state.scope),
+			})
 			return build_tree_items(paths, ignored, state.expanded or {}, tree_opts)
 		end
 		for _, path in ipairs(paths) do
 			items[#items + 1] = file_item(
 				state.opts,
 				path,
-				relative_path(state.root, path),
+				scoped_display_path(state, path),
 				0,
 				ignored[path] == true,
 				open_map[path] == true or open_map[normalize_path(path)] == true,
@@ -562,6 +638,10 @@ function M.items(state, query, panel_name)
 	return build_search_items(state, matches, ignored)
 end
 
+function M.input_scope(_, scoped)
+	return scoped
+end
+
 local function toggle_folder(ctx)
 	local item = ctx and ctx.item
 	if not (ctx and ctx.state and item and item.kind == "folder" and item.path and not item.search_group) then
@@ -573,10 +653,18 @@ local function toggle_folder(ctx)
 end
 
 function M.on_tab(ctx)
-	if toggle_folder(ctx) then
+	if not (ctx and ctx.item) then
 		return
 	end
-	ctx.jump(ctx.item)
+	if ctx.item.kind == "folder" then
+		ctx.set_scope(scope.folder(ctx.state.root .. "/" .. ctx.item.path))
+		return
+	end
+	if ctx.jump(ctx.item) then
+		local path = ctx.state.root .. "/" .. ctx.item.path
+		local bufnr = vim.fn.bufnr(vim.fn.fnamemodify(path, ":p"))
+		ctx.set_scope(scope.file(path, bufnr > 0 and bufnr or nil))
+	end
 end
 
 function M.on_submit(ctx)
@@ -591,6 +679,7 @@ end
 
 function M.total_count(state, panel_name)
 	local paths = panel_paths(state, panel_name)
+	paths = apply_scope(state, paths, {}, state.git_status or {})
 	return #(paths)
 end
 

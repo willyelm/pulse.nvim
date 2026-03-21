@@ -7,6 +7,7 @@ local context_view = require("pulse.context")
 local config = require("pulse.config")
 local panel = require("pulse.panel")
 local session_mod = require("pulse.session")
+local scope = require("pulse.scope")
 
 local M = {}
 
@@ -23,6 +24,7 @@ local state = {
 	source_win = nil,
 	cwd = nil,
 	navigator_opts = nil,
+	scope = nil,
 	current = {
 		mode_name = nil,
 		mod = nil,
@@ -34,6 +36,10 @@ local state = {
 }
 
 local refresh
+
+local function scope_key(value)
+	return scope.key(value)
+end
 
 local function navigator_opts(opts)
 	return session_mod.normalize_opts(vim.tbl_deep_extend("force", config.options or {}, opts or {}))
@@ -139,6 +145,18 @@ local function hook_ctx(reason, item)
 		reason = reason,
 		close = hide,
 		jump = jump_in_source,
+		scope = state.scope,
+		set_scope = function(next_scope)
+			state.scope = next_scope
+			schedule_refresh()
+		end,
+		clear_scope = function()
+			state.scope = nil
+			if state.current.mod and state.current.mod.scope_clears_to_files then
+				state.input:set_value(mode.switch_prompt(state.input:get_value(), "files"))
+			end
+			schedule_refresh()
+		end,
 		input = state.input,
 		refresh = refresh,
 		mode = state.current.mod and state.current.mod.mode,
@@ -154,11 +172,13 @@ end
 
 local function navigator_state(mode_name)
 	local current = state.states[mode_name]
-	if current then
+	local mod = state.registry[mode_name]
+	local current_scope_key = mod and mod.scope_aware and scope_key(state.scope) or ""
+	if current and (not mod.scope_aware or current._scope_key == current_scope_key) then
 		return current
 	end
 
-	current = state.registry[mode_name].init({
+	current = mod.init({
 		on_update = function()
 			if not is_visible() then
 				return
@@ -169,7 +189,9 @@ local function navigator_state(mode_name)
 		win = state.source_win,
 		cwd = state.cwd,
 		opts = config.for_navigator(mode_name),
+		scope = state.scope,
 	})
+	current._scope_key = current_scope_key
 	state.states[mode_name] = current
 	return current
 end
@@ -248,6 +270,14 @@ local function render()
 	state.list:render(vim.api.nvim_win_get_width(state.list.win))
 end
 
+local function input_scope()
+	local mod = state.current.mod
+	if mod and type(mod.input_scope) == "function" then
+		return mod.input_scope(state.current.state, state.scope)
+	end
+	return nil
+end
+
 local function move_selection(delta)
 	state.list:move(delta, is_header)
 	update_active("navigation")
@@ -259,6 +289,7 @@ refresh = function()
 	local mode_name, query = mode.parse_prompt(prompt)
 	local mod = state.registry[mode_name]
 	local navigator = navigator_state(mode_name)
+	navigator.scope = state.scope
 	local mode_switched = mode_name ~= state.current.mode_name
 	local selected = item_key(current_item())
 	local active_panel = panel.active_name(state.active_panels, mode_name, mod and mod.panels, state.navigator_opts.initial_panel)
@@ -294,10 +325,18 @@ refresh = function()
 	end
 
 	local navigator_mode = mod and mod.mode or {}
-	state.input:set_prompt(" " .. (navigator_mode.icon or "") .. " ")
+	local prompt_prefix = " " .. (navigator_mode.icon or "") .. " "
+	local scoped = input_scope()
+	local scope_text = scope.prompt_text(scoped)
+	local prompt = prompt_prefix .. scope_text
+	if scope_text ~= "" then
+		prompt = prompt .. " "
+	end
+	state.input:set_prompt(prompt)
 	state.input:set_addons({
 		ghost = query == "" and navigator_mode.placeholder or nil,
 		right = { text = string.format("%d/%d", found, total), hl = "LineNr" },
+		prompt_matches = scope_text ~= "" and { { #prompt_prefix, #prompt_prefix + #scope_text, "PulseNormal" } } or nil,
 	})
 
 	if is_header(state.list:selected_item()) then
@@ -442,6 +481,13 @@ local function bind_widgets()
 			on_tab = apply_tab_action,
 			on_left = function() return move_panel_from_input(-1) end,
 			on_right = function() return move_panel_from_input(1) end,
+			on_backspace = function(value)
+				if value == "" and input_scope() then
+					hook_ctx("backspace"):clear_scope()
+					return true
+				end
+				return false
+			end,
 		})
 		setup_keymaps()
 		return
@@ -461,6 +507,8 @@ local function show(opts)
 	state.source_bufnr = vim.api.nvim_get_current_buf()
 	state.source_win = vim.api.nvim_get_current_win()
 	state.cwd = state.navigator_opts.cwd or vim.fn.getcwd()
+	state.scope = nil
+	state.states = {}
 
 	local ok, err = state.session:mount(refresh)
 	if not ok then

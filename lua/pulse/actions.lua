@@ -1,11 +1,15 @@
 local M = {}
 
+local function target_path(selection)
+	return selection and (selection.kind == "file" and selection.path or selection.filename) or nil
+end
+
 function M.jump_to(selection)
 	if selection and type(selection.execute) == "function" then
 		return selection.execute(selection)
 	end
 
-	local path = selection.kind == "file" and selection.path or selection.filename
+	local path = target_path(selection)
 	if path and path ~= "" then
 		local ok, err = pcall(vim.cmd.edit, vim.fn.fnameescape(path))
 		if not ok then

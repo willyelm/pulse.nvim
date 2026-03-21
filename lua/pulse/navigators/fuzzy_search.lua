@@ -1,133 +1,145 @@
 local M = {}
 local context = require("pulse.context")
+local scope = require("pulse.scope")
 
 M.mode = {
 	name = "fuzzy_search",
 	start = "?",
 	icon = "󱉶",
-	placeholder = "Fuzzy Search In Current Buffer",
+	placeholder = "Fuzzy Search",
 }
 
 M.context = true
+M.scope_aware = true
+M.scope_clears_to_files = true
 
 function M.context_item(item)
-  return context.file_snippet(item.path or item.filename, item.lnum, item.query, item.match_cols)
+	return context.file_snippet(item.path or item.filename, item.lnum, item.query, item.match_cols)
 end
 
 local MAX_RESULTS = 400
 
 local function refresh_lines(state)
-  local bufnr = state.bufnr
-  if not (bufnr and vim.api.nvim_buf_is_valid(bufnr)) then
-    state.lines = {}
-    state.line_count = 0
-    state.filename = ""
-    state.tick = 0
-    return
-  end
+	local bufnr = state.bufnr
+	if not (bufnr and vim.api.nvim_buf_is_valid(bufnr)) then
+		state.lines = {}
+		state.line_count = 0
+		state.filename = ""
+		state.tick = 0
+		return
+	end
 
-  local tick = vim.api.nvim_buf_get_changedtick(bufnr)
-  if tick == state.tick then
-    return
-  end
+	local tick = vim.api.nvim_buf_get_changedtick(bufnr)
+	if tick == state.tick then
+		return
+	end
 
-  state.tick = tick
-  state.lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
-  state.line_count = #state.lines
-  state.filename = vim.api.nvim_buf_get_name(bufnr)
+	state.tick = tick
+	state.lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
+	state.line_count = #state.lines
+	state.filename = vim.api.nvim_buf_get_name(bufnr)
 end
 
 local function fuzzy_score(haystack, n)
-  local h = string.lower(haystack or "")
-  local nlen = #n
-  if nlen == 0 or h == "" then
-    return nil
-  end
+	local h = string.lower(haystack or "")
+	local nlen = #n
+	if nlen == 0 or h == "" then
+		return nil
+	end
 
-  local pos = 1
-  local score = 0
-  local first_idx = nil
-  local prev_idx = nil
-  local cols = {}
+	local pos = 1
+	local score = 0
+	local first_idx = nil
+	local prev_idx = nil
+	local cols = {}
 
-  for i = 1, nlen do
-    local c = n:sub(i, i)
-    local idx = h:find(c, pos, true)
-    if not idx then
-      return nil
-    end
-    if not first_idx then
-      first_idx = idx
-    end
-    cols[#cols + 1] = idx
-    score = score + 1
-    if prev_idx and idx == prev_idx + 1 then
-      score = score + 3
-    end
-    prev_idx = idx
-    pos = idx + 1
-  end
+	for i = 1, nlen do
+		local c = n:sub(i, i)
+		local idx = h:find(c, pos, true)
+		if not idx then
+			return nil
+		end
+		if not first_idx then
+			first_idx = idx
+		end
+		cols[#cols + 1] = idx
+		score = score + 1
+		if prev_idx and idx == prev_idx + 1 then
+			score = score + 3
+		end
+		prev_idx = idx
+		pos = idx + 1
+	end
 
-  score = score - (first_idx or 1) * 0.01
-  return score, first_idx or 1, cols
+	score = score - (first_idx or 1) * 0.01
+	return score, first_idx or 1, cols
 end
 
 function M.init(ctx)
-  local bufnr = (ctx and ctx.bufnr) or vim.api.nvim_get_current_buf()
-  return {
-    bufnr = bufnr,
-    filename = vim.api.nvim_buf_get_name(bufnr),
-    lines = {},
-    line_count = 0,
-    tick = -1,
-  }
+	local scoped = ctx and ctx.scope
+	local bufnr = (scoped and scoped.kind == "file" and (scoped.bufnr or vim.fn.bufadd(scoped.path)))
+		or (ctx and ctx.bufnr)
+		or vim.api.nvim_get_current_buf()
+	pcall(vim.fn.bufload, bufnr)
+	return {
+		bufnr = bufnr,
+		filename = vim.api.nvim_buf_get_name(bufnr),
+		lines = {},
+		line_count = 0,
+		tick = -1,
+		input_scope = (scoped and scoped.kind == "file" and scope.file(scoped.path, bufnr)) or scope.from_buffer(bufnr),
+	}
+end
+
+function M.input_scope(state)
+	return state and state.input_scope or nil
 end
 
 function M.items(state, query)
-  refresh_lines(state)
-  local q = vim.trim(query or "")
-  if q == "" then
-    return {}
-  end
-  local ql = string.lower(q)
+	refresh_lines(state)
+	local q = vim.trim(query or "")
+	if q == "" then
+		return {}
+	end
+	local ql = string.lower(q)
 
-  local out = {}
-  for i, line in ipairs(state.lines or {}) do
-    local score, col, match_cols = fuzzy_score(line, ql)
-    if score then
-      out[#out + 1] = {
-        kind = "fuzzy_search",
-        filename = state.filename,
-        path = state.filename,
-        lnum = i,
-        col = col,
-        text = line,
-        query = q,
-        score = score,
-        match_cols = match_cols,
-      }
-    end
-  end
+	local out = {}
+	for i, line in ipairs(state.lines or {}) do
+		local score, col, match_cols = fuzzy_score(line, ql)
+		if score then
+			out[#out + 1] = {
+				kind = "fuzzy_search",
+				filename = state.filename,
+				path = state.filename,
+				lnum = i,
+				col = col,
+				text = line,
+				query = q,
+				score = score,
+				match_cols = match_cols,
+			}
+		end
+	end
 
-  table.sort(out, function(a, b)
-    if a.score == b.score then
-      return (a.lnum or 0) < (b.lnum or 0)
-    end
-    return (a.score or 0) > (b.score or 0)
-  end)
+	table.sort(out, function(a, b)
+		if a.score == b.score then
+			return (a.lnum or 0) < (b.lnum or 0)
+		end
+		return (a.score or 0) > (b.score or 0)
+	end)
 
-  if #out > MAX_RESULTS then
-    for i = #out, MAX_RESULTS + 1, -1 do
-      out[i] = nil
-    end
-  end
+	if #out > MAX_RESULTS then
+		for i = #out, MAX_RESULTS + 1, -1 do
+			out[i] = nil
+		end
+	end
 
-  return out
+	return out
 end
 
 function M.total_count(state)
-  refresh_lines(state)
-  return state.line_count or 0
+	refresh_lines(state)
+	return state.line_count or 0
 end
 
 return M
