@@ -112,6 +112,7 @@ local function jump_in_source(item)
 	local function do_jump()
 		jumped = actions.jump_to(item)
 	end
+	pcall(vim.cmd, "stopinsert")
 	if state.source_win and vim.api.nvim_win_is_valid(state.source_win) then
 		pcall(vim.api.nvim_win_call, state.source_win, do_jump)
 	else
@@ -122,6 +123,7 @@ end
 
 local function hide()
 	if is_visible() then
+		pcall(vim.cmd, "stopinsert")
 		state.session:hide()
 		if state.source_win and vim.api.nvim_win_is_valid(state.source_win) then
 			vim.api.nvim_set_current_win(state.source_win)
