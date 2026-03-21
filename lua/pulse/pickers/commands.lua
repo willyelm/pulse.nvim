@@ -29,26 +29,13 @@ function M.on_submit(ctx)
 	M.execute(raw)
 end
 
-function M.on_active(ctx)
-	if ctx.reason ~= "navigation" and ctx.reason ~= "mouse" then
-		return
-	end
+function M.on_tab(ctx)
 	if not ctx.item or not ctx.input then
 		return
 	end
 	local cmd = tostring(ctx.item.command or ""):gsub("^:", "")
 	ctx.input:set_value(ctx.mode.start .. cmd)
-end
-
-function M.on_tab(ctx)
-	local raw = ctx.input and ctx.input:get_value() or ctx.query or ""
-	if raw == "" then
-		return
-	end
-	M.execute(raw)
-	if ctx.input then
-		ctx.input:focus(true)
-	end
+	ctx.input:focus(true)
 end
 
 local function execute(item)

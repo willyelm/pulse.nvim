@@ -79,18 +79,6 @@ local function preview_diagnostic(item)
 	return out, ft, {}, nil, 1
 end
 
-local function preview_command(item)
-	return {
-		"Command",
-		"",
-		":" .. tostring(item.command),
-		"",
-		"<Tab> fills input with the selected command.",
-		"<CR> executes selected command after navigation,",
-		"otherwise executes typed input.",
-	}, "text", {}, nil, 1
-end
-
 local PREVIEWS = {
 	header = preview_header,
 	live_grep = function(item) return file_snippet(item.path or item.filename, item.lnum, item.query, item.match_cols) end,
@@ -99,7 +87,6 @@ local PREVIEWS = {
 	file = function(item) return file_snippet(item.path or item.filename, item.lnum) end,
 	symbol = function(item) return file_snippet(item.path or item.filename, item.lnum) end,
 	workspace_symbol = function(item) return file_snippet(item.path or item.filename, item.lnum) end,
-	command = preview_command,
 }
 
 M.file_snippet = file_snippet
