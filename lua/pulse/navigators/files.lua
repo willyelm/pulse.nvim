@@ -186,6 +186,16 @@ local function scoped_display_path(state, path)
 	return rel
 end
 
+local function absolute_item_path(state, path)
+	if not path or path == "" then
+		return nil
+	end
+	if path:sub(1, 1) == "/" then
+		return path
+	end
+	return state.root .. "/" .. path
+end
+
 local function apply_scope(state, paths, ignored, statuses)
 	local scoped = relative_scope_path(state.root, state.scope)
 	if not (scoped and state.scope and state.scope.kind == "folder") then
@@ -737,13 +747,14 @@ function M.on_tab(ctx)
 		return
 	end
 	if ctx.item.kind == "folder" then
-		ctx.set_scope(scope.folder(ctx.state.root .. "/" .. ctx.item.path))
+		ctx.set_scope(scope.folder(absolute_item_path(ctx.state, ctx.item.path)))
 		return
 	end
 	if ctx.preview(ctx.item) then
-		local path = ctx.state.root .. "/" .. ctx.item.path
-		local bufnr = vim.fn.bufnr(vim.fn.fnamemodify(path, ":p"))
-		ctx.set_scope(scope.file(path, bufnr > 0 and bufnr or nil))
+		local current_scope = scope.from_buffer()
+		if current_scope then
+			ctx.set_scope(current_scope)
+		end
 	end
 end
 
@@ -753,7 +764,12 @@ function M.on_submit(ctx)
 	end
 	if ctx.item then
 		ctx.close()
-		ctx.jump(ctx.item)
+		if ctx.jump(ctx.item) then
+			local current_scope = scope.from_buffer()
+			if current_scope then
+				ctx.set_scope(current_scope)
+			end
+		end
 	end
 end
 

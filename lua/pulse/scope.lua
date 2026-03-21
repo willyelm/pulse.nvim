@@ -2,6 +2,7 @@ local M = {}
 
 local ok_devicons, devicons = pcall(require, "nvim-web-devicons")
 local FILE_ICON_FALLBACK = ""
+local MAX_LABEL_LEN = 24
 local color_hl_cache = {}
 
 local function normalize_path(path)
@@ -87,15 +88,25 @@ function M.key(scope)
   }, ":")
 end
 
+local function display_label(scope)
+  local label = tostring(scope and scope.label or "")
+  if label == "" or #label <= MAX_LABEL_LEN then
+    return label
+  end
+  return label:sub(1, MAX_LABEL_LEN - 3) .. "..."
+end
+
 function M.prompt_text(scope)
-  if not scope or not scope.label or scope.label == "" then
+  local label = display_label(scope)
+  if not scope or label == "" then
     return ""
   end
-  return " " .. tostring(scope.icon or "") .. " " .. tostring(scope.label) .. " "
+  return " " .. tostring(scope.icon or "") .. " " .. label .. " "
 end
 
 function M.prompt_matches(scope, prompt_prefix_len)
-  if not scope or not scope.label or scope.label == "" then
+  local label = display_label(scope)
+  if not scope or label == "" then
     return nil
   end
   local start_col = prompt_prefix_len or 0

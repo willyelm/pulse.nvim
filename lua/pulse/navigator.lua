@@ -40,10 +40,6 @@ local state = {
 
 local refresh
 
-local function scope_key(value)
-	return scope.key(value)
-end
-
 local function navigator_opts(opts)
 	return session_mod.normalize_opts(vim.tbl_deep_extend("force", config.options or {}, opts or {}))
 end
@@ -131,7 +127,11 @@ local function run_in_source(item, opts)
 		do_jump()
 	end
 	if jumped and opts.refocus_input and state.input then
-		state.input:focus(true)
+		vim.schedule(function()
+			if is_visible() and state.input then
+				state.input:focus(true)
+			end
+		end)
 	end
 	return jumped
 end
@@ -160,6 +160,7 @@ local function hook_ctx(reason, item)
 		state = state.current.state,
 		query = state.current.query,
 		reason = reason,
+		surface = state.current.surface,
 		close = hide,
 		jump = jump_in_source,
 		preview = preview_in_source,
@@ -197,7 +198,7 @@ end
 local function navigator_state(mode_name)
 	local current = state.states[mode_name]
 	local mod = state.registry[mode_name]
-	local current_scope_key = mod and mod.scope_aware and scope_key(state.scope) or ""
+	local current_scope_key = mod and mod.scope_aware and scope.key(state.scope) or ""
 	if current and (not mod.scope_aware or current._scope_key == current_scope_key) then
 		return current
 	end
@@ -241,12 +242,17 @@ local function split_body_height(total, list_height, context_height)
 	local half_low = math.floor(available / 2)
 	local half_high = available - half_low
 
-	if list_height > half_low and context_height > half_low then
+	if list_height > half_high and context_height > half_low then
 		return half_high, half_low
 	end
+	if context_height <= half_low then
+		return math.max(available - context_height, 1), context_height
+	end
+	if list_height <= half_high then
+		return list_height, math.max(available - list_height, 1)
+	end
 
-	local resolved_context = math.min(context_height, math.max(available - list_height, 1))
-	return available - resolved_context, resolved_context
+	return half_high, half_low
 end
 
 local function input_scope()
@@ -453,8 +459,14 @@ local function apply_tab_action(selected)
 	if type(on_tab) == "function" then
 		on_tab(hook_ctx(nil, selected))
 	else
-		jump_in_source(selected)
+		preview_in_source(selected)
 	end
+
+	vim.schedule(function()
+		if is_visible() and state.input then
+			state.input:focus(true)
+		end
+	end)
 end
 
 local function click_tab_action()
@@ -586,8 +598,13 @@ local function show(opts)
 	state.source_win = vim.api.nvim_get_current_win()
 	local next_cwd = state.navigator_opts.cwd or vim.fn.getcwd()
 	local preserved_files = (state.cwd == next_cwd) and state.states.files or nil
+	local preserved_scope = (state.cwd == next_cwd) and state.scope or nil
 	state.cwd = next_cwd
-	state.scope = state.navigator_opts.scope
+	if state.navigator_opts.scope ~= nil then
+		state.scope = state.navigator_opts.scope
+	else
+		state.scope = preserved_scope
+	end
 	state.states = preserved_files and { files = preserved_files } or {}
 
 	local ok, err = state.session:mount(refresh)
