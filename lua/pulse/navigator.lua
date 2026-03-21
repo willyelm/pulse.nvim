@@ -20,10 +20,12 @@ local state = {
 	states = {},
 	active_panels = {},
 	registry = {},
+	modules = {},
 	source_bufnr = nil,
 	source_win = nil,
 	cwd = nil,
 	navigator_opts = nil,
+	pending_initial_panel = nil,
 	scope = nil,
 	current = {
 		mode_name = nil,
@@ -31,6 +33,7 @@ local state = {
 		state = nil,
 		query = "",
 		panel = nil,
+		surface = nil,
 		panel_header = nil,
 	},
 }
@@ -113,34 +116,32 @@ local function current_item()
 	return (item and not is_header(item)) and item or nil
 end
 
-local function jump_in_source(item)
+local function run_in_source(item, opts)
+	opts = opts or {}
 	local jumped
 	local function do_jump()
 		jumped = actions.jump_to(item)
 	end
-	pcall(vim.cmd, "stopinsert")
+	if opts.stopinsert ~= false then
+		pcall(vim.cmd, "stopinsert")
+	end
 	if state.source_win and vim.api.nvim_win_is_valid(state.source_win) then
 		pcall(vim.api.nvim_win_call, state.source_win, do_jump)
 	else
 		do_jump()
+	end
+	if jumped and opts.refocus_input and state.input then
+		state.input:focus(true)
 	end
 	return jumped
 end
 
+local function jump_in_source(item)
+	return run_in_source(item)
+end
+
 local function preview_in_source(item)
-	local jumped
-	local function do_jump()
-		jumped = actions.jump_to(item)
-	end
-	if state.source_win and vim.api.nvim_win_is_valid(state.source_win) then
-		pcall(vim.api.nvim_win_call, state.source_win, do_jump)
-	else
-		do_jump()
-	end
-	if jumped and state.input then
-		state.input:focus(true)
-	end
-	return jumped
+	return run_in_source(item, { stopinsert = false, refocus_input = true })
 end
 
 local function hide()
@@ -168,11 +169,17 @@ local function hook_ctx(reason, item)
 			schedule_refresh()
 		end,
 		clear_scope = function()
-			state.scope = nil
-			if state.current.mod and state.current.mod.scope_clears_to_files then
-				state.input:set_value(mode.switch_prompt(state.input:get_value(), "files"))
-			end
-			schedule_refresh()
+			local switch_to_files = state.current.mod and state.current.mod.scope_clears_to_files
+			vim.schedule(function()
+				if not is_visible() then
+					return
+				end
+				state.scope = nil
+				if switch_to_files and state.input then
+					state.input:set_value(mode.switch_prompt(state.input:get_value(), "files"))
+				end
+				refresh()
+			end)
 		end,
 		input = state.input,
 		refresh = refresh,
@@ -242,9 +249,29 @@ local function split_body_height(total, list_height, context_height)
 	return available - resolved_context, resolved_context
 end
 
+local function input_scope()
+	local mod = state.current.mod
+	if mod and type(mod.input_scope) == "function" then
+		return mod.input_scope(state.current.state, state.scope)
+	end
+	return nil
+end
+
+local function visible_surfaces()
+	return panel.visible_panels(state.modules, panel.scope_type(state.scope))
+end
+
+local function current_surface(panels)
+	return panel.find_surface(panels, state.current.mode_name, state.current.panel)
+end
+
+local function panels_visible(mod, navigator_state_value)
+	return state.current.panel_header ~= nil
+end
+
 local function resolve_body_layout()
 	local item = current_item() or first_selectable(state.items)
-	local show_panels = state.current.panel_header ~= nil
+	local show_panels = panels_visible(state.current.mod, state.current.state)
 	local panel_rows = show_panels and 2 or 0
 	local total_height = math.max(layout.resolve_max_height(state.navigator_opts.height) - 2 - panel_rows, 1)
 	local item_total = item_count(state.items)
@@ -287,14 +314,6 @@ local function render()
 	state.list:render(vim.api.nvim_win_get_width(state.list.win))
 end
 
-local function input_scope()
-	local mod = state.current.mod
-	if mod and type(mod.input_scope) == "function" then
-		return mod.input_scope(state.current.state, state.scope)
-	end
-	return nil
-end
-
 local function move_selection(delta)
 	state.list:move(delta, is_header)
 	update_active("navigation")
@@ -305,11 +324,34 @@ refresh = function()
 	local prompt = state.input:get_value()
 	local mode_name, query = mode.parse_prompt(prompt)
 	local mod = state.registry[mode_name]
+	if not state.scope and panel.is_buffer_only(mod) then
+		state.scope = scope.from_buffer(state.source_bufnr)
+	end
+	local initial_panel = state.pending_initial_panel
+	local current_panel = panel.active_name(state.active_panels, mode_name, mod and mod.panels, initial_panel)
+	local surfaces = visible_surfaces()
+	local active_surface = panel.find_surface(surfaces, mode_name, current_panel)
+	if not active_surface then
+		active_surface = panel.default_surface(surfaces, initial_panel)
+		if active_surface then
+			if active_surface.panel then
+				state.active_panels[active_surface.navigator] = active_surface.panel
+			end
+			local next_prompt = mode.switch_prompt(prompt, active_surface.navigator)
+			if next_prompt ~= prompt then
+				state.input:set_value(next_prompt)
+				return
+			end
+		end
+	end
+
+	mode_name = active_surface and active_surface.navigator or mode_name
+	mod = state.registry[mode_name]
+	local active_panel = active_surface and active_surface.panel or panel.active_name(state.active_panels, mode_name, mod and mod.panels, initial_panel)
 	local navigator = navigator_state(mode_name)
 	navigator.scope = state.scope
 	local mode_switched = mode_name ~= state.current.mode_name
 	local selected = item_key(current_item())
-	local active_panel = panel.active_name(state.active_panels, mode_name, mod and mod.panels, state.navigator_opts.initial_panel)
 	local items = mod.items(navigator, query, active_panel)
 	local found = item_count(items)
 
@@ -322,8 +364,10 @@ refresh = function()
 	state.current.state = navigator
 	state.current.query = query
 	state.current.panel = active_panel
-	state.current.panel_header = panel.header_item(mod and mod.panels, active_panel)
+	state.current.surface = active_surface
+	state.current.panel_header = panel.header_item(surfaces, active_surface and active_surface.name or nil)
 	state.items = items
+	state.pending_initial_panel = nil
 
 	state.list:set_items(items)
 	state.list:set_allow_empty_selection(mod and mod.allow_empty_selection == true)
@@ -351,9 +395,9 @@ refresh = function()
 	end
 	state.input:set_prompt(prompt)
 	state.input:set_addons({
-		ghost = query == "" and navigator_mode.placeholder or nil,
+		ghost = query == "" and active_surface and active_surface.label or nil,
 		right = { text = string.format("%d/%d", found, total), hl = "LineNr" },
-		prompt_matches = scope_text ~= "" and { { #prompt_prefix, #prompt_prefix + #scope_text, "PulseNormal" } } or nil,
+		prompt_matches = scope.prompt_matches(scoped, #prompt_prefix),
 	})
 
 	if is_header(state.list:selected_item()) then
@@ -365,9 +409,9 @@ refresh = function()
 end
 
 local function switch_panel(direction)
-	local mod = state.current.mod
-	local panels = mod and mod.panels
-	local idx = panel.active_index(panels, state.current.panel)
+	local panels = visible_surfaces()
+	local active = current_surface(panels)
+	local idx = panel.active_index(panels, active and active.name or nil)
 	if not idx then
 		return false
 	end
@@ -377,8 +421,17 @@ local function switch_panel(direction)
 		return false
 	end
 
-	state.active_panels[state.current.mode_name] = panels[idx].name
-	schedule_refresh()
+	local target = panels[idx]
+	vim.schedule(function()
+		if target.panel then
+			state.active_panels[target.navigator] = target.panel
+		end
+		if not is_visible() or not state.input then
+			return
+		end
+		state.input:set_value(mode.switch_prompt(state.input:get_value(), target.navigator))
+		refresh()
+	end)
 	return true
 end
 
@@ -415,10 +468,17 @@ local function click_tab_action()
 	end
 
 	if state.session.panels.win and mouse.winid == state.session.panels.win then
-		local panels = state.current.mod and state.current.mod.panels
-		local name = panels and panel.hit_test(panels, math.max((mouse.column or 1) - 2, 0))
+		local name = state.current.panel_header and panel.hit_test(state.current.panel_header, math.max((mouse.column or 1) - 2, 0))
 		if name then
-			state.active_panels[state.current.mode_name] = name
+			for _, target in ipairs(visible_surfaces()) do
+				if target.name == name then
+					if target.panel then
+						state.active_panels[target.navigator] = target.panel
+					end
+					state.input:set_value(mode.switch_prompt(state.input:get_value(), target.navigator))
+					break
+				end
+			end
 			refresh()
 		end
 		return
@@ -435,8 +495,9 @@ local function click_tab_action()
 end
 
 local function move_panel_from_input(direction)
-	local panels = state.current.mod and state.current.mod.panels
-	local idx = panel.active_index(panels, state.current.panel)
+	local panels = visible_surfaces()
+	local active = current_surface(panels)
+	local idx = panel.active_index(panels, active and active.name or nil)
 	if not idx then
 		return false
 	end
@@ -459,7 +520,7 @@ local function setup_keymaps()
 	end
 	for lhs, delta in pairs({ ["<Right>"] = 1, ["<Left>"] = -1 }) do
 		map("n", lhs, function()
-			local panels = state.current.mod and state.current.mod.panels
+			local panels = visible_surfaces()
 			if panels and #panels > 1 then
 				switch_panel(delta)
 			end
@@ -499,7 +560,10 @@ local function bind_widgets()
 			on_left = function() return move_panel_from_input(-1) end,
 			on_right = function() return move_panel_from_input(1) end,
 			on_backspace = function(value)
-				if value == "" and input_scope() then
+				local scoped = input_scope()
+				local start = state.current.surface and state.current.surface.start or ""
+				local clears_scope = state.current.mod and state.current.mod.scope_clears_to_files
+				if scoped and (value == "" or (clears_scope and start ~= "" and value == start)) then
 					hook_ctx("backspace"):clear_scope()
 					return true
 				end
@@ -519,12 +583,14 @@ end
 local function show(opts)
 	panel.setup_hl()
 	state.registry = config.options._navigator_registry or {}
+	state.modules = config.options.navigators or {}
 	state.navigator_opts = navigator_opts(opts)
+	state.pending_initial_panel = state.navigator_opts.initial_panel
 	state.session = session_mod.ensure(state.navigator_opts)
 	state.source_bufnr = vim.api.nvim_get_current_buf()
 	state.source_win = vim.api.nvim_get_current_win()
 	state.cwd = state.navigator_opts.cwd or vim.fn.getcwd()
-	state.scope = nil
+	state.scope = state.navigator_opts.scope
 	state.states = {}
 
 	local ok, err = state.session:mount(refresh)

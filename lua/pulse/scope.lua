@@ -2,6 +2,7 @@ local M = {}
 
 local ok_devicons, devicons = pcall(require, "nvim-web-devicons")
 local FILE_ICON_FALLBACK = ""
+local color_hl_cache = {}
 
 local function normalize_path(path)
   if not path or path == "" then
@@ -12,10 +13,24 @@ end
 
 local function file_icon(path)
   if not ok_devicons then
-    return FILE_ICON_FALLBACK
+    return FILE_ICON_FALLBACK, nil
   end
-  local icon = devicons.get_icon(vim.fn.fnamemodify(path, ":t"), vim.fn.fnamemodify(path, ":e"), { default = true })
-  return icon or FILE_ICON_FALLBACK
+  local icon, color = devicons.get_icon_color(vim.fn.fnamemodify(path, ":t"), vim.fn.fnamemodify(path, ":e"), { default = true })
+  return icon or FILE_ICON_FALLBACK, color
+end
+
+local function icon_hl(color, fallback)
+  if type(color) ~= "string" or color == "" then
+    return fallback
+  end
+  local hl = color_hl_cache[color]
+  if hl then
+    return hl
+  end
+  hl = "PulseScopeIcon_" .. color:gsub("[^%w]", "")
+  color_hl_cache[color] = hl
+  pcall(vim.api.nvim_set_hl, 0, hl, { fg = color })
+  return hl
 end
 
 function M.file(path, bufnr)
@@ -23,12 +38,14 @@ function M.file(path, bufnr)
   if not path then
     return nil
   end
+  local icon, color = file_icon(path)
   return {
     kind = "file",
     path = path,
     bufnr = bufnr,
     label = vim.fn.fnamemodify(path, ":t"),
-    icon = file_icon(path),
+    icon = icon,
+    icon_hl = icon_hl(color),
   }
 end
 
@@ -43,6 +60,7 @@ function M.folder(path)
     path = path,
     label = vim.fn.fnamemodify(path, ":t"),
     icon = "󰉋",
+    icon_hl = "Directory",
   }
 end
 
@@ -74,6 +92,23 @@ function M.prompt_text(scope)
     return ""
   end
   return " " .. tostring(scope.icon or "") .. " " .. tostring(scope.label) .. " "
+end
+
+function M.prompt_matches(scope, prompt_prefix_len)
+  if not scope or not scope.label or scope.label == "" then
+    return nil
+  end
+  local start_col = prompt_prefix_len or 0
+  local icon = tostring(scope.icon or "")
+  local icon_end = start_col + 1 + #icon
+  local label_end = start_col + #M.prompt_text(scope)
+  local matches = {
+    { start_col, label_end, "PulseNormal" },
+  }
+  if icon ~= "" and scope.icon_hl then
+    matches[#matches + 1] = { start_col + 1, icon_end, scope.icon_hl }
+  end
+  return matches
 end
 
 return M

@@ -3,9 +3,10 @@ local scope = require("pulse.scope")
 
 M.mode = {
 	name = "symbol",
-	start = "@",
 	icon = "󰘧",
-	placeholder = "Search Symbols",
+}
+M.panels = {
+	{ start = "@", name = "symbol", label = "Symbols", scopes = { "buffer" } },
 }
 
 M.context = false

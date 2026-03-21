@@ -124,7 +124,9 @@ function M.new(opts)
 
   map_expr("<Left>", "<Left>", function() return self.on_left and self.on_left() end)
   map_expr("<Right>", "<Right>", function() return self.on_right and self.on_right() end)
-  map_expr("<BS>", "<BS>", function() return self.on_backspace and self.on_backspace(self:get_value()) end)
+  for _, lhs in ipairs({ "<BS>", "<C-h>" }) do
+    map_expr(lhs, lhs, function() return self.on_backspace and self.on_backspace(self:get_value()) end)
+  end
 
   configure_window(self.win)
   return self

@@ -3,9 +3,10 @@ local scope = require("pulse.scope")
 
 M.mode = {
 	name = "code_action",
-	start = ">",
 	icon = "󰌶",
-	placeholder = "Code Actions",
+}
+M.panels = {
+	{ start = ">", name = "code_action", label = "Code Actions", scopes = { "buffer" } },
 }
 
 M.context = false

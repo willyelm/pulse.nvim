@@ -2,13 +2,14 @@ local M = {}
 
 M.mode = {
 	name = "commands",
-	start = ":",
 	icon = "",
-	placeholder = "Run Command",
 }
 
 M.context = false
 M.allow_empty_selection = true
+M.panels = {
+	{ start = ":", name = "commands", label = "Commands", scopes = { "workspace" } },
+}
 
 local function format_cmd_error(err)
 	local msg = tostring(err or "")
@@ -34,7 +35,7 @@ function M.on_tab(ctx)
 		return
 	end
 	local cmd = tostring(ctx.item.command or ""):gsub("^:", "")
-	ctx.input:set_value(ctx.mode.start .. cmd)
+	ctx.input:set_value((ctx.surface and ctx.surface.start or "") .. cmd)
 	ctx.input:focus(true)
 end
 

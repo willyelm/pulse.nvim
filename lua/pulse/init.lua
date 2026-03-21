@@ -1,6 +1,8 @@
 local config = require("pulse.config")
 local navigator = require("pulse.navigator")
 local mode = require("pulse.mode")
+local panel = require("pulse.panel")
+local scope = require("pulse.scope")
 
 local M = {}
 
@@ -74,7 +76,14 @@ local function pulse_command(opts)
 		return
 	end
 	local next_prompt = mode.switch_prompt(navigator.get_prompt() or "", mode_name)
-	open_panel(next_prompt, nil, panel_name)
+	local extra_opts = nil
+	if panel.is_buffer_only(registry()[mode_name]) then
+		local current_scope = scope.from_buffer()
+		if current_scope then
+			extra_opts = { scope = current_scope }
+		end
+	end
+	open_panel(next_prompt, extra_opts, panel_name)
 end
 
 function M.setup(opts)

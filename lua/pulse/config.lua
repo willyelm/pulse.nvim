@@ -89,13 +89,7 @@ function M.setup(opts)
 			vim.notify("Pulse: invalid navigator entry (must be string name or module)", vim.log.levels.WARN)
 		end
 
-		if
-			navigator_module
-			and navigator_module.mode
-			and navigator_module.mode.name
-			and type(navigator_module.init) == "function"
-			and type(navigator_module.items) == "function"
-		then
+		if navigator_module and navigator_module.mode and navigator_module.mode.name and type(navigator_module.init) == "function" and type(navigator_module.items) == "function" then
 			local mode_name = navigator_module.mode.name
 			if registry[mode_name] then
 				vim.notify("Pulse: duplicate navigator name '" .. mode_name .. "'", vim.log.levels.WARN)
@@ -103,22 +97,20 @@ function M.setup(opts)
 				navigators[#navigators + 1] = navigator_module
 				registry[mode_name] = navigator_module
 
-				-- Build prefix routing
-				if navigator_module.mode.start and navigator_module.mode.start ~= "" then
-					if by_start[navigator_module.mode.start] then
-						vim.notify(
-							"Pulse: prefix '"
-								.. navigator_module.mode.start
-								.. "' already taken, ignoring navigator '"
-								.. mode_name
-								.. "'",
-							vim.log.levels.WARN
-						)
-					else
-						by_start[navigator_module.mode.start] = { mode = mode_name, strip = #navigator_module.mode.start + 1 }
+				if not (navigator_module.panels and #navigator_module.panels > 0) then
+					vim.notify("Pulse: navigator '" .. mode_name .. "' must define panels", vim.log.levels.WARN)
+				end
+				for _, entry in ipairs(navigator_module.panels or {}) do
+					local start = entry.start or ""
+					if start ~= "" then
+						if by_start[start] then
+							vim.notify("Pulse: prefix '" .. start .. "' already taken, ignoring panel '" .. tostring(entry.name) .. "'", vim.log.levels.WARN)
+						else
+							by_start[start] = { mode = mode_name, strip = #start + 1 }
+						end
+					elseif not default_mode then
+						default_mode = mode_name
 					end
-				else
-					default_mode = mode_name
 				end
 			end
 		else

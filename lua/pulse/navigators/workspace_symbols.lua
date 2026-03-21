@@ -3,9 +3,10 @@ local pulse = require("pulse")
 
 M.mode = {
 	name = "workspace_symbol",
-	start = "#",
 	icon = "󰒕",
-	placeholder = "Search Workspace Symbols",
+}
+M.panels = {
+	{ start = "#", name = "workspace_symbol", label = "Workspace Symbols", scopes = { "workspace" } },
 }
 
 M.context = false

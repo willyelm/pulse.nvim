@@ -4,9 +4,10 @@ local scope = require("pulse.scope")
 
 M.mode = {
 	name = "fuzzy_search",
-	start = "?",
 	icon = "󱉶",
-	placeholder = "Fuzzy Search",
+}
+M.panels = {
+	{ start = "?", name = "fuzzy_search", label = "Fuzzy Search", scopes = { "buffer" } },
 }
 
 M.context = true

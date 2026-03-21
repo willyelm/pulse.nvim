@@ -1,14 +1,18 @@
 local M = {}
 local context = require("pulse.context")
+local scope = require("pulse.scope")
 
 M.mode = {
 	name = "diagnostics",
-	start = "!",
 	icon = "",
-	placeholder = "Search Diagnostics",
+}
+M.panels = {
+	{ start = "!", name = "diagnostics", label = "Diagnostics", scopes = { "workspace", "buffer" } },
 }
 
 M.context = true
+M.scope_aware = true
+M.scope_clears_to_files = true
 
 local severity_name = {
 	[vim.diagnostic.severity.ERROR] = "ERROR",
@@ -18,8 +22,19 @@ local severity_name = {
 }
 
 function M.init(ctx)
-	local bufnr = (ctx and ctx.bufnr) or vim.api.nvim_get_current_buf()
-	return { current_bufnr = bufnr }
+	local scoped = ctx and ctx.scope
+	local bufnr = (scoped and scoped.kind == "file" and (scoped.bufnr or vim.fn.bufadd(scoped.path)))
+		or (ctx and ctx.bufnr)
+		or vim.api.nvim_get_current_buf()
+	pcall(vim.fn.bufload, bufnr)
+	return {
+		current_bufnr = bufnr,
+		input_scope = (scoped and scoped.kind == "file" and scope.file(scoped.path, bufnr)) or nil,
+	}
+end
+
+function M.input_scope(state)
+	return state and state.input_scope or nil
 end
 
 function M.items(state, query)
@@ -27,7 +42,8 @@ function M.items(state, query)
 	local match = pulse.make_matcher(query or "", { ignore_case = true, plain = true })
 	local current_bufnr = state.current_bufnr or vim.api.nvim_get_current_buf()
 	local out = {}
-	for _, d in ipairs(vim.diagnostic.get(nil)) do
+	local diagnostics = (state.input_scope and vim.diagnostic.get(current_bufnr)) or vim.diagnostic.get(nil)
+	for _, d in ipairs(diagnostics) do
 		local name = severity_name[d.severity] or "INFO"
 		local bufnr = d.bufnr or current_bufnr
 		local filename = vim.api.nvim_buf_get_name(bufnr)

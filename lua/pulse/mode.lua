@@ -22,7 +22,7 @@ end
 function M.switch_prompt(prompt, mode_name)
 	local _, query = M.parse_prompt(prompt or "")
 	local navigator = registry()[mode_name]
-	local prefix = navigator and navigator.mode and navigator.mode.start or ""
+	local prefix = navigator and navigator.panels and navigator.panels[1] and navigator.panels[1].start or ""
 	return prefix .. query
 end
 

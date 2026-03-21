@@ -127,7 +127,7 @@ local function display_file(item)
 		local style
 		icon, style = icon_for_item("file", item.path)
 		left = string.format("%s%s %s", indent, icon, name)
-		matches = (style and { { #indent, #indent + #icon, style } } or nil) or {}
+		matches = (item.icon_color and style and { { #indent, #indent + #icon, style } } or nil) or {}
 	end
 	local left_group = item.ignored and "Comment" or false
 	if item.is_open and not item.ignored then
@@ -154,15 +154,16 @@ end
 local function display_folder(item)
 	local indent = string.rep("  ", tonumber(item.depth) or 0)
 	local group = item.ignored and "Comment" or false
+	local suffix = item.scope_parent and "" or "/"
 	if item.no_icon then
-		local out = row(indent .. (item.label or file_name(item.path)) .. "/", item.display_right or "", group)
+		local out = row(indent .. (item.label or file_name(item.path)) .. suffix, item.display_right or "", group)
 		out.right_group = item.ignored and "Comment" or "LineNr"
 		out.right_matches = item.right_matches
 		return out
 	end
 	local icon = item.expanded and "󰷏" or "󰉋"
-	local icon_hl = item.ignored and "Comment" or "Directory"
-	local out = row(string.format("%s%s %s/", indent, icon, item.label or file_name(item.path)), item.display_right or "", group, { { #indent, #indent + #icon, icon_hl } })
+	local icon_hl = item.ignored and "Comment" or (item.icon_color and "Directory" or nil)
+	local out = row(string.format("%s%s %s%s", indent, icon, item.label or file_name(item.path), suffix), item.display_right or "", group, { { #indent, #indent + #icon, icon_hl } })
 	out.right_group = item.ignored and "Comment" or "LineNr"
 	out.right_matches = item.right_matches
 	return out
