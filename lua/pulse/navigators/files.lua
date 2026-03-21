@@ -90,6 +90,9 @@ local function filtered_paths(paths, opts)
 end
 
 function M.init(ctx)
+	pcall(vim.api.nvim_set_hl, 0, "PulseAdd", { link = "Added", default = true })
+	pcall(vim.api.nvim_set_hl, 0, "PulseDelete", { link = "Removed", default = true })
+	pcall(vim.api.nvim_set_hl, 0, "PulseChange", { link = "Changed", default = true })
 	local project_root = type(ctx) == "string" and ctx or (ctx and ctx.cwd) or vim.fn.getcwd()
 	local opts = navigator_opts(ctx and ctx.opts)
 	return {
@@ -180,7 +183,7 @@ local function status_tokens(code)
 		return {}
 	end
 	if code == "!!" or code == "ignored" then
-		return { "ignored" }
+		return { "!" }
 	end
 	if code == "??" then
 		return { "??" }
@@ -209,8 +212,8 @@ local function right_matches(tokens)
 	for i, token in ipairs(tokens or {}) do
 		local hl = (token == "+" or token == "??") and "PulseAdd"
 			or (token == "-") and "PulseDelete"
-			or (token == "~") and "Special"
-			or (token == "ignored") and "Comment"
+			or (token == "~") and "PulseChange"
+			or (token == "!") and "Comment"
 			or nil
 		if hl then
 			matches[#matches + 1] = { col, col + #token, hl }
@@ -225,12 +228,12 @@ end
 
 local function ordered_statuses(statuses, ignored)
 	local out = {}
-	local order = { "ignored", "??", "+", "~", "-" }
+	local order = { "!", "??", "+", "~", "-" }
 	if ignored then
-		out[#out + 1] = "ignored"
+		out[#out + 1] = "!"
 	end
 	for _, token in ipairs(order) do
-		if token ~= "ignored" and statuses and statuses[token] then
+		if token ~= "!" and statuses and statuses[token] then
 			out[#out + 1] = token
 		end
 	end
@@ -238,6 +241,10 @@ local function ordered_statuses(statuses, ignored)
 end
 
 local function collect_project_files(state)
+	if state.files and state.ignored and state.git_status then
+		return state.files, state.ignored
+	end
+
 	local root = state.root or vim.fn.getcwd()
 	local opts = current_opts(state)
 	local files = {}
@@ -418,8 +425,8 @@ local function build_tree_items(paths, ignored, expanded, opts)
 		for _, name in ipairs(file_names) do
 			local file = node.files[name]
 			items[#items + 1] = item("file", file.path, file.name, depth, file.ignored, opts, {
-				display_right = join_tokens(status_tokens(file.status or (file.ignored and "ignored" or nil))),
-				right_matches = right_matches(status_tokens(file.status or (file.ignored and "ignored" or nil))),
+				display_right = join_tokens(status_tokens(file.status or (file.ignored and "!" or nil))),
+				right_matches = right_matches(status_tokens(file.status or (file.ignored and "!" or nil))),
 			})
 		end
 	end
@@ -468,15 +475,15 @@ local function build_search_items(state, paths, ignored)
 			})
 			for _, file in ipairs(files) do
 				items[#items + 1] = item("file", file.path, file.name, 1, file.ignored, state.opts, {
-					display_right = join_tokens(status_tokens(file.status or (file.ignored and "ignored" or nil))),
-					right_matches = right_matches(status_tokens(file.status or (file.ignored and "ignored" or nil))),
+					display_right = join_tokens(status_tokens(file.status or (file.ignored and "!" or nil))),
+					right_matches = right_matches(status_tokens(file.status or (file.ignored and "!" or nil))),
 				})
 			end
 		else
 			for _, file in ipairs(files) do
 				items[#items + 1] = item("file", file.path, file.rel, 0, file.ignored, state.opts, {
-					display_right = join_tokens(status_tokens(file.status or (file.ignored and "ignored" or nil))),
-					right_matches = right_matches(status_tokens(file.status or (file.ignored and "ignored" or nil))),
+					display_right = join_tokens(status_tokens(file.status or (file.ignored and "!" or nil))),
+					right_matches = right_matches(status_tokens(file.status or (file.ignored and "!" or nil))),
 				})
 			end
 		end
@@ -509,8 +516,8 @@ function M.items(state, query, panel_name)
 		end
 		for _, path in ipairs(paths) do
 			items[#items + 1] = item("file", path, relative_path(state.root, path), 0, ignored[path] == true, state.opts, {
-				display_right = join_tokens(status_tokens((state.git_status or {})[path] or (ignored[path] and "ignored" or nil))),
-				right_matches = right_matches(status_tokens((state.git_status or {})[path] or (ignored[path] and "ignored" or nil))),
+				display_right = join_tokens(status_tokens((state.git_status or {})[path] or (ignored[path] and "!" or nil))),
+				right_matches = right_matches(status_tokens((state.git_status or {})[path] or (ignored[path] and "!" or nil))),
 			})
 		end
 		return items

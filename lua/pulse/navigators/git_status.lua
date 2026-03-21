@@ -96,6 +96,7 @@ function M.init(ctx)
 	-- Define highlight groups for git stats
 	pcall(vim.api.nvim_set_hl, 0, "PulseAdd", { link = "Added", default = true })
 	pcall(vim.api.nvim_set_hl, 0, "PulseDelete", { link = "Removed", default = true })
+	pcall(vim.api.nvim_set_hl, 0, "PulseChange", { link = "Changed", default = true })
 	return { files = {}, all_files = {} }
 end
 
