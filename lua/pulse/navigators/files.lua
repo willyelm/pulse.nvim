@@ -1,11 +1,11 @@
 local M = {}
 
 local DEFAULT_OPTS = {
-	icons = true,
+	icons = false,
 	open_on_directory = false,
 	filters = {},
 	git = {
-		enable = true,
+		enable = false,
 		ignore = true,
 	},
 }
@@ -99,6 +99,7 @@ function M.init(ctx)
 		recent = collect_recent_files(project_root),
 		files = nil,
 		ignored = nil,
+		git_status = nil,
 		expanded = {},
 	}
 end
@@ -134,12 +135,115 @@ local function path_exists(root, path)
 	return vim.fn.filereadable(abs) == 1 or vim.fn.isdirectory(abs) == 1
 end
 
+local function normalize_status_path(path)
+	if not path or path == "" then
+		return ""
+	end
+	if path:find(" -> ", 1, true) then
+		local _, newp = path:match("^(.-) %-%> (.+)$")
+		return newp or path
+	end
+	if path:sub(-1) == "/" then
+		return path:sub(1, -2)
+	end
+	return path
+end
+
+local function git_status_map(root, opts)
+	if not (opts.git and opts.git.enable) or vim.fn.isdirectory(root .. "/.git") ~= 1 then
+		return {}
+	end
+
+	local out = {}
+	local cmd = { "git", "-C", root, "status", "--porcelain=v1", "--untracked-files=all" }
+	if opts.git.ignore then
+		cmd[#cmd + 1] = "--ignored=matching"
+	end
+	local lines = vim.fn.systemlist(cmd)
+	if vim.v.shell_error ~= 0 then
+		return out
+	end
+
+	for _, line in ipairs(lines or {}) do
+		local code = line:sub(1, 2)
+		local rest = vim.trim(line:sub(4))
+		local path = normalize_status_path(rest)
+		if path ~= "" then
+			out[path] = vim.trim(code)
+		end
+	end
+	return out
+end
+
+local function status_tokens(code)
+	if not code or code == "" then
+		return {}
+	end
+	if code == "!!" or code == "ignored" then
+		return { "ignored" }
+	end
+	if code == "??" then
+		return { "??" }
+	end
+	local tokens = {}
+	local x, y = code:sub(1, 1), code:sub(2, 2)
+	if x == "A" or y == "A" then
+		tokens[#tokens + 1] = "+"
+	end
+	if x == "M" or y == "M" then
+		tokens[#tokens + 1] = "~"
+	end
+	if x == "D" or y == "D" then
+		tokens[#tokens + 1] = "-"
+	end
+	return tokens
+end
+
+local function join_tokens(tokens)
+	return (#tokens > 0) and table.concat(tokens, " ") or ""
+end
+
+local function right_matches(tokens)
+	local matches = {}
+	local col = 0
+	for i, token in ipairs(tokens or {}) do
+		local hl = (token == "+" or token == "??") and "PulseAdd"
+			or (token == "-") and "PulseDelete"
+			or (token == "~") and "Special"
+			or (token == "ignored") and "Comment"
+			or nil
+		if hl then
+			matches[#matches + 1] = { col, col + #token, hl }
+		end
+		col = col + #token
+		if i < #(tokens or {}) then
+			col = col + 1
+		end
+	end
+	return matches
+end
+
+local function ordered_statuses(statuses, ignored)
+	local out = {}
+	local order = { "ignored", "??", "+", "~", "-" }
+	if ignored then
+		out[#out + 1] = "ignored"
+	end
+	for _, token in ipairs(order) do
+		if token ~= "ignored" and statuses and statuses[token] then
+			out[#out + 1] = token
+		end
+	end
+	return out
+end
+
 local function collect_project_files(state)
 	local root = state.root or vim.fn.getcwd()
 	local opts = current_opts(state)
 	local files = {}
 	local ignored = {}
 	local seen = {}
+	state.git_status = git_status_map(root, opts)
 
 	local function add_paths(paths, is_ignored)
 		for _, path in ipairs(paths or {}) do
@@ -196,6 +300,7 @@ end
 
 local function build_tree_items(paths, ignored, expanded, opts)
 	local root = { dirs = {}, files = {} }
+	local git_status = opts.git_status or {}
 
 	for _, path in ipairs(paths or {}) do
 		local is_dir = path:sub(-1) == "/"
@@ -214,11 +319,16 @@ local function build_tree_items(paths, ignored, expanded, opts)
 					dirs = {},
 					files = {},
 					ignored = ignored[dir] == true or ignored[dir .. "/"] == true,
+					statuses = {},
 				}
 				node.dirs[parts[i]] = child
 			end
 			if ignored[dir] == true or ignored[dir .. "/"] == true then
 				child.ignored = true
+			end
+			local dir_status = git_status[dir] or git_status[dir .. "/"]
+			for _, token in ipairs(status_tokens(dir_status)) do
+				child.statuses[token] = true
 			end
 			node = child
 		end
@@ -228,7 +338,33 @@ local function build_tree_items(paths, ignored, expanded, opts)
 				name = parts[#parts],
 				path = clean_path,
 				ignored = ignored[path] == true,
+				status = git_status[clean_path],
 			}
+		end
+	end
+
+	for path, code in pairs(git_status) do
+		local parts = vim.split(path, "/", { plain = true, trimempty = true })
+		local node = root
+		local dir = nil
+		for i = 1, math.max(#parts - 1, 0) do
+			dir = dir and (dir .. "/" .. parts[i]) or parts[i]
+			local child = node.dirs[parts[i]]
+			if not child then
+				child = {
+					name = parts[i],
+					path = dir,
+					dirs = {},
+					files = {},
+					ignored = ignored[dir] == true or ignored[dir .. "/"] == true,
+					statuses = {},
+				}
+				node.dirs[parts[i]] = child
+			end
+			for _, token in ipairs(status_tokens(code)) do
+				child.statuses[token] = true
+			end
+			node = child
 		end
 	end
 
@@ -240,11 +376,19 @@ local function build_tree_items(paths, ignored, expanded, opts)
 			if not mark_ignored(child) then
 				has_visible = true
 			end
+			for token in pairs(child.statuses or {}) do
+				node.statuses = node.statuses or {}
+				node.statuses[token] = true
+			end
 		end
 
 		for _, file in pairs(node.files) do
 			if not file.ignored then
 				has_visible = true
+			end
+			for _, token in ipairs(status_tokens(file.status)) do
+				node.statuses = node.statuses or {}
+				node.statuses[token] = true
 			end
 		end
 
@@ -263,6 +407,8 @@ local function build_tree_items(paths, ignored, expanded, opts)
 			local child = node.dirs[name]
 			items[#items + 1] = item("folder", child.path, child.name, depth, child.ignored, opts, {
 				expanded = expanded[child.path] == true,
+				display_right = join_tokens(ordered_statuses(child.statuses, child.ignored)),
+				right_matches = right_matches(ordered_statuses(child.statuses, child.ignored)),
 			})
 			if expanded[child.path] == true then
 				append(child, depth + 1)
@@ -271,7 +417,10 @@ local function build_tree_items(paths, ignored, expanded, opts)
 
 		for _, name in ipairs(file_names) do
 			local file = node.files[name]
-			items[#items + 1] = item("file", file.path, file.name, depth, file.ignored, opts)
+			items[#items + 1] = item("file", file.path, file.name, depth, file.ignored, opts, {
+				display_right = join_tokens(status_tokens(file.status or (file.ignored and "ignored" or nil))),
+				right_matches = right_matches(status_tokens(file.status or (file.ignored and "ignored" or nil))),
+			})
 		end
 	end
 
@@ -283,6 +432,7 @@ end
 local function build_search_items(state, paths, ignored)
 	local groups = {}
 	local order = {}
+	local git_status = state.git_status or {}
 
 	for _, path in ipairs(paths or {}) do
 		local rel = relative_path(state.root, path)
@@ -299,6 +449,7 @@ local function build_search_items(state, paths, ignored)
 			rel = rel,
 			name = vim.fn.fnamemodify(rel, ":t"),
 			ignored = ignored[path] == true,
+			status = git_status[path],
 		}
 	end
 
@@ -316,11 +467,17 @@ local function build_search_items(state, paths, ignored)
 				search_group = true,
 			})
 			for _, file in ipairs(files) do
-				items[#items + 1] = item("file", file.path, file.name, 1, file.ignored, state.opts)
+				items[#items + 1] = item("file", file.path, file.name, 1, file.ignored, state.opts, {
+					display_right = join_tokens(status_tokens(file.status or (file.ignored and "ignored" or nil))),
+					right_matches = right_matches(status_tokens(file.status or (file.ignored and "ignored" or nil))),
+				})
 			end
 		else
 			for _, file in ipairs(files) do
-				items[#items + 1] = item("file", file.path, file.rel, 0, file.ignored, state.opts)
+				items[#items + 1] = item("file", file.path, file.rel, 0, file.ignored, state.opts, {
+					display_right = join_tokens(status_tokens(file.status or (file.ignored and "ignored" or nil))),
+					right_matches = right_matches(status_tokens(file.status or (file.ignored and "ignored" or nil))),
+				})
 			end
 		end
 	end
@@ -347,10 +504,14 @@ function M.items(state, query, panel_name)
 
 	if not query or query == "" then
 		if panel_name == "files_all" then
-			return build_tree_items(paths, ignored, state.expanded or {}, state.opts)
+			local tree_opts = vim.tbl_extend("force", {}, state.opts, { git_status = state.git_status or {} })
+			return build_tree_items(paths, ignored, state.expanded or {}, tree_opts)
 		end
 		for _, path in ipairs(paths) do
-			items[#items + 1] = item("file", path, relative_path(state.root, path), 0, false, state.opts)
+			items[#items + 1] = item("file", path, relative_path(state.root, path), 0, ignored[path] == true, state.opts, {
+				display_right = join_tokens(status_tokens((state.git_status or {})[path] or (ignored[path] and "ignored" or nil))),
+				right_matches = right_matches(status_tokens((state.git_status or {})[path] or (ignored[path] and "ignored" or nil))),
+			})
 		end
 		return items
 	end

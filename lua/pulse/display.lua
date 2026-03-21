@@ -116,7 +116,7 @@ end
 
 local function display_file(item)
 	local name = item.label or file_name(item.path)
-	local right = file_type(item.path)
+	local right = item.display_right or file_type(item.path)
 	local indent = string.rep("  ", tonumber(item.depth) or 0)
 	local icon = nil
 	local left, matches
@@ -139,11 +139,12 @@ local function display_file(item)
 		end
 	end
 	local name_start = item.no_icon and #indent or (#indent + #(icon or "") + 1)
-	if not item.ignored and vim.fn.hlexists(right) == 1 and name ~= "" then
+	if item.display_right == nil and not item.ignored and vim.fn.hlexists(right) == 1 and name ~= "" then
 		matches[#matches + 1] = { name_start, #left, right }
 	end
 	local out = row(left, right, left_group, (#matches > 0) and matches or nil)
 	out.right_group = right_group
+	out.right_matches = item.right_matches
 	return out
 end
 
@@ -151,11 +152,17 @@ local function display_folder(item)
 	local indent = string.rep("  ", tonumber(item.depth) or 0)
 	local group = item.ignored and "Comment" or false
 	if item.no_icon then
-		return row(indent .. (item.label or file_name(item.path)), "", group)
+		local out = row(indent .. (item.label or file_name(item.path)), item.display_right or "", group)
+		out.right_group = item.ignored and "Comment" or "LineNr"
+		out.right_matches = item.right_matches
+		return out
 	end
 	local icon = item.expanded and "󰷏" or "󰉋"
 	local icon_hl = item.ignored and "Comment" or "Directory"
-	return row(string.format("%s%s %s", indent, icon, item.label or file_name(item.path)), "", group, { { #indent, #indent + #icon, icon_hl } })
+	local out = row(string.format("%s%s %s", indent, icon, item.label or file_name(item.path)), item.display_right or "", group, { { #indent, #indent + #icon, icon_hl } })
+	out.right_group = item.ignored and "Comment" or "LineNr"
+	out.right_matches = item.right_matches
+	return out
 end
 
 local function display_grep(item)

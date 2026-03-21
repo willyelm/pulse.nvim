@@ -1,4 +1,5 @@
 local M = {}
+
 function M.jump_to(selection)
 	if selection and type(selection.execute) == "function" then
 		return selection.execute(selection)
