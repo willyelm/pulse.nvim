@@ -48,6 +48,16 @@ local function strip_prompt_prefix(line, prompt)
   return line
 end
 
+local function current_raw_value(buf, prompt)
+  local line = (vim.api.nvim_buf_get_lines(buf, 0, 1, false)[1] or "")
+  return strip_prompt_prefix(line, prompt)
+end
+
+local function write_value(buf, prompt, value)
+  vim.api.nvim_buf_set_lines(buf, 0, -1, false, { (prompt or "") .. tostring(value or "") })
+  vim.bo[buf].modified = false
+end
+
 function M.new(opts)
   local self = setmetatable({}, M)
   self.buf = assert(opts.buf, "input requires a buffer")
@@ -66,7 +76,7 @@ function M.new(opts)
   self.addons = {}
   pcall(vim.api.nvim_set_hl, 0, MODE_HL, { bold = true, default = true })
 
-  window.configure_isolated_buffer(self.buf, { buftype = "prompt", modifiable = true })
+  window.configure_isolated_buffer(self.buf, { buftype = "prompt", modifiable = true, bufhidden = "hide" })
   vim.fn.prompt_setprompt(self.buf, self.prompt)
 
   vim.api.nvim_create_autocmd({ "TextChangedI", "TextChanged" }, {
@@ -79,6 +89,7 @@ function M.new(opts)
       if self.on_change then
         self.on_change(self:get_value())
       end
+      vim.bo[self.buf].modified = false
     end,
   })
 
@@ -116,35 +127,30 @@ end
 
 function M:set_win(win)
   self.win = win
+  vim.fn.prompt_setprompt(self.buf, self.prompt)
   configure_window(self.win)
   self:set_addons(self.addons)
 end
 
 function M:set_prompt(prompt)
   prompt = prompt or ""
-  if self.prompt == prompt then
-    return
-  end
-  local old_prompt = self.prompt or ""
-  local line = (vim.api.nvim_buf_get_lines(self.buf, 0, 1, false)[1] or "")
-  local value = strip_prompt_prefix(line, old_prompt)
+  local value = current_raw_value(self.buf, self.prompt)
   self._mute_change = true
   self.prompt = prompt
   vim.fn.prompt_setprompt(self.buf, self.prompt)
   if vim.api.nvim_buf_is_valid(self.buf) then
-    vim.api.nvim_buf_set_lines(self.buf, 0, -1, false, { self.prompt .. value })
+    write_value(self.buf, self.prompt, value)
     cursor_to_eol(self.win, self.buf)
   end
   self._mute_change = false
 end
 
 function M:get_value()
-  local line = (vim.api.nvim_buf_get_lines(self.buf, 0, 1, false)[1] or "")
-  return strip_prompt_prefix(line, self.prompt)
+  return current_raw_value(self.buf, self.prompt)
 end
 
 function M:set_value(value)
-  vim.api.nvim_buf_set_lines(self.buf, 0, -1, false, { tostring(value or "") })
+  write_value(self.buf, self.prompt, value)
   cursor_to_eol(self.win, self.buf)
   self:set_addons(self.addons)
 end

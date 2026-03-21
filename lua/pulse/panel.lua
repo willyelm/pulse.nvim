@@ -6,6 +6,7 @@ local function set_lines(buf, lines)
 	vim.bo[buf].modifiable = true
 	vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
 	vim.bo[buf].modifiable = false
+	vim.bo[buf].modified = false
 end
 
 function M.setup_hl()

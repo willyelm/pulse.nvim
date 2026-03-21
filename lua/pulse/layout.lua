@@ -4,6 +4,7 @@ local function set_lines(buf, lines)
 	vim.bo[buf].modifiable = true
 	vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
 	vim.bo[buf].modifiable = false
+	vim.bo[buf].modified = false
 end
 
 function M.resolve_max_height(height_cfg)
@@ -14,6 +15,10 @@ end
 
 function M.new(box)
 	local layout = { sections = {}, last_dims = {} }
+
+	local function is_open(section)
+		return section and section.win and vim.api.nvim_win_is_valid(section.win)
+	end
 
 	local function upsert(name, opts)
 		local current = layout.sections[name]
@@ -34,6 +39,10 @@ function M.new(box)
 		local show_panels = refs and refs.show_panels == true
 		if
 			self.sections.input
+			and is_open(self.sections.input)
+			and is_open(self.sections.list)
+			and (not show_panels or is_open(self.sections.panels))
+			and (not show_preview or is_open(self.sections.preview))
 			and self.last_dims.body == body_height
 			and self.last_dims.preview == preview_height
 			and self.last_dims.width == width
@@ -59,8 +68,6 @@ function M.new(box)
 		else
 			box:close_section("panels")
 			box:close_section("panel_divider")
-			self.sections.panels = nil
-			self.sections.panel_divider = nil
 		end
 
 		specs[#specs + 1] = {
@@ -77,7 +84,6 @@ function M.new(box)
 		else
 			box:close_section("body_divider")
 			box:close_section("preview")
-			self.sections.body_divider, self.sections.preview = nil, nil
 		end
 
 		for _, s in ipairs(specs) do

@@ -124,7 +124,8 @@ function M.new(opts)
 	self.win = assert(opts.win, "preview requires a window")
 	self.ns = vim.api.nvim_create_namespace("pulse_ui_preview")
 	self.active_filetype = "text"
-	vim.bo[self.buf].buftype, vim.bo[self.buf].bufhidden, vim.bo[self.buf].swapfile = "nofile", "wipe", false
+	vim.bo[self.buf].buftype, vim.bo[self.buf].bufhidden, vim.bo[self.buf].buflisted, vim.bo[self.buf].swapfile =
+		"nofile", "hide", false, false
 	vim.bo[self.buf].modifiable, vim.bo[self.buf].filetype = false, "text"
 	window.configure_content_window(self.win)
 	return self
@@ -144,6 +145,7 @@ function M:set(lines, filetype, highlights, line_numbers, focus_row)
 	vim.bo[self.buf].modifiable = true
 	vim.api.nvim_buf_set_lines(self.buf, 0, -1, false, normalise_lines(lines))
 	vim.bo[self.buf].modifiable = false
+	vim.bo[self.buf].modified = false
 
 	local ft = filetype or "text"
 	vim.bo[self.buf].filetype = ft

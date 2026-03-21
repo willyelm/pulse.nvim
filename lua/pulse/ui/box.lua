@@ -89,7 +89,9 @@ function Box:mount(overrides)
   if self.opts.winhl and self.opts.winhl ~= "" then
     vim.api.nvim_set_option_value("winhl", self.opts.winhl, { win = self.win })
   end
-  vim.bo[self.buf].bufhidden, vim.bo[self.buf].swapfile, vim.bo[self.buf].modifiable = "wipe", false, true
+  vim.bo[self.buf].buftype = "nofile"
+  vim.bo[self.buf].bufhidden, vim.bo[self.buf].buflisted, vim.bo[self.buf].swapfile, vim.bo[self.buf].modifiable, vim.bo[self.buf].modified =
+    "hide", false, false, true, false
   return self.win, self.buf, nil
 end
 
@@ -108,7 +110,8 @@ function Box:create_section(name, opts)
     enter = false, buf = nil,
   }, opts or {})
   local ex = self.sections[name]
-  local buf = (ex and ex.buf and vim.api.nvim_buf_is_valid(ex.buf)) and ex.buf or o.buf or vim.api.nvim_create_buf(false, true)
+  local reused = ex and ex.buf and vim.api.nvim_buf_is_valid(ex.buf)
+  local buf = reused and ex.buf or o.buf or vim.api.nvim_create_buf(false, true)
   local cfg = {
     relative = "win", win = self.win, row = o.row, col = o.col, width = o.width, height = o.height,
     style = o.style, border = o.border, focusable = o.focusable, noautocmd = o.noautocmd, zindex = o.zindex,
@@ -122,7 +125,10 @@ function Box:create_section(name, opts)
   if o.winhl and o.winhl ~= "" then
     vim.api.nvim_set_option_value("winhl", o.winhl, { win = win })
   end
-  vim.bo[buf].bufhidden, vim.bo[buf].swapfile = "wipe", false
+  vim.bo[buf].bufhidden, vim.bo[buf].buflisted, vim.bo[buf].swapfile, vim.bo[buf].modified = "hide", false, false, false
+  if not reused then
+    vim.bo[buf].buftype = "nofile"
+  end
   local s = { win = win, buf = buf, opts = o }
   self.sections[name] = s
   return s
@@ -133,7 +139,9 @@ function Box:close_section(name)
   if s and s.win and vim.api.nvim_win_is_valid(s.win) then
     pcall(vim.api.nvim_win_close, s.win, true)
   end
-  self.sections[name] = nil
+  if s then
+    s.win = nil
+  end
 end
 
 function Box:unmount()

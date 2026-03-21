@@ -4,7 +4,10 @@ local mode = require("pulse.mode")
 
 local M = {}
 
--- Public API: Utilities for picker development
+local function registry()
+	return config.options._picker_registry or {}
+end
+
 function M.make_matcher(query, opts)
 	opts = opts or {}
 	local needle = tostring(query or "")
@@ -29,13 +32,10 @@ function M.filetype_for(path)
 end
 
 local function open_panel(initial_prompt, extra_opts, initial_panel)
-	if not initial_prompt or initial_prompt == "" then
-		initial_prompt = vim.g.pulse_last_prompt or ""
-	end
-	picker.open(vim.tbl_deep_extend("force", {
+	picker.open(vim.tbl_deep_extend("force", config.options, extra_opts or {}, {
 		initial_prompt = initial_prompt,
 		initial_panel = initial_panel,
-	}, config.options, extra_opts or {}))
+	}))
 end
 
 local function setup_cmdline_replacement()
@@ -63,34 +63,26 @@ end
 
 local function pulse_command(opts)
 	local name = (opts and opts.args and opts.args ~= "") and opts.args or nil
-	local registry = config.options._picker_registry or {}
-
-	local mode_name, panel_name, picker
 	if not name then
-		mode_name = config.options._default_mode or "files"
-		picker = registry[mode_name]
-	else
-		mode_name, panel_name = mode.find_by_command(name)
-		picker = registry[mode_name]
-		if not picker then
-			vim.notify("Pulse: unknown picker '" .. tostring(name) .. "'", vim.log.levels.ERROR)
-			return
-		end
+		picker.toggle(config.options)
+		return
 	end
 
-	local prefix = picker and picker.mode and picker.mode.start or ""
-	open_panel(prefix, nil, panel_name)
+	local mode_name, panel_name = mode.find_by_command(name)
+	if not registry()[mode_name] then
+		vim.notify("Pulse: unknown picker '" .. tostring(name) .. "'", vim.log.levels.ERROR)
+		return
+	end
+	local next_prompt = mode.switch_prompt(picker.get_prompt() or "", mode_name)
+	open_panel(next_prompt, nil, panel_name)
 end
 
 function M.setup(opts)
 	config.setup(opts)
 
-	-- Build :Pulse tab-completions
 	local completions = {}
-	local registry = config.options._picker_registry or {}
-	for mode_name, picker in pairs(registry) do
+	for mode_name, picker in pairs(registry()) do
 		completions[#completions + 1] = mode_name
-		-- Add panel names as completions
 		if picker.panels then
 			for _, panel in ipairs(picker.panels) do
 				completions[#completions + 1] = panel.name
@@ -99,13 +91,10 @@ function M.setup(opts)
 	end
 	table.sort(completions)
 
-	-- Re-create user command with live completions
 	pcall(vim.api.nvim_del_user_command, "Pulse")
 	vim.api.nvim_create_user_command("Pulse", pulse_command, {
 		nargs = "?",
-		complete = function()
-			return completions
-		end,
+		complete = function() return completions end,
 	})
 
 	if config.options.cmdline then

@@ -45,6 +45,7 @@ local function set_lines(buf, lines)
 	vim.bo[buf].modifiable = true
 	vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
 	vim.bo[buf].modifiable = false
+	vim.bo[buf].modified = false
 end
 
 local function normalise_item(rendered)
@@ -93,7 +94,7 @@ function M.new(opts)
 	self.color_hl_cache = {}
 	pcall(vim.api.nvim_set_hl, 0, MATCH_HL, { bold = true, default = true })
 
-	window.configure_isolated_buffer(self.buf, { buftype = "nofile", modifiable = false })
+	window.configure_isolated_buffer(self.buf, { buftype = "nofile", modifiable = false, bufhidden = "hide" })
 
 	window.configure_content_window(self.win)
 
@@ -228,6 +229,13 @@ end
 function M:set_max_visible(max_visible)
 	self.max_visible = math.max(tonumber(max_visible) or self.min_visible, self.min_visible)
 	self:set_items(self.items)
+end
+
+function M:set_win(win)
+	self.win = win
+	if self.win and vim.api.nvim_win_is_valid(self.win) then
+		window.configure_content_window(self.win)
+	end
 end
 
 function M:set_selected(index)

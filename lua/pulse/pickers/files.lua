@@ -302,8 +302,10 @@ function M.items(state, query, panel_name)
 	local ignored = {}
 
 	if panel_name == "files_open" then
+		state.opened = collect_opened_files()
 		paths = state.opened
 	elseif panel_name == "files_recent" then
+		state.recent = collect_recent_files(state.root)
 		paths = state.recent
 	else
 		paths, ignored = collect_project_files(state)
@@ -358,9 +360,11 @@ end
 
 function M.total_count(state, panel_name)
 	if panel_name == "files_open" then
+		state.opened = collect_opened_files()
 		return #(state.opened or {})
 	end
 	if panel_name == "files_recent" then
+		state.recent = collect_recent_files(state.root)
 		return #(state.recent or {})
 	end
 	return #(collect_project_files(state))

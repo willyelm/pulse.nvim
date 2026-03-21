@@ -10,22 +10,45 @@ M.mode = {
 M.preview = false
 M.allow_empty_selection = true
 
-function M.on_submit(ctx)
-	ctx.close()
-	if ctx.item and ctx.item.kind == "command" then
-		ctx.item.execute(ctx.item)
-	elseif ctx.query ~= "" then
-		M.execute(ctx.query)
+local function format_cmd_error(err)
+	local msg = tostring(err or "")
+	local vim_err = msg:match("Vim%b():(.+)$")
+	if vim_err and vim_err ~= "" then
+		return vim.trim(vim_err)
 	end
+	local exec_err = msg:match("nvim_exec2%(%), line %d+:%s*(.+)$")
+	if exec_err and exec_err ~= "" then
+		return vim.trim(exec_err)
+	end
+	return msg
 end
 
-function M.on_tab(ctx)
-	if not ctx.item then
+function M.on_submit(ctx)
+	local raw = ctx.input and ctx.input:get_value() or ctx.query or ""
+	ctx.close()
+	M.execute(raw)
+end
+
+function M.on_active(ctx)
+	if ctx.reason ~= "navigation" and ctx.reason ~= "mouse" then
+		return
+	end
+	if not ctx.item or not ctx.input then
 		return
 	end
 	local cmd = tostring(ctx.item.command or ""):gsub("^:", "")
 	ctx.input:set_value(ctx.mode.start .. cmd)
-	ctx.input:focus(true)
+end
+
+function M.on_tab(ctx)
+	local raw = ctx.input and ctx.input:get_value() or ctx.query or ""
+	if raw == "" then
+		return
+	end
+	M.execute(raw)
+	if ctx.input then
+		ctx.input:focus(true)
+	end
 end
 
 local function execute(item)
@@ -38,7 +61,7 @@ local function execute(item)
 			vim.cmd(ex)
 		end)
 		if not ok then
-			vim.notify(tostring(err), vim.log.levels.ERROR)
+			vim.notify(format_cmd_error(err), vim.log.levels.ERROR)
 		end
 	end)
 	return true
@@ -80,14 +103,14 @@ function M.items(state, query)
 		for _, cmd in ipairs(state.history) do
 			if match(cmd) then
 				seen[cmd] = true
-				items[#items + 1] = { kind = "command", command = cmd, execute = execute }
+				items[#items + 1] = { kind = "command", command = cmd }
 			end
 		end
 	end
 
 	for _, cmd in ipairs(state.commands) do
 		if not seen[cmd] and match(cmd) then
-			items[#items + 1] = { kind = "command", command = cmd, execute = execute }
+			items[#items + 1] = { kind = "command", command = cmd }
 		end
 	end
 

@@ -34,9 +34,11 @@ function M.configure_isolated_buffer(buf, opts)
   opts = opts or {}
   vim.bo[buf].buftype = opts.buftype or "nofile"
   vim.bo[buf].bufhidden = opts.bufhidden or "wipe"
+  vim.bo[buf].buflisted = opts.buflisted == true
   vim.bo[buf].swapfile = false
   vim.bo[buf].modifiable = opts.modifiable == true
   vim.bo[buf].filetype = opts.filetype or ""
+  vim.bo[buf].modified = false
   for _, key in ipairs({ "gitsigns_disable", "miniindentscope_disable", "minianimate_disable", "illuminate_disable" }) do
     vim.b[buf][key] = true
   end
