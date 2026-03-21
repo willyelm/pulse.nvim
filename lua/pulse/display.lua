@@ -203,6 +203,18 @@ local function display_git_status(item)
 		if p1 then
 			display.right_matches[#display.right_matches + 1] = { p1 - 1, p2, "PulseDelete" }
 		end
+		p1, p2 = right_str:find("?", 1, true)
+		if p1 then
+			display.right_matches[#display.right_matches + 1] = { p1 - 1, p2, "PulseAdd" }
+		end
+		p1, p2 = right_str:find("A", 1, true)
+		if p1 then
+			display.right_matches[#display.right_matches + 1] = { p1 - 1, p2, "PulseAdd" }
+		end
+		p1, p2 = right_str:find("D", 1, true)
+		if p1 then
+			display.right_matches[#display.right_matches + 1] = { p1 - 1, p2, "PulseDelete" }
+		end
 	end
 
 	return display
