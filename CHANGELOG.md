@@ -8,6 +8,22 @@
 - add `files.open_on_directory` to open Pulse files for `nvim .`
 
 
+
+## [0.4.0] - 2026-03-21
+
+### New
+
+- enable use file picker as file tree directory
+- add file picker panels, all, open and recent using tree for files and folders
+- enable multiple picker panels with arrow based navigation
+
+### Changed
+
+- fix: stop insert on file open
+- chore: remove old preview templates
+- fix: remove command preview content
+- fix: retain session state instead of recreate on each toggle
+
 ## [0.3.0] - 2026-03-20
 
 ### New
