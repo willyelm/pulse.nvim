@@ -660,7 +660,7 @@ function M.on_tab(ctx)
 		ctx.set_scope(scope.folder(ctx.state.root .. "/" .. ctx.item.path))
 		return
 	end
-	if ctx.jump(ctx.item) then
+	if ctx.preview(ctx.item) then
 		local path = ctx.state.root .. "/" .. ctx.item.path
 		local bufnr = vim.fn.bufnr(vim.fn.fnamemodify(path, ":p"))
 		ctx.set_scope(scope.file(path, bufnr > 0 and bufnr or nil))

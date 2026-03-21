@@ -127,6 +127,22 @@ local function jump_in_source(item)
 	return jumped
 end
 
+local function preview_in_source(item)
+	local jumped
+	local function do_jump()
+		jumped = actions.jump_to(item)
+	end
+	if state.source_win and vim.api.nvim_win_is_valid(state.source_win) then
+		pcall(vim.api.nvim_win_call, state.source_win, do_jump)
+	else
+		do_jump()
+	end
+	if jumped and state.input then
+		state.input:focus(true)
+	end
+	return jumped
+end
+
 local function hide()
 	if is_visible() then
 		pcall(vim.cmd, "stopinsert")
@@ -145,6 +161,7 @@ local function hook_ctx(reason, item)
 		reason = reason,
 		close = hide,
 		jump = jump_in_source,
+		preview = preview_in_source,
 		scope = state.scope,
 		set_scope = function(next_scope)
 			state.scope = next_scope
