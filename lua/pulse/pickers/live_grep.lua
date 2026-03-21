@@ -1,4 +1,5 @@
 local M = {}
+local preview = require("pulse.preview")
 
 M.mode = {
 	name = "live_grep",
@@ -8,6 +9,10 @@ M.mode = {
 }
 
 M.preview = true
+
+function M.preview_item(item)
+  return preview.file_snippet(item.path or item.filename, item.lnum, item.query, item.match_cols)
+end
 
 local DEBOUNCE_MS = 60
 local MAX_RESULTS = 400

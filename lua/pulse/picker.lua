@@ -176,10 +176,10 @@ local function should_show_preview(preview_cfg, item)
 end
 
 local function preview_spec(item, mod)
-	if not item then
+	if not item or not mod or type(mod.preview_item) ~= "function" then
 		return 0, nil
 	end
-	local lines, ft, highlights, line_numbers, focus_row = preview_data.for_item(item, mod and mod.preview_item)
+	local lines, ft, highlights, line_numbers, focus_row = mod.preview_item(item)
 	return math.max(#(lines or {}), 1), { lines, ft, highlights, line_numbers, focus_row }
 end
 

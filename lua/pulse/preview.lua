@@ -62,48 +62,7 @@ local function file_snippet(path, lnum, query, match_cols)
 	return lines, filetype, highlights, numbers, (line_no - start_l + 1)
 end
 
-local function preview_header(item)
-	return { (item and item.label) or "No selection" }, "text", {}, nil, 1
-end
-
-local function preview_diagnostic(item)
-	local out = {
-		string.format("[%s] %s", item.severity_name or "INFO", item.source or "diagnostic"),
-		string.format("%s:%d:%d", item.filename or "", item.lnum or 1, item.col or 1),
-		"",
-		item.message or "",
-		"",
-	}
-	local snippet, ft = file_snippet(item.filename, item.lnum)
-	vim.list_extend(out, snippet)
-	return out, ft, {}, nil, 1
-end
-
-local PREVIEWS = {
-	header = preview_header,
-	live_grep = function(item) return file_snippet(item.path or item.filename, item.lnum, item.query, item.match_cols) end,
-	fuzzy_search = function(item) return file_snippet(item.path or item.filename, item.lnum, item.query, item.match_cols) end,
-	diagnostic = preview_diagnostic,
-	file = function(item) return file_snippet(item.path or item.filename, item.lnum) end,
-	symbol = function(item) return file_snippet(item.path or item.filename, item.lnum) end,
-	workspace_symbol = function(item) return file_snippet(item.path or item.filename, item.lnum) end,
-}
-
 M.file_snippet = file_snippet
-
-function M.for_item(item, provider)
-	if not item or item.kind == "header" then
-		return preview_header(item)
-	end
-	if type(provider) == "function" then
-		return provider(item)
-	end
-	local preview = PREVIEWS[item.kind]
-	if preview then
-		return preview(item)
-	end
-	return { vim.inspect(item) }, "lua", {}, nil, 1
-end
 
 function M.new(opts)
 	local self = setmetatable({}, M)
