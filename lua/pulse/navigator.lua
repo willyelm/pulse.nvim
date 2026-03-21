@@ -265,13 +265,9 @@ local function current_surface(panels)
 	return panel.find_surface(panels, state.current.mode_name, state.current.panel)
 end
 
-local function panels_visible(mod, navigator_state_value)
-	return state.current.panel_header ~= nil
-end
-
 local function resolve_body_layout()
 	local item = current_item() or first_selectable(state.items)
-	local show_panels = panels_visible(state.current.mod, state.current.state)
+	local show_panels = state.current.panel_header ~= nil
 	local panel_rows = show_panels and 2 or 0
 	local total_height = math.max(layout.resolve_max_height(state.navigator_opts.height) - 2 - panel_rows, 1)
 	local item_total = item_count(state.items)
@@ -501,8 +497,7 @@ local function move_panel_from_input(direction)
 	if not idx then
 		return false
 	end
-	local line = state.input:get_value()
-	if vim.api.nvim_win_get_cursor(state.input.win)[2] < #line then
+	if not state.input:is_cursor_at_end() then
 		return false
 	end
 	local next_idx = idx + direction

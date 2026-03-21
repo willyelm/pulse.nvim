@@ -10,19 +10,8 @@ local function list_scopes(value)
 	return nil
 end
 
-local function panel_scopes(entry, navigator)
+local function panel_scopes(entry)
 	return list_scopes(entry and entry.scopes) or { "workspace" }
-end
-
-function M.has_scope(navigator, scope_name)
-	for _, entry in ipairs((navigator and navigator.panels) or {}) do
-		for _, value in ipairs(panel_scopes(entry, navigator)) do
-			if value == scope_name then
-				return true
-			end
-		end
-	end
-	return false
 end
 
 function M.is_buffer_only(navigator)
@@ -31,7 +20,7 @@ function M.is_buffer_only(navigator)
 		return false
 	end
 	for _, entry in ipairs(panels) do
-		local scopes = panel_scopes(entry, navigator)
+		local scopes = panel_scopes(entry)
 		if #scopes ~= 1 or scopes[1] ~= "buffer" then
 			return false
 		end
@@ -61,7 +50,7 @@ local function build_header_layout(panels, active_name)
 			parts[#parts + 1] = " "
 			col = col + 1
 		end
-		local text = M.block_text(i, entry.label)
+		local text = M.block_text(entry.label)
 		local start_col = col
 		parts[#parts + 1] = text
 		highlights[#highlights + 1] = {
@@ -109,7 +98,7 @@ function M.setup_hl()
 	pcall(vim.api.nvim_set_hl, 0, "PulseActive", { bold = true, default = true })
 end
 
-function M.block_text(_, label)
+function M.block_text(label)
 	return " " .. label .. " "
 end
 
@@ -128,7 +117,7 @@ function M.visible_panels(navigators, scope_type)
 	for index, navigator in ipairs(navigators or {}) do
 		if navigator.panels and #navigator.panels > 0 then
 			for _, entry in ipairs(navigator.panels) do
-				for _, allowed in ipairs(panel_scopes(entry, navigator)) do
+				for _, allowed in ipairs(panel_scopes(entry)) do
 					if allowed == scope_type then
 						visible[#visible + 1] = {
 							name = entry.name,
@@ -136,7 +125,7 @@ function M.visible_panels(navigators, scope_type)
 							navigator = navigator.mode.name,
 							panel = entry.name,
 							start = entry.start or "",
-							scopes = panel_scopes(entry, navigator),
+							scopes = panel_scopes(entry),
 							order = index,
 						}
 						break

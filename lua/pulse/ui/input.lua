@@ -156,6 +156,16 @@ function M:get_value()
   return current_raw_value(self.buf, self.prompt)
 end
 
+function M:is_cursor_at_end()
+  if not (self.win and vim.api.nvim_win_is_valid(self.win)) then
+    return true
+  end
+  local cursor = vim.api.nvim_win_get_cursor(self.win)
+  local col = cursor and cursor[2] or 0
+  local value_end = #(self.prompt or "") + #self:get_value()
+  return col >= value_end
+end
+
 function M:set_value(value)
   write_value(self.buf, self.prompt, value)
   cursor_to_eol(self.win, self.buf)
