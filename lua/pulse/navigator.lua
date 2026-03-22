@@ -39,6 +39,8 @@ local state = {
 		menu = nil,
 	},
 	bound_action_keys = {},
+	selected_items = {},
+	pending_selected_key = nil,
 }
 
 local refresh
@@ -193,6 +195,28 @@ end
 local function current_item()
 	local item = state.list and state.list:selected_item() or nil
 	return (item and not is_header(item)) and item or nil
+end
+
+local function selection_key(mode_name, panel_name, scoped)
+	return table.concat({
+		tostring(mode_name or ""),
+		tostring(panel_name or ""),
+		scope.key(scoped),
+	}, "|")
+end
+
+local function remember_selection(mode_name, panel_name, scoped, item)
+	local key = selection_key(mode_name, panel_name, scoped)
+	local item_id = item_key(item)
+	if item_id then
+		state.selected_items[key] = item_id
+	else
+		state.selected_items[key] = nil
+	end
+end
+
+local function remembered_selection(mode_name, panel_name, scoped)
+	return state.selected_items[selection_key(mode_name, panel_name, scoped)]
 end
 
 local function action_ctx(item)
@@ -572,7 +596,10 @@ local function apply_view_model(vm)
 
 	state.list:set_items(vm.items)
 	state.list:set_allow_empty_selection(vm.mod and vm.mod.allow_empty_selection == true)
-	if vm.mode_switched then
+	if state.pending_selected_key and not (vm.mod and vm.mod.allow_empty_selection == true) then
+		state.list:set_selected(find_item_index(vm.items, state.pending_selected_key) or state.list.selected)
+		state.pending_selected_key = nil
+	elseif vm.mode_switched then
 		state.list:set_selected((vm.mod and vm.mod.allow_empty_selection == true) and 0 or 1)
 	elseif vm.selected_key then
 		state.list:set_selected(find_item_index(vm.items, vm.selected_key) or state.list.selected)
@@ -600,6 +627,7 @@ refresh = function()
 end
 
 local function switch_panel(direction)
+	remember_selection(state.current.mode_name, state.current.panel, state.scope, current_item())
 	local panels = visible_panels()
 	local active = panel.find_panel(panels, state.current.mode_name, state.current.panel)
 	local idx = panel.active_index(panels, active and active.name or nil)
@@ -615,6 +643,7 @@ local function switch_panel(direction)
 	local target = panels[idx]
 	vim.schedule(function()
 		panel.select(state.active_panels, target)
+		state.pending_selected_key = remembered_selection(target.navigator, target.panel, state.scope)
 		if not is_visible() or not state.input then
 			return
 		end
@@ -713,6 +742,7 @@ local function click_tab_action()
 		if name then
 			for _, target in ipairs(visible_panels()) do
 				if target.name == name then
+					state.pending_selected_key = remembered_selection(target.navigator, target.panel, state.scope)
 					panel.select(state.active_panels, target)
 					state.input:set_value(mode.switch_prompt(state.input:get_value(), target.navigator), { move_cursor_end = true })
 					break

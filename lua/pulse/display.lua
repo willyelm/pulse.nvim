@@ -104,7 +104,7 @@ local function display_header(item)
 end
 
 local function display_command(item)
-	return row(string.format("%s :%s", ITEM_KIND.Command.icon, item.command))
+	return row(string.format("%s :%s", ITEM_KIND.Command.icon, item.command), "", false)
 end
 
 local function display_code_action(item)
@@ -236,8 +236,7 @@ local function display_git_commit(item)
 	local icon = "󰜘"
 	local text = item.subject or item.label or (item.commit or "")
 	local right = item.display_right or item.date or ""
-	local out = row(string.format("%s %s", icon, text), right, false, { { 0, #icon, "Identifier" } })
-	return out
+	return row(string.format("%s %s", icon, text), right, false)
 end
 
 local function display_git_commit_file(item)
