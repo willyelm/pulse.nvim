@@ -1,6 +1,6 @@
 local M = {}
 local context = require("pulse.context")
-local scope = require("pulse.scope")
+local buffer_scope = require("pulse.buffer_scope")
 
 M.mode = {
 	name = "fuzzy_search",
@@ -47,32 +47,6 @@ function M.context_item(item)
 end
 
 local MAX_RESULTS = 400
-
-local function valid_bufnr(bufnr)
-	return type(bufnr) == "number" and bufnr > 0 and vim.api.nvim_buf_is_valid(bufnr)
-end
-
-local function resolve_bufnr(ctx, scoped)
-	local bufnr = nil
-	if scoped and scoped.kind == "file" then
-		bufnr = scoped.bufnr
-		if not valid_bufnr(bufnr) and scoped.path and scoped.path ~= "" then
-			local existing = vim.fn.bufnr(scoped.path)
-			if type(existing) == "number" and existing > 0 then
-				bufnr = existing
-			else
-				bufnr = vim.fn.bufadd(scoped.path)
-			end
-		end
-	end
-	if not valid_bufnr(bufnr) then
-		bufnr = ctx and ctx.bufnr or nil
-	end
-	if not valid_bufnr(bufnr) then
-		bufnr = vim.api.nvim_get_current_buf()
-	end
-	return valid_bufnr(bufnr) and bufnr or nil
-end
 
 local function refresh_lines(state)
 	local bufnr = state.bufnr
@@ -131,8 +105,7 @@ local function fuzzy_score(haystack, n)
 end
 
 function M.init(ctx)
-	local scoped = ctx and ctx.scope
-	local bufnr = resolve_bufnr(ctx, scoped)
+	local bufnr = buffer_scope.resolve(ctx)
 	if not bufnr then
 		return {
 			bufnr = nil,
@@ -150,7 +123,7 @@ function M.init(ctx)
 		lines = {},
 		line_count = 0,
 		tick = -1,
-		input_scope = (scoped and scoped.kind == "file" and scope.file(scoped.path, bufnr)) or scope.from_buffer(bufnr),
+		input_scope = buffer_scope.input_scope(ctx, bufnr),
 	}
 end
 

@@ -1,5 +1,5 @@
 local M = {}
-local scope = require("pulse.scope")
+local buffer_scope = require("pulse.buffer_scope")
 local CACHE = {}
 
 M.mode = {
@@ -201,34 +201,8 @@ local function has_document_symbol_client(bufnr)
 	return false
 end
 
-local function valid_bufnr(bufnr)
-	return type(bufnr) == "number" and bufnr > 0 and vim.api.nvim_buf_is_valid(bufnr)
-end
-
-local function resolve_bufnr(ctx, scoped)
-	local bufnr = nil
-	if scoped and scoped.kind == "file" then
-		bufnr = scoped.bufnr
-		if not valid_bufnr(bufnr) and scoped.path and scoped.path ~= "" then
-			local existing = vim.fn.bufnr(scoped.path)
-			if type(existing) == "number" and existing > 0 then
-				bufnr = existing
-			else
-				bufnr = vim.fn.bufadd(scoped.path)
-			end
-		end
-	end
-	if not valid_bufnr(bufnr) then
-		bufnr = ctx and ctx.bufnr or nil
-	end
-	if not valid_bufnr(bufnr) then
-		bufnr = vim.api.nvim_get_current_buf()
-	end
-	return valid_bufnr(bufnr) and bufnr or nil
-end
-
 local function cached_symbols(bufnr)
-	if not valid_bufnr(bufnr) then
+	if not buffer_scope.valid(bufnr) then
 		return nil
 	end
 	local tick = vim.api.nvim_buf_get_changedtick(bufnr)
@@ -240,7 +214,7 @@ local function cached_symbols(bufnr)
 end
 
 local function store_symbols(bufnr, symbols)
-	if not valid_bufnr(bufnr) then
+	if not buffer_scope.valid(bufnr) then
 		return symbols
 	end
 	CACHE[bufnr] = {
@@ -251,8 +225,7 @@ local function store_symbols(bufnr, symbols)
 end
 
 function M.init(ctx)
-	local scoped = ctx and ctx.scope
-	local bufnr = resolve_bufnr(ctx, scoped)
+	local bufnr = buffer_scope.resolve(ctx)
 	if not bufnr then
 		return { symbols = {}, input_scope = nil }
 	end
@@ -271,7 +244,7 @@ function M.init(ctx)
 	end
 	local state = {
 		symbols = symbols,
-		input_scope = (scoped and scoped.kind == "file" and scope.file(scoped.path, bufnr)) or scope.from_buffer(bufnr),
+		input_scope = buffer_scope.input_scope(ctx, bufnr),
 	}
 	if not use_lsp then
 		return state

@@ -1,5 +1,5 @@
 local M = {}
-local scope = require("pulse.scope")
+local buffer_scope = require("pulse.buffer_scope")
 
 M.mode = {
 	name = "code_action",
@@ -74,25 +74,16 @@ local function execute(item)
 end
 
 function M.init(ctx)
-	local scoped = ctx and ctx.scope
-	local bufnr = (scoped and scoped.kind == "file" and (scoped.bufnr or vim.fn.bufnr(scoped.path)))
-		or (ctx and ctx.bufnr)
-		or vim.api.nvim_get_current_buf()
-	if not bufnr or bufnr < 1 or not vim.api.nvim_buf_is_valid(bufnr) then
-		bufnr = (scoped and scoped.kind == "file" and scoped.path and vim.fn.bufadd(scoped.path)) or bufnr
-	end
-	if not bufnr or bufnr < 1 or not vim.api.nvim_buf_is_valid(bufnr) then
-		bufnr = vim.api.nvim_get_current_buf()
-	end
+	local bufnr = buffer_scope.resolve(ctx)
 	pcall(vim.fn.bufload, bufnr)
 	local win = ctx and ctx.win or 0
 	local state = {
 		actions = {},
-		input_scope = (scoped and scoped.kind == "file" and scope.file(scoped.path, bufnr)) or scope.from_buffer(bufnr),
+		input_scope = buffer_scope.input_scope(ctx, bufnr),
 	}
 
 	local cursor = nil
-	if scoped and scoped.kind == "file" then
+	if ctx and ctx.scope and ctx.scope.kind == "file" then
 		local ok, mark = pcall(vim.api.nvim_buf_get_mark, bufnr, '"')
 		if ok and type(mark) == "table" then
 			cursor = { math.max(mark[1], 1), math.max(mark[2], 0) }
