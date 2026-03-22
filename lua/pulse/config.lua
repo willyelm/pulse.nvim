@@ -8,7 +8,7 @@ local M = {
 		navigators = {
 			"files",
 			"commands",
-			"git_status",
+			"git",
 			"diagnostics",
 			"code_actions",
 			"symbols",
@@ -102,7 +102,7 @@ function M.setup(opts)
 				for _, entry in ipairs(navigator_module.panels or {}) do
 					local start = entry.start or ""
 					if start ~= "" then
-						if by_start[start] then
+						if by_start[start] and by_start[start].mode ~= mode_name then
 							vim.notify("Pulse: prefix '" .. start .. "' already taken, ignoring panel '" .. tostring(entry.name) .. "'", vim.log.levels.WARN)
 						else
 							by_start[start] = { mode = mode_name, strip = #start + 1 }

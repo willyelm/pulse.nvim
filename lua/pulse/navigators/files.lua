@@ -17,7 +17,9 @@ local DEFAULT_OPTS = {
 M.mode = {
 	name = "files",
 	icon = "󰈔",
-	actions = function(ctx) return file_actions(ctx) end,
+	actions = function(ctx)
+		return file_actions(ctx)
+	end,
 }
 
 M.context = false
@@ -25,7 +27,7 @@ M.context = false
 M.panels = {
 	{ start = "", name = "files_all", label = "Files", scopes = { "workspace", "folder" } },
 	{ start = "", name = "files_open", label = "Open", scopes = { "workspace" } },
-	{ start = "", name = "files_recent", label = "Recent", scopes = { "workspace" } },
+	-- { start = "", name = "files_recent", label = "Recent", scopes = { "workspace" } },
 }
 
 local function navigator_opts(opts)
@@ -830,8 +832,7 @@ local function action_paste(ctx)
 	if transfer.kind == "cut" then
 		ok = vim.fn.rename(transfer.path, dest) == 0
 	else
-		local cmd = (vim.fn.isdirectory(transfer.path) == 1)
-			and { "cp", "-R", transfer.path, dest }
+		local cmd = (vim.fn.isdirectory(transfer.path) == 1) and { "cp", "-R", transfer.path, dest }
 			or { "cp", transfer.path, dest }
 		vim.fn.system(cmd)
 		ok = vim.v.shell_error == 0
@@ -849,15 +850,22 @@ end
 
 file_actions = function(ctx)
 	local item = ctx and ctx.item
-	local editable = item and (item.kind == "file" or item.kind == "folder") and not item.scope_parent and not item.search_group
+	local editable = item
+		and (item.kind == "file" or item.kind == "folder")
+		and not item.scope_parent
+		and not item.search_group
 	local actions = {
 		["<C-a>"] = action_add,
 	}
 	if editable then
 		actions["<C-d>"] = action_delete
 		actions["<C-r>"] = action_rename
-		actions["<C-x>"] = function(next) return action_stage_transfer(next, "cut") end
-		actions["<C-c>"] = function(next) return action_stage_transfer(next, "copy") end
+		actions["<C-x>"] = function(next)
+			return action_stage_transfer(next, "cut")
+		end
+		actions["<C-c>"] = function(next)
+			return action_stage_transfer(next, "copy")
+		end
 	end
 	if transfer and transfer.path then
 		actions["<C-v>"] = action_paste

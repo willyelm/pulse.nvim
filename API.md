@@ -51,7 +51,7 @@ return M
 require('pulse').setup({
   navigators = {
     "files",                               -- string (loads pulse.navigators.files)
-    require("pulse.navigators.git_status"), -- or module object
+    require("pulse.navigators.git"), -- or module object
   }
 })
 ```

@@ -67,7 +67,7 @@ require("pulse").setup({
 
 - `files` - Project files
 - `commands` - Vim commands
-- `git_status` - Git changes
+- `git` - Git status and history
 - `diagnostics` - LSP diagnostics
 - `code_action` - Code actions (current buffer)
 - `symbol` - Symbols (current buffer)
@@ -79,7 +79,7 @@ To load a specific set only:
 
 ```lua
 require("pulse").setup({
-  navigators = { "files", "commands", "git_status" },
+  navigators = { "files", "commands", "git" },
 })
 ```
 
@@ -107,7 +107,7 @@ You can also disable a default setting:
 ```lua
 require("pulse").setup({
   navigators = {
-    git_status = false,
+    git = false,
     files = {
       icons = false,
     },
@@ -171,7 +171,7 @@ vim.g.loaded_netrwPlugin = 1
 - `:Pulse`
 - `:Pulse files`
 - `:Pulse commands`
-- `:Pulse git_status`
+- `:Pulse git`
 - `:Pulse diagnostics`
 - `:Pulse code_actions`
 - `:Pulse symbols`
@@ -205,7 +205,7 @@ In `commands` mode:
 ```lua
 vim.keymap.set("n", "<leader>p", "<cmd>Pulse<cr>", { desc = "Pulse" })
 vim.keymap.set("n", "<leader>p", "<cmd>Pulse commands<cr>", { desc = "Pulse Commands" })
-vim.keymap.set("n", "<leader>pg", "<cmd>Pulse git_status<cr>", { desc = "Pulse Git Status" })
+vim.keymap.set("n", "<leader>pg", "<cmd>Pulse git<cr>", { desc = "Pulse Git" })
 vim.keymap.set("n", "<leader>pd", "<cmd>Pulse diagnostics<cr>", { desc = "Pulse Diagnostics" })
 vim.keymap.set("n", "<leader>pc>", "<cmd>Pulse code_actions<cr>", { desc = "Pulse Code Actions" })
 vim.keymap.set("n", "<leader>ps", "<cmd>Pulse symbols<cr>", { desc = "Pulse Symbols" })

@@ -231,6 +231,14 @@ local function display_git_status(item)
 	return display
 end
 
+local function display_git_commit(item)
+	local icon = "󰜘"
+	local text = item.subject or item.label or (item.commit or "")
+	local right = item.display_right or item.date or ""
+	local out = row(string.format("%s %s", icon, text), right, false, { { 0, #icon, "Identifier" } })
+	return out
+end
+
 local function display_diagnostic(item)
 	local icon, hl = icon_for_item("diagnostic", item.severity_name)
 	local pos = string.format("%s:%d:%d", file_name(item.filename), item.lnum or 1, item.col or 1)
@@ -260,6 +268,7 @@ local RENDERERS = {
 	live_grep = display_grep,
 	fuzzy_search = display_grep,
 	git_status = display_git_status,
+	git_commit = display_git_commit,
 	diagnostic = display_diagnostic,
 	symbol = display_symbol,
 	workspace_symbol = display_symbol,
