@@ -16,6 +16,8 @@ local session = {
 	lifecycle_group = nil,
 	panels = { buf = nil, win = nil },
 	panels_ns = vim.api.nvim_create_namespace("pulse_ui_panels"),
+	actions = { buf = nil, win = nil },
+	actions_ns = vim.api.nvim_create_namespace("pulse_ui_actions"),
 }
 
 local function configure_box(navigator_opts)

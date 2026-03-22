@@ -1,11 +1,12 @@
 local ui = require("pulse.ui")
-local actions = require("pulse.actions")
+local action = require("pulse.action")
+local action_menu = require("pulse.action_menu")
 local display = require("pulse.display")
 local layout = require("pulse.layout")
 local mode = require("pulse.mode")
 local context_view = require("pulse.context")
 local config = require("pulse.config")
-local panel = require("pulse.panel")
+local panel = require("pulse.panel_menu")
 local session_mod = require("pulse.session")
 local scope = require("pulse.scope")
 
@@ -268,7 +269,7 @@ local function run_in_source(item, opts)
 	opts = opts or {}
 	local jumped
 	local function do_jump()
-		jumped = actions.jump_to(item)
+		jumped = action.jump_to(item)
 	end
 	if opts.stopinsert ~= false then
 		pcall(vim.cmd, "stopinsert")
@@ -383,7 +384,7 @@ local function split_body_height(total, list_height, context_height)
 end
 
 local function prompt_has_prefix(prompt)
-	return config.options._by_start and config.options._by_start[prompt:sub(1, 1)] ~= nil
+	return config.by_start()[prompt:sub(1, 1)] ~= nil
 end
 
 local function current_buffer_mode(prompt, current_scope)
@@ -499,9 +500,19 @@ local function render_current_view(body, menu)
 		context = state.context,
 		input = state.input,
 		panels = state.session.panels,
+		actions = state.session.actions,
 		show_panels = body.show_panels,
+		show_actions = #(state.bound_action_keys or {}) > 0,
 	})
 	panel.render(state.session.panels, state.session.panels_ns, menu)
+	action_menu.render(
+		state.session and state.session.actions,
+		state.session and state.session.actions_ns,
+		state.current.mod and state.current.mod.mode and state.current.mod.mode.action_labels or nil,
+		panel_actions(),
+		state.bound_action_keys,
+		panel.block_text
+	)
 	if state.context and state.context.win and vim.api.nvim_win_is_valid(state.context.win) then
 		if body.context_spec then
 			state.context:set(unpack(body.context_spec))
@@ -611,10 +622,7 @@ local function apply_view_model(vm)
 	state.input:set_prompt(vm.prompt_ui.prompt, { move_cursor_end = true })
 	state.input:set_addons(vm.prompt_ui.addons)
 	sync_panel_action_keymaps()
-	render_current_view(
-		compute_body_layout(state.items, vm.mod, vm.panels, vm.panel_entry),
-		vm.menu
-	)
+	render_current_view(compute_body_layout(state.items, vm.mod, vm.panels, vm.panel_entry), vm.menu)
 end
 
 refresh = function()
@@ -862,7 +870,7 @@ end
 
 local function show(opts)
 	panel.setup_hl()
-	state.registry = config.options._navigator_registry or {}
+	state.registry = config.registry()
 	state.modules = config.options.navigators or {}
 	state.navigator_opts = navigator_opts(opts)
 	state.pending_initial_panel = state.navigator_opts.initial_panel

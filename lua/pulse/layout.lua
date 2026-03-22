@@ -37,6 +37,7 @@ function M.new(box)
 		local width = vim.api.nvim_win_get_width(box.win)
 		local show_context = context_height > 0
 		local show_panels = refs and refs.show_panels == true
+		local show_actions = refs and refs.show_actions == true
 		local function sync_refs()
 			if refs.list then
 				refs.list.win = self.sections.list and self.sections.list.win or nil
@@ -44,6 +45,10 @@ function M.new(box)
 			if refs.panels then
 				refs.panels.buf = show_panels and self.sections.panels and self.sections.panels.buf or nil
 				refs.panels.win = show_panels and self.sections.panels and self.sections.panels.win or nil
+			end
+			if refs.actions then
+				refs.actions.buf = show_actions and self.sections.actions and self.sections.actions.buf or nil
+				refs.actions.win = show_actions and self.sections.actions and self.sections.actions.win or nil
 			end
 			if refs.input then
 				refs.input:set_win(self.sections.input and self.sections.input.win or nil)
@@ -59,17 +64,19 @@ function M.new(box)
 			and is_open(self.sections.input)
 			and is_open(self.sections.list)
 			and (not show_panels or is_open(self.sections.panels))
+			and (not show_actions or is_open(self.sections.actions))
 			and (not show_context or is_open(self.sections.context))
 			and self.last_dims.body == body_height
 			and self.last_dims.context == context_height
 			and self.last_dims.width == width
 			and self.last_dims.panels == show_panels
+			and self.last_dims.actions == show_actions
 		then
 			sync_refs()
 			return
 		end
 
-		local chrome_height = 2 + (show_panels and 2 or 0) + (show_context and 1 + context_height or 0)
+		local chrome_height = 2 + (show_panels and 2 or 0) + (show_actions and 1 or 0) + (show_context and 1 + context_height or 0)
 		box:update({ height = body_height + chrome_height })
 		width = vim.api.nvim_win_get_width(box.win)
 
@@ -96,9 +103,17 @@ function M.new(box)
 			winhl = "Normal:NormalFloat,CursorLine:CursorLine",
 		}
 
+		local after_list_row = list_row + body_height
+		if show_actions then
+			specs[#specs + 1] = { name = "actions", row = after_list_row, height = 1, focusable = false, winhl = "Normal:NormalFloat" }
+			after_list_row = after_list_row + 1
+		else
+			box:close_section("actions")
+		end
+
 		if show_context then
-			specs[#specs + 1] = { name = "body_divider", row = list_row + body_height, height = 1, focusable = false, winhl = "Normal:FloatBorder", divider = true }
-			specs[#specs + 1] = { name = "context", row = list_row + body_height + 1, height = context_height, focusable = true, winhl = "Normal:NormalFloat" }
+			specs[#specs + 1] = { name = "body_divider", row = after_list_row, height = 1, focusable = false, winhl = "Normal:FloatBorder", divider = true }
+			specs[#specs + 1] = { name = "context", row = after_list_row + 1, height = context_height, focusable = true, winhl = "Normal:NormalFloat" }
 		else
 			box:close_section("body_divider")
 			box:close_section("context")
@@ -121,7 +136,7 @@ function M.new(box)
 
 		sync_refs()
 
-		self.last_dims = { body = body_height, context = context_height, width = width, panels = show_panels }
+		self.last_dims = { body = body_height, context = context_height, width = width, panels = show_panels, actions = show_actions }
 	end
 
 	return layout

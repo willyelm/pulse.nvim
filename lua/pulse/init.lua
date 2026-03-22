@@ -1,13 +1,13 @@
 local config = require("pulse.config")
-local navigator = require("pulse.navigator")
+local navigator = require("pulse.pulse")
 local mode = require("pulse.mode")
-local panel = require("pulse.panel")
+local panel = require("pulse.panel_menu")
 local scope = require("pulse.scope")
 
 local M = {}
 
 local function registry()
-	return config.options._navigator_registry or {}
+	return config.registry()
 end
 
 function M.make_matcher(query, opts)

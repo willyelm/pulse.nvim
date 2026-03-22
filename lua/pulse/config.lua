@@ -20,6 +20,13 @@ local M = {
 }
 M.options = M.defaults
 
+local state = {
+	navigator_options = {},
+	navigator_registry = {},
+	by_start = {},
+	default_mode = nil,
+}
+
 local function navigator_config(opts)
 	local configured = opts and opts.navigators
 	local per_navigator = vim.deepcopy((opts and opts.navigator_options) or {})
@@ -57,8 +64,19 @@ local function navigator_config(opts)
 end
 
 function M.for_navigator(mode_name)
-	local per_navigator = M.options._navigator_options or {}
-	return per_navigator[mode_name] or {}
+	return state.navigator_options[mode_name] or {}
+end
+
+function M.registry()
+	return state.navigator_registry
+end
+
+function M.by_start()
+	return state.by_start
+end
+
+function M.default_mode()
+	return state.default_mode or "files"
 end
 
 function M.setup(opts)
@@ -118,10 +136,10 @@ function M.setup(opts)
 	end
 
 	M.options.navigators = navigators
-	M.options._navigator_options = per_navigator
-	M.options._navigator_registry = registry
-	M.options._by_start = by_start
-	M.options._default_mode = default_mode
+	state.navigator_options = per_navigator
+	state.navigator_registry = registry
+	state.by_start = by_start
+	state.default_mode = default_mode
 end
 
 return M

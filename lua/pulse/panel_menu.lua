@@ -23,29 +23,6 @@ local function is_visible_in_scope(entry, scope_name)
 	return false
 end
 
-function M.is_buffer_only(navigator)
-	local panels = navigator and navigator.panels or {}
-	if #panels == 0 then
-		return false
-	end
-	for _, entry in ipairs(panels) do
-		local scopes = panel_scopes(entry)
-		if #scopes ~= 1 or scopes[1] ~= "buffer" then
-			return false
-		end
-	end
-	return true
-end
-
-function M.supports_scope(navigator, scope_name)
-	for _, entry in ipairs((navigator and navigator.panels) or {}) do
-		if is_visible_in_scope(entry, scope_name) then
-			return true
-		end
-	end
-	return false
-end
-
 local function set_lines(buf, lines)
 	vim.bo[buf].modifiable = true
 	vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
@@ -162,6 +139,29 @@ function M.visible_panels(navigators, scope_type)
 	return visible
 end
 
+function M.is_buffer_only(navigator)
+	local panels = navigator and navigator.panels or {}
+	if #panels == 0 then
+		return false
+	end
+	for _, entry in ipairs(panels) do
+		local scopes = panel_scopes(entry)
+		if #scopes ~= 1 or scopes[1] ~= "buffer" then
+			return false
+		end
+	end
+	return true
+end
+
+function M.supports_scope(navigator, scope_name)
+	for _, entry in ipairs((navigator and navigator.panels) or {}) do
+		if is_visible_in_scope(entry, scope_name) then
+			return true
+		end
+	end
+	return false
+end
+
 function M.select(active_panels, panel_entry)
 	if panel_entry and panel_entry.panel then
 		active_panels[panel_entry.navigator] = panel_entry.panel
@@ -262,10 +262,10 @@ function M.render(target, ns, menu)
 		local end_col = math.min(hl[2], offset + available)
 		if start_col < end_col then
 			pcall(vim.api.nvim_buf_set_extmark, target.buf, ns, 0, 1 + (start_col - offset), {
-			end_row = 0,
-			end_col = 1 + (end_col - offset),
-			hl_group = hl[3],
-		})
+				end_row = 0,
+				end_col = 1 + (end_col - offset),
+				hl_group = hl[3],
+			})
 		end
 	end
 end

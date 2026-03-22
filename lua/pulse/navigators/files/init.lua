@@ -318,6 +318,14 @@ M.mode = {
 	name = "files",
 	icon = "󰈔",
 	actions = file_actions,
+	action_labels = {
+		["<C-a>"] = "Add",
+		["<C-d>"] = "Delete",
+		["<C-r>"] = "Rename",
+		["<C-x>"] = "Cut",
+		["<C-c>"] = "Copy",
+		["<C-v>"] = "Paste",
+	},
 }
 
 M.context = false
