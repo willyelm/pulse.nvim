@@ -6,6 +6,33 @@ local items = require("pulse.navigators.git.items")
 M.mode = {
 	name = "git",
 	icon = "󰊢",
+	actions = {
+		{
+			key = "<CR>",
+			name = "Open",
+			run = function(ctx)
+				local item = ctx and ctx.item
+				local panel_name = ctx and ctx.panel and ctx.panel.name
+				if panel_name == "git_project_history" and item and item.kind == "git_commit" then
+					ctx.state.expanded[item.commit] = not ctx.state.expanded[item.commit]
+					ctx.refresh()
+					return
+				end
+				if item and item.kind == "git_commit_file" then
+					ctx.jump(item)
+					ctx.close()
+					return
+				end
+				if item and item.kind == "git_commit" then
+					return
+				end
+				if item then
+					ctx.jump(item)
+					ctx.close()
+				end
+			end,
+		},
+	},
 }
 
 M.panels = {
@@ -19,8 +46,6 @@ M.context = function(item)
 end
 M.scope_aware = true
 M.context_item = git_context.context_item
-
-M.on_tab = false
 
 function M.init(ctx)
 	pcall(vim.api.nvim_set_hl, 0, "PulseAdd", { link = "Added", default = true })
@@ -47,28 +72,6 @@ end
 
 function M.items(state, query, panel_name)
 	return items.items(state, query, panel_name)
-end
-
-function M.on_submit(ctx)
-	local item = ctx and ctx.item
-	local panel_name = ctx and ctx.state and ctx.state.active_panel
-	if panel_name == "git_project_history" and item and item.kind == "git_commit" then
-		ctx.state.expanded[item.commit] = not ctx.state.expanded[item.commit]
-		ctx.refresh()
-		return
-	end
-	if item and item.kind == "git_commit_file" then
-		ctx.jump(item)
-		ctx.close()
-		return
-	end
-	if item and item.kind == "git_commit" then
-		return
-	end
-	if item then
-		ctx.jump(item)
-		ctx.close()
-	end
 end
 
 function M.total_count(state)

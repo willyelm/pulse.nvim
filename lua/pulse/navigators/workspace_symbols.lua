@@ -4,6 +4,34 @@ local pulse = require("pulse")
 M.mode = {
 	name = "workspace_symbol",
 	icon = "󰒕",
+	actions = {
+		{
+			key = "<CR>",
+			name = "Open",
+			when = function(ctx)
+				return ctx and ctx.item ~= nil
+			end,
+			run = function(ctx)
+				if ctx and ctx.item then
+					ctx.jump(ctx.item)
+					ctx.close()
+					return false
+				end
+			end,
+		},
+		{
+			key = "<Tab>",
+			name = "Preview",
+			when = function(ctx)
+				return ctx and ctx.item ~= nil
+			end,
+			run = function(ctx)
+				if ctx and ctx.item then
+					ctx.preview(ctx.item)
+				end
+			end,
+		},
+	},
 }
 M.panels = {
 	{ start = "#", name = "workspace_symbol", label = "Workspace Symbols", scopes = { "workspace" } },

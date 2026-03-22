@@ -4,6 +4,22 @@ local scope = require("pulse.scope")
 M.mode = {
 	name = "code_action",
 	icon = "󰌶",
+	actions = {
+		{
+			key = "<CR>",
+			name = "Run",
+			when = function(ctx)
+				return ctx and ctx.item ~= nil
+			end,
+			run = function(ctx)
+				if ctx and ctx.item and ctx.item.execute then
+					ctx.item.execute(ctx.item)
+					ctx.close()
+					return false
+				end
+			end,
+		},
+	},
 }
 M.panels = {
 	{ start = ">", name = "code_action", label = "Code Actions", scopes = { "buffer" } },

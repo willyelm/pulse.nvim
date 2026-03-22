@@ -1,8 +1,30 @@
 local M = {}
+local execute
 
 M.mode = {
 	name = "commands",
 	icon = "",
+	actions = {
+		{
+			key = "<CR>",
+			name = "Run",
+			run = function(ctx)
+				M.on_submit(ctx)
+				return false
+			end,
+		},
+		{
+			key = "<Tab>",
+			name = "Fill",
+			when = function(ctx)
+				return ctx and ctx.has_selection and ctx.item ~= nil and ctx.input ~= nil
+			end,
+			run = function(ctx)
+				M.on_tab(ctx)
+				return true
+			end,
+		},
+	},
 }
 
 M.context = false
@@ -24,22 +46,7 @@ local function format_cmd_error(err)
 	return msg
 end
 
-function M.on_submit(ctx)
-	local raw = ctx.input and ctx.input:get_value() or ctx.query or ""
-	ctx.close()
-	ctx.exec(raw)
-end
-
-function M.on_tab(ctx)
-	if not ctx.item or not ctx.input then
-		return
-	end
-	local cmd = tostring(ctx.item.command or ""):gsub("^:", "")
-	ctx.set_query((ctx.panel and ctx.panel.start or "") .. cmd)
-	ctx.focus()
-end
-
-local function execute(item)
+execute = function(item)
 	local ex = vim.trim((item and item.command) or ""):gsub("^:", "")
 	if ex == "" then
 		return false
@@ -53,6 +60,29 @@ local function execute(item)
 		end
 	end)
 	return true
+end
+
+function M.on_submit(ctx)
+	local raw = (ctx.input and ctx.input:get_value()) or ctx.query or ""
+	raw = vim.trim(tostring(raw)):gsub("^:", "")
+	if raw == "" and ctx.item and ctx.item.command then
+		raw = ctx.item.command
+	end
+	if vim.trim(tostring(raw)) == "" then
+		return
+	end
+	ctx.close()
+	execute({ command = raw })
+end
+
+function M.on_tab(ctx)
+	if not (ctx and ctx.item and ctx.input) then
+		return
+	end
+	local cmd = tostring(ctx.item.command or ""):gsub("^:", "")
+	ctx.set_query((ctx.panel and ctx.panel.start or "") .. cmd)
+	ctx.refresh()
+	ctx.focus()
 end
 
 function M.init(ctx)

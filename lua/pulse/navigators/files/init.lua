@@ -1,11 +1,11 @@
 local M = {}
-local scope = require("pulse.scope")
+local actions = require("pulse.navigators.files.actions")
 local items = require("pulse.navigators.files.items")
 local uv = vim.uv or vim.loop
 
-local transfer
 local WATCHERS = {}
 local WATCHER_GROUP
+local toggle_folder
 
 local DEFAULT_OPTS = {
 	icons = false,
@@ -123,209 +123,14 @@ local function ensure_watcher(root)
 	return watcher
 end
 
-local function selected_path(ctx)
-	local item = ctx and ctx.item
-	if not (ctx and ctx.state and item and item.path) then
-		return nil
-	end
-	if item.scope_parent or item.search_group then
-		return nil
-	end
-	return items.absolute_path(ctx.state.root, item.path)
-end
-
-local function target_dir(ctx)
-	local path = selected_path(ctx)
-	if path and ctx.item and ctx.item.kind == "folder" then
-		return path
-	end
-	if path and ctx.item and ctx.item.kind == "file" then
-		return vim.fn.fnamemodify(path, ":h")
-	end
-	if ctx and ctx.state and ctx.state.scope and ctx.state.scope.kind == "folder" then
-		return ctx.state.scope.path
-	end
-	return ctx and ctx.state and ctx.state.root or nil
-end
-
-local function notify(message, level)
-	vim.notify("Pulse: " .. message, level or vim.log.levels.WARN)
-end
-
-local function ensure_parent(path)
-	local parent = vim.fn.fnamemodify(path, ":h")
-	if parent ~= "" then
-		vim.fn.mkdir(parent, "p")
-	end
-end
-
-local function path_taken(path)
-	return vim.fn.filereadable(path) == 1 or vim.fn.isdirectory(path) == 1
-end
-
-local function refresh_actions(ctx)
-	items.invalidate(ctx and ctx.state)
-	if ctx then
-		ctx.refresh()
-	end
-end
-
-local function action_input(prompt, default, cb)
-	vim.ui.input({ prompt = prompt, default = default }, cb)
-	return false
-end
-
-local function action_add(ctx)
-	local dest_dir = target_dir(ctx)
-	if not dest_dir or dest_dir == "" then
-		return true
-	end
-	return action_input("Add: ", nil, function(value)
-		value = vim.trim(value or "")
-		if value == "" then
-			return ctx.focus()
-		end
-		local dest = dest_dir .. "/" .. value
-		local ok
-		if value:sub(-1) == "/" then
-			vim.fn.mkdir(dest, "p")
-			ok = vim.fn.isdirectory(dest) == 1
-		else
-			ensure_parent(dest)
-			ok = not path_taken(dest) and vim.fn.writefile({}, dest) == 0
-		end
-		if not ok then
-			notify("create failed or target already exists", vim.log.levels.ERROR)
-		end
-		refresh_actions(ctx)
-		ctx.focus()
-	end)
-end
-
-local function action_rename(ctx)
-	local src = selected_path(ctx)
-	if not src then
-		return true
-	end
-	local current = vim.fn.fnamemodify(src, ":t")
-	return action_input("Rename: ", current, function(value)
-		if not value or value == "" or value == current then
-			return ctx.focus()
-		end
-		local dest = vim.fn.fnamemodify(src, ":h") .. "/" .. value
-		if path_taken(dest) then
-			notify("target already exists", vim.log.levels.ERROR)
-		elseif vim.fn.rename(src, dest) ~= 0 then
-			notify("rename failed", vim.log.levels.ERROR)
-		elseif ctx.scope and ctx.scope.kind == "file" and ctx.scope.path == src then
-			ctx.set_scope(scope.file(dest, vim.fn.bufnr(vim.fn.fnamemodify(dest, ":p"))))
-		elseif ctx.scope and ctx.scope.kind == "folder" and ctx.scope.path == src then
-			ctx.set_scope(scope.folder(dest))
-		end
-		refresh_actions(ctx)
-		ctx.focus()
-	end)
-end
-
-local function action_delete(ctx)
-	local src = selected_path(ctx)
-	if not src then
-		return true
-	end
-	if vim.fn.confirm("Delete " .. vim.fn.fnamemodify(src, ":t") .. "?", "&Yes\n&No", 2) ~= 1 then
-		return true
-	end
-	if vim.fn.delete(src, "rf") ~= 0 then
-		notify("delete failed", vim.log.levels.ERROR)
-		return true
-	end
-	if ctx.scope and ctx.scope.path == src then
-		ctx.clear_scope()
-	else
-		refresh_actions(ctx)
-	end
-	return true
-end
-
-local function action_stage_transfer(ctx, kind)
-	local src = selected_path(ctx)
-	if not src then
-		return true
-	end
-	transfer = { kind = kind, path = src }
-	return true
-end
-
-local function action_paste(ctx)
-	if not (transfer and transfer.path and transfer.kind) then
-		return true
-	end
-	local dest_dir = target_dir(ctx)
-	if not dest_dir or dest_dir == "" then
-		return true
-	end
-	local dest = dest_dir .. "/" .. vim.fn.fnamemodify(transfer.path, ":t")
-	if dest == transfer.path or path_taken(dest) then
-		if dest ~= transfer.path then
-			notify("target already exists", vim.log.levels.ERROR)
-		end
-		return true
-	end
-	ensure_parent(dest)
-	local ok
-	if transfer.kind == "cut" then
-		ok = vim.fn.rename(transfer.path, dest) == 0
-	else
-		local cmd = (vim.fn.isdirectory(transfer.path) == 1) and { "cp", "-R", transfer.path, dest }
-			or { "cp", transfer.path, dest }
-		vim.fn.system(cmd)
-		ok = vim.v.shell_error == 0
-	end
-	if not ok then
-		notify("paste failed", vim.log.levels.ERROR)
-		return true
-	end
-	if transfer.kind == "cut" then
-		transfer = nil
-	end
-	refresh_actions(ctx)
-	return true
-end
-
 local function file_actions(ctx)
-	local item = ctx and ctx.item
-	local editable = item and (item.kind == "file" or item.kind == "folder") and not item.scope_parent and not item.search_group
-	local actions = {
-		["<C-a>"] = action_add,
-	}
-	if editable then
-		actions["<C-d>"] = action_delete
-		actions["<C-r>"] = action_rename
-		actions["<C-x>"] = function(next)
-			return action_stage_transfer(next, "cut")
-		end
-		actions["<C-c>"] = function(next)
-			return action_stage_transfer(next, "copy")
-		end
-	end
-	if transfer and transfer.path then
-		actions["<C-v>"] = action_paste
-	end
-	return actions
+	return actions.mode_actions(ctx, toggle_folder)
 end
 
 M.mode = {
 	name = "files",
 	icon = "󰈔",
 	actions = file_actions,
-	action_labels = {
-		["<C-a>"] = "Add",
-		["<C-d>"] = "Delete",
-		["<C-r>"] = "Rename",
-		["<C-x>"] = "Cut",
-		["<C-c>"] = "Copy",
-		["<C-v>"] = "Paste",
-	},
 }
 
 M.context = false
@@ -363,7 +168,7 @@ function M.input_scope(_, scoped)
 	return scoped
 end
 
-local function toggle_folder(ctx)
+toggle_folder = function(ctx)
 	local item = ctx and ctx.item
 	if not (ctx and ctx.state and item and item.kind == "folder" and item.path and not item.search_group) then
 		return false
@@ -380,51 +185,6 @@ local function toggle_folder(ctx)
 	ctx.state.expanded[item.path] = not ctx.state.expanded[item.path]
 	ctx.refresh()
 	return true
-end
-
-function M.on_tab(ctx)
-	if not (ctx and ctx.item) then
-		return
-	end
-	if ctx.item.kind == "folder" then
-		ctx.enter_scope(scope.folder(items.absolute_path(ctx.state.root, ctx.item.path)))
-		return
-	end
-	local current_scope = nil
-	if ctx.item.kind == "file" and ctx.item.path then
-		local path = items.absolute_path(ctx.state.root, ctx.item.path)
-		local bufnr = vim.fn.bufnr(path)
-		if not bufnr or bufnr < 1 then
-			bufnr = vim.fn.bufadd(path)
-		end
-		current_scope = scope.file(path, bufnr)
-	else
-		current_scope = ctx.source_scope and ctx.source_scope() or nil
-	end
-	ctx.preview(ctx.item)
-	if current_scope then
-		ctx.enter_scope(current_scope)
-	end
-end
-
-function M.on_submit(ctx)
-	if toggle_folder(ctx) then
-		return
-	end
-	if ctx.item then
-		local next_scope = nil
-		if ctx.item.kind == "file" and ctx.item.path then
-			local path = items.absolute_path(ctx.state.root, ctx.item.path)
-			next_scope = scope.file(path, vim.fn.bufnr(path))
-		else
-			next_scope = ctx.source_scope and ctx.source_scope() or nil
-		end
-		ctx.close()
-		ctx.jump(ctx.item)
-		if next_scope then
-			ctx.set_scope(next_scope)
-		end
-	end
 end
 
 function M.total_count(state, panel_name)

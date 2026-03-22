@@ -114,12 +114,16 @@ function M.new(opts)
   end
 
   local keymaps = {
-    { "<CR>", function() call(self.on_submit, self:get_value()) end },
     { "<Esc>", function() call(self.on_escape) end },
-    { "<Tab>", function() call(self.on_tab) end },
     { { "<Down>", "<C-n>" }, function() call(self.on_down) end },
     { { "<Up>", "<C-p>" }, function() call(self.on_up) end },
   }
+  if self.on_submit then
+    keymaps[#keymaps + 1] = { "<CR>", function() call(self.on_submit, self:get_value()) end }
+  end
+  if self.on_tab then
+    keymaps[#keymaps + 1] = { "<Tab>", function() call(self.on_tab) end }
+  end
   for _, km in ipairs(keymaps) do
     local keys, fn = km[1], km[2]
     if type(keys) == "string" then keys = { keys } end

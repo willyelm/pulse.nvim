@@ -76,7 +76,7 @@ function M.new(box)
 			return
 		end
 
-		local chrome_height = 2 + (show_panels and 2 or 0) + (show_actions and 1 or 0) + (show_context and 1 + context_height or 0)
+		local chrome_height = 2 + (show_panels and 2 or 0) + (show_actions and 2 or 0) + (show_context and 1 + context_height or 0)
 		box:update({ height = body_height + chrome_height })
 		width = vim.api.nvim_win_get_width(box.win)
 
@@ -105,9 +105,11 @@ function M.new(box)
 
 		local after_list_row = list_row + body_height
 		if show_actions then
-			specs[#specs + 1] = { name = "actions", row = after_list_row, height = 1, focusable = false, winhl = "Normal:NormalFloat" }
-			after_list_row = after_list_row + 1
+			specs[#specs + 1] = { name = "actions_divider", row = after_list_row, height = 1, focusable = false, winhl = "Normal:NormalFloat" }
+			specs[#specs + 1] = { name = "actions", row = after_list_row + 1, height = 1, focusable = false, winhl = "Normal:NormalFloat" }
+			after_list_row = after_list_row + 2
 		else
+			box:close_section("actions_divider")
 			box:close_section("actions")
 		end
 

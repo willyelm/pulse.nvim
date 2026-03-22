@@ -223,6 +223,7 @@ end
 local function action_ctx(item)
 	return {
 		item = item or current_item(),
+		has_selection = state.list and (state.list.selected or 0) > 0 or false,
 		state = state.current.state,
 		query = state.current.query,
 		panel = state.current.panel_entry,
@@ -255,14 +256,70 @@ local function action_ctx(item)
 	}
 end
 
-local function panel_actions()
+local function action_label(def)
+	if type(def) == "table" then
+		return def.name or def.label
+	end
+	return nil
+end
+
+local function action_allowed(def, ctx, item)
+	if type(def) ~= "table" then
+		return true
+	end
+	local kinds = def["for"]
+	if kinds ~= nil then
+		if not item then
+			return false
+		end
+		local matched = false
+		for _, kind in ipairs(kinds) do
+			if item.kind == kind then
+				matched = true
+				break
+			end
+		end
+		if not matched then
+			return false
+		end
+	end
+	if type(def.when) == "function" and def.when(ctx, item) == false then
+		return false
+	end
+	return true
+end
+
+local function panel_action_defs(item)
 	local mod = state.current.mod
 	local mode_actions = mod and mod.mode and mod.mode.actions
 	if type(mode_actions) == "function" then
-		local actions = mode_actions(action_ctx())
+		local actions = mode_actions(action_ctx(item))
 		return type(actions) == "table" and actions or {}
+	elseif type(mode_actions) == "table" then
+		return mode_actions
 	end
-	return type(mode_actions) == "table" and mode_actions or {}
+	return {}
+end
+
+local function panel_actions(item)
+	local ctx = action_ctx(item)
+	local item_value = ctx.item
+	local actions = {}
+	local ordered = {}
+	local defs = panel_action_defs(item_value)
+	for _, def in ipairs(defs) do
+		local lhs = type(def) == "table" and def.key or nil
+		local run = type(def) == "table" and (def.action or def.run) or nil
+		if type(lhs) == "string" and lhs ~= "" and type(run) == "function" then
+			actions[lhs] = {
+				run = run,
+				label = action_label(def),
+				enabled = action_allowed(def, ctx, item_value),
+			}
+			ordered[#ordered + 1] = lhs
+		end
+	end
+	return actions, ordered
 end
 
 local function run_in_source(item, opts)
@@ -494,6 +551,14 @@ local function compute_body_layout(items, mod, panels, active_panel)
 end
 
 local function render_current_view(body, menu)
+	local actions, ordered = panel_actions()
+	local action_runs, action_labels = {}, {}
+	for lhs, entry in pairs(actions) do
+		if entry.enabled then
+			action_runs[lhs] = entry.run
+			action_labels[lhs] = entry.label
+		end
+	end
 	state.list:set_max_visible(body.list_height)
 	state.session.layout:apply(state.list.visible_count, body.context_height, {
 		list = state.list,
@@ -508,10 +573,9 @@ local function render_current_view(body, menu)
 	action_menu.render(
 		state.session and state.session.actions,
 		state.session and state.session.actions_ns,
-		state.current.mod and state.current.mod.mode and state.current.mod.mode.action_labels or nil,
-		panel_actions(),
-		state.bound_action_keys,
-		panel.block_text
+		action_labels,
+		action_runs,
+		ordered
 	)
 	if state.context and state.context.win and vim.api.nvim_win_is_valid(state.context.win) then
 		if body.context_spec then
@@ -661,58 +725,32 @@ local function switch_panel(direction)
 	return true
 end
 
-local function submit()
-	local mod, item = state.current.mod, current_item()
-	if mod and type(mod.on_submit) == "function" then
-		mod.on_submit(action_ctx(item))
-	elseif item and jump_in_source(item) then
-		hide()
-	end
-end
-
-local function apply_tab_action(selected)
-	selected = selected or current_item()
-	if not selected then
-		return
-	end
-
-	local on_tab = state.current.mod and state.current.mod.on_tab
-	if on_tab == false then
-		return
-	end
-	if type(on_tab) == "function" then
-		on_tab(action_ctx(selected))
-	else
-		preview_in_source(selected)
-	end
-
-	schedule_focus_input()
-end
-
 local function run_panel_action(lhs)
-	local run = panel_actions()[lhs]
-	if type(run) == "function" then
-		if run(action_ctx()) ~= false then
+	local entry = (panel_actions())[lhs]
+	if entry and entry.enabled and type(entry.run) == "function" then
+		if entry.run(action_ctx()) ~= false then
 			schedule_focus_input()
 		end
 		return true
 	end
-	return false
+	return entry ~= nil
+end
+
+local function apply_tab_action()
+	run_panel_action("<Tab>")
 end
 
 sync_panel_action_keymaps = function()
 	if not state.input or not state.list then
 		return
 	end
-	local enabled = panel_actions()
+	local enabled, next = panel_actions()
 	local next_keys = {}
-
-	for lhs, run in pairs(enabled) do
-		if type(lhs) == "string" and lhs ~= "" and type(run) == "function" then
+	for _, lhs in ipairs(next) do
+		if enabled[lhs] and type(enabled[lhs].run) == "function" then
 			next_keys[#next_keys + 1] = lhs
 		end
 	end
-	table.sort(next_keys)
 
 	if vim.deep_equal(state.bound_action_keys, next_keys) then
 		return
@@ -807,8 +845,6 @@ local function setup_keymaps()
 	end
 	map("n", "<LeftMouse>", click_tab_action, state.list.buf)
 	map({ "n", "i" }, "<LeftMouse>", click_tab_action, state.input.buf)
-	map("n", "<CR>", submit, state.list.buf)
-	map("n", "<Tab>", apply_tab_action, state.list.buf)
 	map("n", "<Esc>", hide, state.list.buf)
 end
 
@@ -834,11 +870,9 @@ local function bind_widgets()
 			win = sections.input.win,
 			prompt = " " .. ((files_navigator and files_navigator.mode and files_navigator.mode.icon) or "") .. " ",
 			on_change = refresh,
-			on_submit = submit,
 			on_escape = hide,
 			on_down = function() move_selection(1) end,
 			on_up = function() move_selection(-1) end,
-			on_tab = apply_tab_action,
 			on_left = function() return move_panel_from_input(-1) end,
 			on_right = function() return move_panel_from_input(1) end,
 			on_backspace = function(value)
