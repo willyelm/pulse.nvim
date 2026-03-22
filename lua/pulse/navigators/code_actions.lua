@@ -59,9 +59,15 @@ end
 
 function M.init(ctx)
 	local scoped = ctx and ctx.scope
-	local bufnr = (scoped and scoped.kind == "file" and (scoped.bufnr or vim.fn.bufadd(scoped.path)))
+	local bufnr = (scoped and scoped.kind == "file" and (scoped.bufnr or vim.fn.bufnr(scoped.path)))
 		or (ctx and ctx.bufnr)
 		or vim.api.nvim_get_current_buf()
+	if not bufnr or bufnr < 1 or not vim.api.nvim_buf_is_valid(bufnr) then
+		bufnr = (scoped and scoped.kind == "file" and scoped.path and vim.fn.bufadd(scoped.path)) or bufnr
+	end
+	if not bufnr or bufnr < 1 or not vim.api.nvim_buf_is_valid(bufnr) then
+		bufnr = vim.api.nvim_get_current_buf()
+	end
 	pcall(vim.fn.bufload, bufnr)
 	local win = ctx and ctx.win or 0
 	local state = {
@@ -71,8 +77,10 @@ function M.init(ctx)
 
 	local cursor = nil
 	if scoped and scoped.kind == "file" then
-		local mark = vim.api.nvim_buf_get_mark(bufnr, '"')
-		cursor = { math.max(mark[1], 1), math.max(mark[2], 0) }
+		local ok, mark = pcall(vim.api.nvim_buf_get_mark, bufnr, '"')
+		if ok and type(mark) == "table" then
+			cursor = { math.max(mark[1], 1), math.max(mark[2], 0) }
+		end
 	else
 		local ok, current = pcall(vim.api.nvim_win_get_cursor, win)
 		if ok then

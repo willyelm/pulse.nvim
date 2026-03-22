@@ -3,7 +3,6 @@ local actions = require("pulse.actions")
 local display = require("pulse.display")
 local layout = require("pulse.layout")
 local mode = require("pulse.mode")
-local router = require("pulse.router")
 local context_view = require("pulse.context")
 local config = require("pulse.config")
 local panel = require("pulse.panel")
@@ -43,7 +42,9 @@ local state = {
 }
 
 local refresh
-local apply_effects
+local hide
+local jump_in_source
+local preview_in_source
 
 local function navigator_opts(opts)
 	return session_mod.normalize_opts(vim.tbl_deep_extend("force", config.options or {}, opts or {}))
@@ -126,6 +127,69 @@ local function schedule_focus_input()
 	end)
 end
 
+local function set_prompt_mode(name)
+	if state.input then
+		state.input:set_value(mode.switch_prompt(state.input:get_value(), name), { move_cursor_end = true })
+	end
+end
+
+local function visible_panels(scope_value)
+	return panel.visible_panels(state.modules, panel.scope_type(scope_value or state.scope))
+end
+
+local function default_panel_for_scope(scope_value)
+	return panel.default_panel(panel.visible_panels(state.modules, panel.scope_type(scope_value)), nil)
+end
+
+local function set_scope(scope_value)
+	state.scope = scope_value
+	schedule_refresh()
+end
+
+local function enter_scope(scope_value)
+	vim.schedule(function()
+		if not is_visible() then
+			return
+		end
+		state.scope = scope_value
+		local target = default_panel_for_scope(scope_value)
+		if target then
+			panel.select(state.active_panels, target)
+			set_prompt_mode(target.navigator)
+		end
+		refresh()
+		schedule_focus_input()
+	end)
+end
+
+local function clear_scope()
+	vim.schedule(function()
+		if not is_visible() then
+			return
+		end
+		state.scope = nil
+		if state.current.mod and state.current.mod.scope_clears_to_files then
+			set_prompt_mode("files")
+		end
+		refresh()
+	end)
+end
+
+local function clear_prefix()
+	vim.schedule(function()
+		if not (is_visible() and state.input) then
+			return
+		end
+		local value = state.input:get_value()
+		local start = state.current.panel_entry and state.current.panel_entry.start or ""
+		if start ~= "" and value:sub(1, #start) == start then
+			state.input:set_value(value:sub(#start + 1), { move_cursor_end = true })
+		end
+		refresh()
+		schedule_focus_input()
+	end)
+end
+
 local function current_item()
 	local item = state.list and state.list:selected_item() or nil
 	return (item and not is_header(item)) and item or nil
@@ -145,7 +209,24 @@ local function action_ctx(item)
 			end
 			return nil
 		end,
-		dispatch = apply_effects,
+		refresh = schedule_refresh,
+		focus = schedule_focus_input,
+		set_scope = set_scope,
+		enter_scope = enter_scope,
+		clear_scope = clear_scope,
+		clear_prefix = clear_prefix,
+		close = hide,
+		jump = jump_in_source,
+		preview = preview_in_source,
+		set_query = function(value, opts)
+			if state.input then
+				state.input:set_value(value or "", { move_cursor_end = not opts or opts.move_cursor_end ~= false })
+			end
+		end,
+		exec = function(command)
+			local commands = require("pulse.navigators.commands")
+			commands.execute(command)
+		end,
 	}
 end
 
@@ -179,15 +260,15 @@ local function run_in_source(item, opts)
 	return jumped
 end
 
-local function jump_in_source(item)
+jump_in_source = function(item)
 	return run_in_source(item)
 end
 
-local function preview_in_source(item)
+preview_in_source = function(item)
 	return run_in_source(item, { stopinsert = false, refocus_input = true })
 end
 
-local function hide()
+hide = function()
 	if is_visible() then
 		pcall(vim.cmd, "stopinsert")
 		state.session:hide()
@@ -197,11 +278,10 @@ local function hide()
 	end
 end
 
-local function update_active(reason)
+local function update_active()
 	local mod, item = state.current.mod, current_item()
 	if item and mod and type(mod.on_active) == "function" then
-		local result = mod.on_active(action_ctx(item))
-		apply_effects(result)
+		mod.on_active(action_ctx(item))
 	end
 end
 
@@ -213,6 +293,19 @@ local function navigator_state(mode_name)
 		return current
 	end
 
+	local bufnr = state.source_bufnr
+	if state.scope and state.scope.kind == "file" then
+		bufnr = state.scope.bufnr or vim.fn.bufnr(state.scope.path)
+		if not bufnr or bufnr < 1 then
+			bufnr = vim.fn.bufadd(state.scope.path)
+		end
+	end
+
+	local win = state.source_win
+	if not (win and vim.api.nvim_win_is_valid(win)) then
+		win = 0
+	end
+
 	current = mod.init({
 		on_update = function()
 			if not is_visible() then
@@ -220,8 +313,8 @@ local function navigator_state(mode_name)
 			end
 			schedule_refresh()
 		end,
-		bufnr = state.source_bufnr,
-		win = state.source_win,
+		bufnr = bufnr,
+		win = win,
 		cwd = state.cwd,
 		opts = config.for_navigator(mode_name),
 		scope = state.scope,
@@ -263,6 +356,93 @@ local function split_body_height(total, list_height, context_height)
 	end
 
 	return half_high, half_low
+end
+
+local function prompt_has_prefix(prompt)
+	return config.options._by_start and config.options._by_start[prompt:sub(1, 1)] ~= nil
+end
+
+local function current_buffer_mode(prompt, current_scope)
+	if current_scope ~= "buffer" or prompt_has_prefix(prompt) or not state.current.mode_name then
+		return nil, nil
+	end
+	local current_mod = state.registry[state.current.mode_name]
+	if current_mod and panel.supports_scope(current_mod, "buffer") then
+		return state.current.mode_name, current_mod
+	end
+	return nil, nil
+end
+
+local function reconcile_scope(prompt, mode_name, mod, current_scope)
+	if not (state.scope and mod and not panel.supports_scope(mod, current_scope)) then
+		return mode_name, mod, current_scope, false
+	end
+	if current_scope == "buffer" and not prompt_has_prefix(prompt) then
+		local target = default_panel_for_scope(state.scope)
+		if target then
+			panel.select(state.active_panels, target)
+			local next_prompt = mode.switch_prompt(prompt, target.navigator)
+			if next_prompt ~= prompt then
+				state.input:set_value(next_prompt, { move_cursor_end = true })
+				return mode_name, mod, current_scope, true
+			end
+		end
+	end
+	if panel.is_buffer_only(mod) then
+		state.scope = scope.from_buffer(state.source_bufnr)
+	elseif panel.supports_scope(mod, "workspace") then
+		state.scope = nil
+	end
+	return mode_name, mod, panel.scope_type(state.scope), false
+end
+
+local function ensure_buffer_scope(mod)
+	if not state.scope and panel.is_buffer_only(mod) then
+		state.scope = scope.from_buffer(state.source_bufnr)
+	end
+end
+
+local function resolve_panel(prompt, mode_name, mod, initial_panel)
+	local current_panel = panel.active_name(state.active_panels, mode_name, mod and mod.panels, initial_panel)
+	local panels = visible_panels()
+	local active_panel = panel.find_panel(panels, mode_name, current_panel)
+	if active_panel then
+		return panels, active_panel, false
+	end
+
+	active_panel = panel.default_panel(vim.tbl_filter(function(entry)
+		return entry.navigator == mode_name
+	end, panels), initial_panel) or panel.default_panel(panels, initial_panel)
+	panel.select(state.active_panels, active_panel)
+	if active_panel then
+		local next_prompt = mode.switch_prompt(prompt, active_panel.navigator)
+		if next_prompt ~= prompt then
+			state.input:set_value(next_prompt, { move_cursor_end = true })
+			return panels, active_panel, true
+		end
+	end
+	return panels, active_panel, false
+end
+
+local function prompt_ui(mod, navigator, query, active_panel, found, total)
+	local prompt_prefix = " " .. ((mod and mod.mode and mod.mode.icon) or "") .. " "
+	local scoped = nil
+	if mod and type(mod.input_scope) == "function" then
+		scoped = mod.input_scope(navigator, state.scope)
+	end
+	local scope_text = scope.prompt_text(scoped)
+	local prompt = prompt_prefix .. scope_text
+	if scope_text ~= "" then
+		prompt = prompt .. " "
+	end
+	return {
+		prompt = prompt,
+		addons = {
+			ghost = query == "" and active_panel and active_panel.label or nil,
+			right = { text = string.format("%d/%d", found, total), hl = "LineNr" },
+			prompt_matches = scope.prompt_matches(scoped, #prompt_prefix),
+		},
+	}
 end
 
 local function compute_body_layout(items, mod, panels, active_panel)
@@ -309,7 +489,7 @@ local function move_selection(delta)
 	if not state.list:move(delta, is_header) then
 		return
 	end
-	update_active("navigation")
+	update_active()
 	render_current_view(
 		compute_body_layout(state.items, state.current.mod, state.current.panels, state.current.panel_entry),
 		state.current.menu
@@ -321,31 +501,20 @@ local function compute_view_model()
 	local mode_name, query = mode.parse_prompt(prompt)
 	local mod = state.registry[mode_name]
 	local current_scope = panel.scope_type(state.scope)
-	local buffered_mode, buffered_mod = router.current_buffer_mode(prompt, current_scope, state.current.mode_name, state.registry)
+	local buffered_mode, buffered_mod = current_buffer_mode(prompt, current_scope)
 	if buffered_mode then
 		mode_name, mod, query = buffered_mode, buffered_mod, prompt
 	end
 
-	mode_name, mod, current_scope, redirected, redirected_prompt = router.reconcile_scope(
-		prompt,
-		mode_name,
-		mod,
-		current_scope,
-		state,
-		state.modules,
-		state.source_bufnr
-	)
+	mode_name, mod, current_scope, redirected = reconcile_scope(prompt, mode_name, mod, current_scope)
 	if redirected then
-		state.input:set_value(redirected_prompt or prompt, { move_cursor_end = true })
 		return nil, true
 	end
-	router.ensure_implicit_buffer_scope(state, mod, state.source_bufnr)
+	ensure_buffer_scope(mod)
 
 	local initial_panel = state.pending_initial_panel
-	local panels, active_panel, redirected_panel, redirected_panel_prompt =
-		router.resolve_panel(prompt, mode_name, mod, initial_panel, state, state.modules)
+	local panels, active_panel, redirected_panel = resolve_panel(prompt, mode_name, mod, initial_panel)
 	if redirected_panel then
-		state.input:set_value(redirected_panel_prompt or prompt, { move_cursor_end = true })
 		return nil, true
 	end
 
@@ -378,7 +547,7 @@ local function compute_view_model()
 		panels = panels,
 		menu = panel.header_item(panels, active_panel and active_panel.name or nil),
 		items = items,
-		prompt_ui = router.prompt_ui(mod, navigator, state.scope, query, active_panel, found, total),
+		prompt_ui = prompt_ui(mod, navigator, query, active_panel, found, total),
 		body = compute_body_layout(items, mod, panels, active_panel),
 		mode_switched = mode_switched,
 		selected_key = selected,
@@ -419,12 +588,12 @@ refresh = function()
 	if redirected or not vm then
 		return
 	end
-	update_active("refresh")
+	update_active()
 	apply_view_model(vm)
 end
 
 local function switch_panel(direction)
-	local panels = state.current.panels or panel.visible_panels(state.modules, panel.scope_type(state.scope))
+	local panels = visible_panels()
 	local active = panel.find_panel(panels, state.current.mode_name, state.current.panel)
 	local idx = panel.active_index(panels, active and active.name or nil)
 	if not idx then
@@ -451,7 +620,7 @@ end
 local function submit()
 	local mod, item = state.current.mod, current_item()
 	if mod and type(mod.on_submit) == "function" then
-		apply_effects(mod.on_submit(action_ctx(item)))
+		mod.on_submit(action_ctx(item))
 	elseif item and jump_in_source(item) then
 		hide()
 	end
@@ -468,7 +637,7 @@ local function apply_tab_action(selected)
 		return
 	end
 	if type(on_tab) == "function" then
-		apply_effects(on_tab(action_ctx(selected)))
+		on_tab(action_ctx(selected))
 	else
 		preview_in_source(selected)
 	end
@@ -479,9 +648,7 @@ end
 local function run_panel_action(lhs)
 	local run = panel_actions()[lhs]
 	if type(run) == "function" then
-		local result = run(action_ctx())
-		if result ~= false then
-			apply_effects(result)
+		if run(action_ctx()) ~= false then
 			schedule_focus_input()
 		end
 		return true
@@ -532,7 +699,7 @@ local function click_tab_action()
 	if state.session.panels.win and mouse.winid == state.session.panels.win then
 		local name = state.current.menu and panel.hit_test(state.current.menu, math.max((mouse.column or 1) - 2, 0))
 		if name then
-			for _, target in ipairs(state.current.panels or panel.visible_panels(state.modules, panel.scope_type(state.scope))) do
+			for _, target in ipairs(visible_panels()) do
 				if target.name == name then
 					panel.select(state.active_panels, target)
 					state.input:set_value(mode.switch_prompt(state.input:get_value(), target.navigator), { move_cursor_end = true })
@@ -549,7 +716,7 @@ local function click_tab_action()
 	end
 
 	state.list:set_selected(tonumber(mouse.line) or 1)
-	update_active("mouse")
+	update_active()
 	render_current_view(
 		compute_body_layout(state.items, state.current.mod, state.current.panels, state.current.panel_entry),
 		state.current.menu
@@ -558,7 +725,7 @@ local function click_tab_action()
 end
 
 local function move_panel_from_input(direction)
-	local panels = state.current.panels or panel.visible_panels(state.modules, panel.scope_type(state.scope))
+	local panels = visible_panels()
 	local active = panel.find_panel(panels, state.current.mode_name, state.current.panel)
 	local idx = panel.active_index(panels, active and active.name or nil)
 	if not idx then
@@ -582,7 +749,7 @@ local function setup_keymaps()
 	end
 	for lhs, delta in pairs({ ["<Right>"] = 1, ["<Left>"] = -1 }) do
 		map("n", lhs, function()
-			local panels = state.current.panels or panel.visible_panels(state.modules, panel.scope_type(state.scope))
+			local panels = visible_panels()
 			if panels and #panels > 1 then
 				switch_panel(delta)
 			end
@@ -628,11 +795,11 @@ local function bind_widgets()
 				end
 				local start = state.current.panel_entry and state.current.panel_entry.start or ""
 				if scoped and start ~= "" and value == start then
-					apply_effects({ type = "clear_prefix" })
+					clear_prefix()
 					return true
 				end
 				if scoped and value == "" then
-					apply_effects({ type = "clear_scope" })
+					clear_scope()
 					return true
 				end
 				return false
@@ -683,80 +850,6 @@ local function show(opts)
 
 	refresh()
 	state.input:focus(true)
-end
-
-apply_effects = function(effects)
-	if effects == nil or effects == false then
-		return
-	end
-	if effects.type then
-		effects = { effects }
-	end
-	for _, effect in ipairs(effects) do
-		if type(effect) == "table" then
-			if effect.type == "refresh" then
-				schedule_refresh()
-			elseif effect.type == "focus_input" then
-				schedule_focus_input()
-			elseif effect.type == "set_scope" then
-				state.scope = effect.scope
-				schedule_refresh()
-			elseif effect.type == "enter_scope" then
-				vim.schedule(function()
-					if not is_visible() then
-						return
-					end
-					state.scope = effect.scope
-					local panels = panel.visible_panels(state.modules, panel.scope_type(effect.scope))
-					local target = panel.default_panel(panels, nil)
-					if target and state.input then
-						panel.select(state.active_panels, target)
-						state.input:set_value(mode.switch_prompt(state.input:get_value(), target.navigator), { move_cursor_end = true })
-					end
-					refresh()
-					if state.input then
-						state.input:focus(true)
-					end
-				end)
-			elseif effect.type == "clear_scope" then
-				vim.schedule(function()
-					if not is_visible() then
-						return
-					end
-					state.scope = nil
-					local switch_to_files = state.current.mod and state.current.mod.scope_clears_to_files
-					if switch_to_files and state.input then
-						state.input:set_value(mode.switch_prompt(state.input:get_value(), "files"), { move_cursor_end = true })
-					end
-					refresh()
-				end)
-			elseif effect.type == "clear_prefix" then
-				vim.schedule(function()
-					if not (is_visible() and state.input) then
-						return
-					end
-					local value = state.input:get_value()
-					local start = state.current.panel_entry and state.current.panel_entry.start or ""
-					if start ~= "" and value:sub(1, #start) == start then
-						state.input:set_value(value:sub(#start + 1), { move_cursor_end = true })
-					end
-					refresh()
-					state.input:focus(true)
-				end)
-			elseif effect.type == "close" then
-				hide()
-			elseif effect.type == "jump" and effect.item then
-				jump_in_source(effect.item)
-			elseif effect.type == "preview" and effect.item then
-				preview_in_source(effect.item)
-			elseif effect.type == "set_input_value" and state.input then
-				state.input:set_value(effect.value or "", { move_cursor_end = effect.move_cursor_end == true })
-			elseif effect.type == "exec_command" then
-				local commands = require("pulse.navigators.commands")
-				commands.execute(effect.command)
-			end
-		end
-	end
 end
 
 function M.open(opts)

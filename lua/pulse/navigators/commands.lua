@@ -26,10 +26,8 @@ end
 
 function M.on_submit(ctx)
 	local raw = ctx.input and ctx.input:get_value() or ctx.query or ""
-	return {
-		{ type = "close" },
-		{ type = "exec_command", command = raw },
-	}
+	ctx.close()
+	ctx.exec(raw)
 end
 
 function M.on_tab(ctx)
@@ -37,10 +35,8 @@ function M.on_tab(ctx)
 		return
 	end
 	local cmd = tostring(ctx.item.command or ""):gsub("^:", "")
-	return {
-		{ type = "set_input_value", value = (ctx.panel and ctx.panel.start or "") .. cmd, move_cursor_end = true },
-		{ type = "focus_input" },
-	}
+	ctx.set_query((ctx.panel and ctx.panel.start or "") .. cmd)
+	ctx.focus()
 end
 
 local function execute(item)
