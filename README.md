@@ -45,7 +45,6 @@ approach to move quickly between navigator modes:
 ```lua
 require("pulse").setup({
   cmdline = false, -- set true to enable experimental ':' cmdline replacement
-  initial_mode = "insert",
   position = "top",
   width = 0.50,
   height = 0.75,
@@ -84,7 +83,7 @@ require("pulse").setup({
 })
 ```
 
-## Per Navigator Config
+## Navigator Config
 
 Each navigator can receive its own config directly through `navigators`:
 

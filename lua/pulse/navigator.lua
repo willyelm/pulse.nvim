@@ -10,6 +10,8 @@ local session_mod = require("pulse.session")
 local scope = require("pulse.scope")
 
 local M = {}
+local hook_ctx
+local sync_panel_action_keymaps
 
 local state = {
 	session = nil,
@@ -36,6 +38,7 @@ local state = {
 		surface = nil,
 		panel_header = nil,
 	},
+	bound_action_keys = {},
 }
 
 local refresh
@@ -112,6 +115,16 @@ local function current_item()
 	return (item and not is_header(item)) and item or nil
 end
 
+local function panel_actions()
+	local mod = state.current.mod
+	local mode_actions = mod and mod.mode and mod.mode.actions
+	if type(mode_actions) == "function" then
+		local actions = mode_actions(hook_ctx("action"))
+		return type(actions) == "table" and actions or {}
+	end
+	return type(mode_actions) == "table" and mode_actions or {}
+end
+
 local function run_in_source(item, opts)
 	opts = opts or {}
 	local jumped
@@ -154,20 +167,43 @@ local function hide()
 	end
 end
 
-local function hook_ctx(reason, item)
+hook_ctx = function(_, item)
+	local function source_scope()
+		if state.source_win and vim.api.nvim_win_is_valid(state.source_win) then
+			return scope.from_buffer(vim.api.nvim_win_get_buf(state.source_win))
+		end
+		return nil
+	end
 	return {
 		item = item or current_item(),
 		state = state.current.state,
 		query = state.current.query,
-		reason = reason,
 		surface = state.current.surface,
 		close = hide,
 		jump = jump_in_source,
 		preview = preview_in_source,
 		scope = state.scope,
+		source_scope = source_scope,
 		set_scope = function(next_scope)
 			state.scope = next_scope
 			schedule_refresh()
+		end,
+		enter_scope = function(next_scope)
+			vim.schedule(function()
+				if not is_visible() then
+					return
+				end
+				state.scope = next_scope
+				local surfaces = panel.visible_panels(state.modules, panel.scope_type(next_scope))
+				local target = panel.default_surface(surfaces, nil)
+				if target and state.input then
+					state.input:set_value(mode.switch_prompt(state.input:get_value(), target.navigator))
+				end
+				refresh()
+				if state.input then
+					state.input:focus(true)
+				end
+			end)
 		end,
 		clear_scope = function()
 			local switch_to_files = state.current.mod and state.current.mod.scope_clears_to_files
@@ -325,6 +361,15 @@ refresh = function()
 	local prompt = state.input:get_value()
 	local mode_name, query = mode.parse_prompt(prompt)
 	local mod = state.registry[mode_name]
+	local current_scope = panel.scope_type(state.scope)
+	if state.scope and mod and not panel.supports_scope(mod, current_scope) then
+		if panel.is_buffer_only(mod) then
+			state.scope = scope.from_buffer(state.source_bufnr)
+		elseif panel.supports_scope(mod, "workspace") then
+			state.scope = nil
+		end
+		current_scope = panel.scope_type(state.scope)
+	end
 	if not state.scope and panel.is_buffer_only(mod) then
 		state.scope = scope.from_buffer(state.source_bufnr)
 	end
@@ -406,6 +451,7 @@ refresh = function()
 	end
 
 	update_active("refresh")
+	sync_panel_action_keymaps()
 	render()
 end
 
@@ -466,6 +512,57 @@ local function apply_tab_action(selected)
 			state.input:focus(true)
 		end
 	end)
+end
+
+local function run_panel_action(lhs)
+	local run = panel_actions()[lhs]
+	if type(run) == "function" then
+		local result = run(hook_ctx("action"))
+		if result ~= false then
+			schedule_refresh()
+			vim.schedule(function()
+				if is_visible() and state.input then
+					state.input:focus(true)
+				end
+			end)
+		end
+		return true
+	end
+	return false
+end
+
+sync_panel_action_keymaps = function()
+	if not state.input or not state.list then
+		return
+	end
+
+	for _, lhs in ipairs(state.bound_action_keys or {}) do
+		pcall(vim.keymap.del, { "n", "i" }, lhs, { buffer = state.input.buf })
+		pcall(vim.keymap.del, "n", lhs, { buffer = state.list.buf })
+	end
+
+	state.bound_action_keys = {}
+	local enabled = panel_actions()
+
+	for lhs, run in pairs(enabled) do
+		if type(lhs) == "string" and lhs ~= "" and type(run) == "function" then
+			state.bound_action_keys[#state.bound_action_keys + 1] = lhs
+		end
+	end
+	table.sort(state.bound_action_keys)
+
+	for _, lhs in ipairs(state.bound_action_keys) do
+		vim.keymap.set({ "n", "i" }, lhs, function() return run_panel_action(lhs) end, {
+			buffer = state.input.buf,
+			noremap = true,
+			silent = true,
+		})
+		vim.keymap.set("n", lhs, function() return run_panel_action(lhs) end, {
+			buffer = state.list.buf,
+			noremap = true,
+			silent = true,
+		})
+	end
 end
 
 local function click_tab_action()
@@ -620,7 +717,7 @@ local function show(opts)
 	end
 
 	refresh()
-	state.input:focus(state.navigator_opts.initial_mode ~= "normal")
+	state.input:focus(true)
 end
 
 function M.open(opts)

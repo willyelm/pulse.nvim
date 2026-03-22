@@ -1,5 +1,7 @@
 local M = {}
 local scope = require("pulse.scope")
+local transfer
+local invalidate, selected_path, target_dir, file_actions
 
 local DEFAULT_OPTS = {
 	icons = false,
@@ -15,6 +17,7 @@ local DEFAULT_OPTS = {
 M.mode = {
 	name = "files",
 	icon = "󰈔",
+	actions = function(ctx) return file_actions(ctx) end,
 }
 
 M.context = false
@@ -27,10 +30,6 @@ M.panels = {
 
 local function navigator_opts(opts)
 	return vim.tbl_deep_extend("force", vim.deepcopy(DEFAULT_OPTS), opts or {})
-end
-
-local function current_opts(state)
-	return (state and state.opts) or DEFAULT_OPTS
 end
 
 local function normalize_path(path)
@@ -89,6 +88,13 @@ local function filtered_paths(paths, opts)
 	return vim.tbl_filter(function(path)
 		return not is_filtered(path, opts)
 	end, paths or {})
+end
+
+local function absolute_path(root, path)
+	if not path or path == "" then
+		return nil
+	end
+	return path:sub(1, 1) == "/" and path or (root .. "/" .. path)
 end
 
 local function opened_set(state)
@@ -157,9 +163,13 @@ local function relative_scope_path(root, scoped)
 	return rel:gsub("/$", "")
 end
 
+local function folder_scope_prefix(state)
+	return (state.scope and state.scope.kind == "folder") and relative_scope_path(state.root, state.scope) or nil
+end
+
 local function parent_scope(state)
-	local scoped = relative_scope_path(state.root, state.scope)
-	if not (scoped and state.scope and state.scope.kind == "folder") then
+	local scoped = folder_scope_prefix(state)
+	if not scoped then
 		return nil
 	end
 	local parent = vim.fn.fnamemodify(scoped, ":h")
@@ -171,7 +181,7 @@ end
 
 local function scoped_display_path(state, path)
 	local rel = relative_path(state.root, path)
-	local scoped = relative_scope_path(state.root, state.scope)
+	local scoped = folder_scope_prefix(state)
 	if not scoped or scoped == "" then
 		return rel
 	end
@@ -185,19 +195,9 @@ local function scoped_display_path(state, path)
 	return rel
 end
 
-local function absolute_item_path(state, path)
-	if not path or path == "" then
-		return nil
-	end
-	if path:sub(1, 1) == "/" then
-		return path
-	end
-	return state.root .. "/" .. path
-end
-
 local function apply_scope(state, paths, ignored, statuses)
-	local scoped = relative_scope_path(state.root, state.scope)
-	if not (scoped and state.scope and state.scope.kind == "folder") then
+	local scoped = folder_scope_prefix(state)
+	if not scoped then
 		return paths, ignored, statuses
 	end
 
@@ -232,7 +232,7 @@ local function path_exists(root, path)
 	if not path or path == "" then
 		return false
 	end
-	local abs = path:sub(1, 1) == "/" and path or (normalize_path(root) .. "/" .. path)
+	local abs = absolute_path(normalize_path(root), path)
 	if path:sub(-1) == "/" then
 		return vim.fn.isdirectory(abs:sub(1, -2)) == 1
 	end
@@ -303,10 +303,6 @@ local function status_tokens(code)
 	return tokens
 end
 
-local function join_tokens(tokens)
-	return (#tokens > 0) and table.concat(tokens, " ") or ""
-end
-
 local function right_matches(tokens)
 	local matches = {}
 	local col = 0
@@ -329,13 +325,9 @@ end
 
 local function display_meta(tokens)
 	return {
-		display_right = join_tokens(tokens),
+		display_right = (#tokens > 0) and table.concat(tokens, " ") or "",
 		right_matches = right_matches(tokens),
 	}
-end
-
-local function file_display_meta(code, ignored)
-	return display_meta(status_tokens(code or (ignored and "!" or nil)))
 end
 
 local function ordered_statuses(statuses, ignored)
@@ -350,10 +342,6 @@ local function ordered_statuses(statuses, ignored)
 		end
 	end
 	return out
-end
-
-local function folder_display_meta(statuses, ignored)
-	return display_meta(ordered_statuses(statuses, ignored))
 end
 
 local function add_status_set(target, code)
@@ -390,7 +378,7 @@ local function collect_project_files(state)
 	end
 
 	local root = state.root or vim.fn.getcwd()
-	local opts = current_opts(state)
+	local opts = state.opts or DEFAULT_OPTS
 	local files = {}
 	local ignored = {}
 	local seen = {}
@@ -478,7 +466,7 @@ local function file_item(opts, path, label, depth, ignored, is_open, code)
 		opts,
 		vim.tbl_extend("force", {
 			is_open = is_open,
-		}, file_display_meta(code, ignored))
+		}, display_meta(status_tokens(code or (ignored and "!" or nil))))
 	)
 end
 
@@ -583,7 +571,7 @@ local function build_tree_items(paths, ignored, expanded, opts)
 				opts,
 				vim.tbl_extend("force", {
 					expanded = expanded[child.path] == true,
-				}, folder_display_meta(child.statuses, child.ignored))
+				}, display_meta(ordered_statuses(child.statuses, child.ignored)))
 			)
 			if expanded[child.path] == true then
 				append(child, depth + 1)
@@ -664,13 +652,217 @@ end
 
 local function panel_paths(state, panel_name)
 	if panel_name == "files_open" then
-		state.opened = filtered_paths(collect_opened_files(), current_opts(state))
+		state.opened = filtered_paths(collect_opened_files(), state.opts or DEFAULT_OPTS)
 		return state.opened, {}
 	end
 	if panel_name == "files_recent" then
-		return filtered_paths(collect_recent_files(state.root), current_opts(state)), {}
+		return filtered_paths(collect_recent_files(state.root), state.opts or DEFAULT_OPTS), {}
 	end
 	return collect_project_files(state)
+end
+
+invalidate = function(state)
+	if not state then
+		return
+	end
+	state.files = nil
+	state.ignored = nil
+	state.git_status = nil
+	state.opened = collect_opened_files()
+end
+
+selected_path = function(ctx)
+	local item = ctx and ctx.item
+	if not (ctx and ctx.state and item and item.path) then
+		return nil
+	end
+	if item.scope_parent or item.search_group then
+		return nil
+	end
+	return absolute_path(ctx.state.root, item.path)
+end
+
+target_dir = function(ctx)
+	local path = selected_path(ctx)
+	if path and ctx.item and ctx.item.kind == "folder" then
+		return path
+	end
+	if path and ctx.item and ctx.item.kind == "file" then
+		return vim.fn.fnamemodify(path, ":h")
+	end
+	if ctx and ctx.state and ctx.state.scope and ctx.state.scope.kind == "folder" then
+		return ctx.state.scope.path
+	end
+	return ctx and ctx.state and ctx.state.root or nil
+end
+
+local function notify(message, level)
+	vim.notify("Pulse: " .. message, level or vim.log.levels.WARN)
+end
+
+local function focus_input(ctx)
+	if ctx and ctx.input then
+		ctx.input:focus(true)
+	end
+end
+
+local function ensure_parent(path)
+	local parent = vim.fn.fnamemodify(path, ":h")
+	if parent ~= "" then
+		vim.fn.mkdir(parent, "p")
+	end
+end
+
+local function path_taken(path)
+	return vim.fn.filereadable(path) == 1 or vim.fn.isdirectory(path) == 1
+end
+
+local function refresh_actions(ctx)
+	invalidate(ctx and ctx.state)
+	if ctx and ctx.refresh then
+		ctx.refresh()
+	end
+end
+
+local function action_input(prompt, default, cb)
+	vim.ui.input({ prompt = prompt, default = default }, cb)
+	return false
+end
+
+local function action_add(ctx)
+	local dest_dir = target_dir(ctx)
+	if not dest_dir or dest_dir == "" then
+		return true
+	end
+	return action_input("Add: ", nil, function(value)
+		value = vim.trim(value or "")
+		if value == "" then
+			return focus_input(ctx)
+		end
+		local dest = dest_dir .. "/" .. value
+		local ok
+		if value:sub(-1) == "/" then
+			vim.fn.mkdir(dest, "p")
+			ok = vim.fn.isdirectory(dest) == 1
+		else
+			ensure_parent(dest)
+			ok = not path_taken(dest) and vim.fn.writefile({}, dest) == 0
+		end
+		if not ok then
+			notify("create failed or target already exists", vim.log.levels.ERROR)
+		end
+		refresh_actions(ctx)
+		focus_input(ctx)
+	end)
+end
+
+local function action_rename(ctx)
+	local src = selected_path(ctx)
+	if not src then
+		return true
+	end
+	local current = vim.fn.fnamemodify(src, ":t")
+	return action_input("Rename: ", current, function(value)
+		if not value or value == "" or value == current then
+			return focus_input(ctx)
+		end
+		local dest = vim.fn.fnamemodify(src, ":h") .. "/" .. value
+		if path_taken(dest) then
+			notify("target already exists", vim.log.levels.ERROR)
+		elseif vim.fn.rename(src, dest) ~= 0 then
+			notify("rename failed", vim.log.levels.ERROR)
+		elseif ctx.scope and ctx.scope.kind == "file" and ctx.scope.path == src then
+			ctx.set_scope(scope.file(dest, vim.fn.bufnr(vim.fn.fnamemodify(dest, ":p"))))
+		elseif ctx.scope and ctx.scope.kind == "folder" and ctx.scope.path == src then
+			ctx.set_scope(scope.folder(dest))
+		end
+		refresh_actions(ctx)
+		focus_input(ctx)
+	end)
+end
+
+local function action_delete(ctx)
+	local src = selected_path(ctx)
+	if not src then
+		return true
+	end
+	if vim.fn.confirm("Delete " .. vim.fn.fnamemodify(src, ":t") .. "?", "&Yes\n&No", 2) ~= 1 then
+		return true
+	end
+	if vim.fn.delete(src, "rf") ~= 0 then
+		notify("delete failed", vim.log.levels.ERROR)
+		return true
+	end
+	if ctx.scope and ctx.scope.path == src then
+		ctx.clear_scope()
+	else
+		refresh_actions(ctx)
+	end
+	return true
+end
+
+local function action_stage_transfer(ctx, kind)
+	local src = selected_path(ctx)
+	if not src then
+		return true
+	end
+	transfer = { kind = kind, path = src }
+	return true
+end
+
+local function action_paste(ctx)
+	if not (transfer and transfer.path and transfer.kind) then
+		return true
+	end
+	local dest_dir = target_dir(ctx)
+	if not dest_dir or dest_dir == "" then
+		return true
+	end
+	local dest = dest_dir .. "/" .. vim.fn.fnamemodify(transfer.path, ":t")
+	if dest == transfer.path or path_taken(dest) then
+		if dest ~= transfer.path then
+			notify("target already exists", vim.log.levels.ERROR)
+		end
+		return true
+	end
+	ensure_parent(dest)
+	local ok
+	if transfer.kind == "cut" then
+		ok = vim.fn.rename(transfer.path, dest) == 0
+	else
+		local cmd = (vim.fn.isdirectory(transfer.path) == 1)
+			and { "cp", "-R", transfer.path, dest }
+			or { "cp", transfer.path, dest }
+		vim.fn.system(cmd)
+		ok = vim.v.shell_error == 0
+	end
+	if not ok then
+		notify("paste failed", vim.log.levels.ERROR)
+		return true
+	end
+	if transfer.kind == "cut" then
+		transfer = nil
+	end
+	refresh_actions(ctx)
+	return true
+end
+
+file_actions = function(ctx)
+	local item = ctx and ctx.item
+	local editable = item and (item.kind == "file" or item.kind == "folder") and not item.scope_parent and not item.search_group
+	local actions = {
+		["<C-a>"] = action_add,
+	}
+	if editable then
+		actions["<C-d>"] = action_delete
+		actions["<C-r>"] = action_rename
+		actions["<C-x>"] = function(next) return action_stage_transfer(next, "cut") end
+		actions["<C-c>"] = function(next) return action_stage_transfer(next, "copy") end
+	end
+	if transfer and transfer.path then
+		actions["<C-v>"] = action_paste
+	end
+	return actions
 end
 
 function M.items(state, query, panel_name)
@@ -688,7 +880,7 @@ function M.items(state, query, panel_name)
 			local tree_opts = vim.tbl_extend("force", {}, state.opts, {
 				git_status = state.git_status or {},
 				open_map = open_map,
-				scope_prefix = relative_scope_path(state.root, state.scope),
+				scope_prefix = folder_scope_prefix(state),
 				state = state,
 			})
 			return build_tree_items(paths, ignored, state.expanded or {}, tree_opts)
@@ -745,13 +937,13 @@ function M.on_tab(ctx)
 		return
 	end
 	if ctx.item.kind == "folder" then
-		ctx.set_scope(scope.folder(absolute_item_path(ctx.state, ctx.item.path)))
+		ctx.enter_scope(scope.folder(absolute_path(ctx.state.root, ctx.item.path)))
 		return
 	end
 	if ctx.preview(ctx.item) then
-		local current_scope = scope.from_buffer()
+		local current_scope = ctx.source_scope and ctx.source_scope() or nil
 		if current_scope then
-			ctx.set_scope(current_scope)
+			ctx.enter_scope(current_scope)
 		end
 	end
 end
@@ -763,7 +955,7 @@ function M.on_submit(ctx)
 	if ctx.item then
 		ctx.close()
 		if ctx.jump(ctx.item) then
-			local current_scope = scope.from_buffer()
+			local current_scope = ctx.source_scope and ctx.source_scope() or nil
 			if current_scope then
 				ctx.set_scope(current_scope)
 			end

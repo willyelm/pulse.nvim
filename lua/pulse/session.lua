@@ -4,7 +4,6 @@ local layout_mod = require("pulse.layout")
 local M = {}
 
 local defaults = {
-	initial_mode = "insert",
 	position = "top",
 	width = 0.70,
 	height = 0.50,

@@ -28,6 +28,17 @@ function M.is_buffer_only(navigator)
 	return true
 end
 
+function M.supports_scope(navigator, scope_name)
+	for _, entry in ipairs((navigator and navigator.panels) or {}) do
+		for _, allowed in ipairs(panel_scopes(entry)) do
+			if allowed == scope_name then
+				return true
+			end
+		end
+	end
+	return false
+end
+
 local function set_lines(buf, lines)
 	vim.bo[buf].modifiable = true
 	vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
