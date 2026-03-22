@@ -41,21 +41,6 @@ local function add_hl(highlights, group, row, start_col, end_col)
 	highlights[#highlights + 1] = { group = group, row = row, start_col = start_col, end_col = end_col }
 end
 
-local function is_header(item)
-	return item and item.kind == "header"
-end
-
-local function group_start(items, index)
-	local i = math.max(tonumber(index) or 1, 1)
-	while i > 1 and not is_header(items[i]) and not is_header(items[i - 1]) do
-		i = i - 1
-	end
-	if i > 1 and is_header(items[i - 1]) then
-		return i - 1
-	end
-	return i
-end
-
 local function set_lines(buf, lines)
 	vim.bo[buf].modifiable = true
 	vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
@@ -215,10 +200,6 @@ end
 function M:render(width)
 	width = math.max(width or (self.win and vim.api.nvim_win_get_width(self.win)) or 20, 1)
 	self:_normalise_selection()
-	local view = nil
-	if self.win and vim.api.nvim_win_is_valid(self.win) then
-		view = vim.api.nvim_win_call(self.win, vim.fn.winsaveview)
-	end
 
 	local lines, highlights = self:_visible_lines(width)
 	set_lines(self.buf, lines)
@@ -234,24 +215,8 @@ function M:render(width)
 
 	if self.win and vim.api.nvim_win_is_valid(self.win) then
 		local row = ((#self.items > 0) and (self.selected or 0) > 0) and self.selected or 1
-		local height = vim.api.nvim_win_get_height(self.win)
-		local max_top = math.max(#lines - height + 1, 1)
-		local topline = clamp(math.floor(row - (height / 2)), 1, max_top)
-		local start = group_start(self.items, row)
-		if start < row then
-			topline = math.min(topline, start)
-		end
-		if row <= height then
-			topline = 1
-		end
-		pcall(vim.api.nvim_win_call, self.win, function()
-			vim.fn.winrestview({
-				lnum = row,
-				col = 0,
-				curswant = 0,
-				topline = topline,
-			})
-		end)
+		pcall(vim.api.nvim_win_set_cursor, self.win, { row, 0 })
+		self:_ensure_group_header_visible(row)
 	end
 end
 
@@ -289,6 +254,39 @@ end
 function M:set_allow_empty_selection(allow)
 	self.allow_empty_selection = allow == true
 	self:_normalise_selection()
+end
+
+function M:_header_row_for(index)
+	index = tonumber(index) or 0
+	if index < 1 or index > #self.items then
+		return nil
+	end
+	for i = index - 1, 1, -1 do
+		local item = self.items[i]
+		if item and item.kind == "header" then
+			return i
+		end
+	end
+	return nil
+end
+
+function M:_ensure_group_header_visible(row)
+	if not (self.win and vim.api.nvim_win_is_valid(self.win)) then
+		return
+	end
+	local header_row = self:_header_row_for(row)
+	if not header_row then
+		return
+	end
+	local view = vim.fn.winsaveview()
+	if (view.topline or 1) > header_row then
+		pcall(vim.fn.winrestview, {
+			lnum = row,
+			col = 0,
+			topline = header_row,
+			leftcol = view.leftcol or 0,
+		})
+	end
 end
 
 function M:move(delta, skip)

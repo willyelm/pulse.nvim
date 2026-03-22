@@ -180,6 +180,20 @@ hook_ctx = function(_, item)
 		end
 		return nil
 	end
+	local function clear_prefix()
+		vim.schedule(function()
+			if not (is_visible() and state.input) then
+				return
+			end
+			local value = state.input:get_value()
+			local start = state.current.surface and state.current.surface.start or ""
+			if start ~= "" and value:sub(1, #start) == start then
+				state.input:set_value(value:sub(#start + 1))
+			end
+			refresh()
+			state.input:focus(true)
+		end)
+	end
 	return {
 		item = item or current_item(),
 		state = state.current.state,
@@ -224,6 +238,7 @@ hook_ctx = function(_, item)
 				refresh()
 			end)
 		end,
+		clear_prefix = clear_prefix,
 		input = state.input,
 		refresh = refresh,
 	}
@@ -312,6 +327,16 @@ local function current_surface(panels)
 	return panel.find_surface(panels, state.current.mode_name, state.current.panel)
 end
 
+local function default_surface_for_mode(panels, mode_name, initial_panel)
+	local local_panels = {}
+	for _, entry in ipairs(panels or {}) do
+		if entry.navigator == mode_name then
+			local_panels[#local_panels + 1] = entry
+		end
+	end
+	return panel.default_surface(local_panels, initial_panel) or panel.default_surface(panels, initial_panel)
+end
+
 local function resolve_body_layout()
 	local item = current_item() or first_selectable(state.items)
 	local show_panels = state.current.panel_header ~= nil
@@ -369,6 +394,15 @@ refresh = function()
 	local mod = state.registry[mode_name]
 	local current_scope = panel.scope_type(state.scope)
 	local has_prefix = config.options._by_start and config.options._by_start[prompt:sub(1, 1)] ~= nil
+	if not has_prefix and current_scope == "buffer" and state.current.mode_name then
+		local current_mode = state.current.mode_name
+		local current_mod = state.registry[current_mode]
+		if current_mod and panel.supports_scope(current_mod, "buffer") then
+			mode_name = current_mode
+			query = prompt
+			mod = current_mod
+		end
+	end
 	if state.scope and mod and not panel.supports_scope(mod, current_scope) then
 		if current_scope == "buffer" and not has_prefix then
 			local surfaces = panel.visible_panels(state.modules, current_scope)
@@ -399,7 +433,7 @@ refresh = function()
 	local surfaces = visible_surfaces()
 	local active_surface = panel.find_surface(surfaces, mode_name, current_panel)
 	if not active_surface then
-		active_surface = panel.default_surface(surfaces, initial_panel)
+		active_surface = default_surface_for_mode(surfaces, mode_name, initial_panel)
 		if active_surface then
 			if active_surface.panel then
 				state.active_panels[active_surface.navigator] = active_surface.panel
@@ -686,8 +720,11 @@ local function bind_widgets()
 			on_backspace = function(value)
 				local scoped = input_scope()
 				local start = state.current.surface and state.current.surface.start or ""
-				local clears_scope = state.current.mod and state.current.mod.scope_clears_to_files
-				if scoped and (value == "" or (clears_scope and start ~= "" and value == start)) then
+				if scoped and start ~= "" and value == start then
+					hook_ctx("backspace"):clear_prefix()
+					return true
+				end
+				if scoped and value == "" then
 					hook_ctx("backspace"):clear_scope()
 					return true
 				end

@@ -1,5 +1,6 @@
 local M = {}
 local scope = require("pulse.scope")
+local CACHE = {}
 
 M.mode = {
 	name = "symbol",
@@ -105,6 +106,22 @@ local function lsp_symbols(bufnr, result)
 	return flatten_document_symbols(result, bufnr)
 end
 
+local function sync_lsp_symbols(bufnr, timeout_ms)
+	local params = { textDocument = vim.lsp.util.make_text_document_params(bufnr) }
+	local responses = vim.lsp.buf_request_sync(bufnr, "textDocument/documentSymbol", params, timeout_ms or 40) or {}
+	local merged = {}
+	for _, resp in pairs(responses) do
+		local mapped = lsp_symbols(bufnr, resp and resp.result)
+		for _, item in ipairs(mapped) do
+			merged[#merged + 1] = item
+		end
+	end
+	if #merged > 0 then
+		sort_by_line(merged)
+	end
+	return merged
+end
+
 local function treesitter_fallback(bufnr)
 	local ok, parser = pcall(vim.treesitter.get_parser, bufnr)
 	if not ok or not parser then
@@ -147,25 +164,67 @@ local function treesitter_fallback(bufnr)
 	return out
 end
 
+local function has_document_symbol_client(bufnr)
+	for _, client in ipairs(vim.lsp.get_clients({ bufnr = bufnr })) do
+		if client:supports_method("textDocument/documentSymbol") then
+			return true
+		end
+	end
+	return false
+end
+
+local function cached_symbols(bufnr)
+	local tick = vim.api.nvim_buf_get_changedtick(bufnr)
+	local cached = CACHE[bufnr]
+	if cached and cached.tick == tick then
+		return cached.symbols
+	end
+	return nil
+end
+
+local function store_symbols(bufnr, symbols)
+	CACHE[bufnr] = {
+		tick = vim.api.nvim_buf_get_changedtick(bufnr),
+		symbols = symbols,
+	}
+	return symbols
+end
+
 function M.init(ctx)
 	local scoped = ctx and ctx.scope
 	local bufnr = (scoped and scoped.kind == "file" and (scoped.bufnr or vim.fn.bufadd(scoped.path)))
 		or (ctx and ctx.bufnr)
 		or vim.api.nvim_get_current_buf()
 	pcall(vim.fn.bufload, bufnr)
+	local use_lsp = has_document_symbol_client(bufnr)
+	local cached = cached_symbols(bufnr)
+	local symbols = cached or {}
+	if not cached then
+		if use_lsp then
+			symbols = sync_lsp_symbols(bufnr, 40)
+		end
+		if #symbols == 0 and not use_lsp then
+			symbols = treesitter_fallback(bufnr)
+		end
+		store_symbols(bufnr, symbols)
+	end
 	local state = {
-		symbols = treesitter_fallback(bufnr),
+		symbols = symbols,
 		input_scope = (scoped and scoped.kind == "file" and scope.file(scoped.path, bufnr)) or scope.from_buffer(bufnr),
 	}
+	if not use_lsp then
+		return state
+	end
 
 	local params = { textDocument = vim.lsp.util.make_text_document_params(bufnr) }
 	vim.lsp.buf_request(bufnr, "textDocument/documentSymbol", params, function(_, result)
 		local mapped = lsp_symbols(bufnr, result)
-		if #mapped > 0 then
-			state.symbols = mapped
-			if ctx and type(ctx.on_update) == "function" then
-				vim.schedule(ctx.on_update)
-			end
+		if #mapped == 0 then
+			return
+		end
+		state.symbols = store_symbols(bufnr, mapped)
+		if ctx and type(ctx.on_update) == "function" then
+			vim.schedule(ctx.on_update)
 		end
 	end)
 
