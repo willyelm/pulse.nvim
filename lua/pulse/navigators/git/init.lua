@@ -1,8 +1,7 @@
 local M = {}
 local scope = require("pulse.scope")
 local git_context = require("pulse.navigators.git.context")
-local history = require("pulse.navigators.git.history")
-local status = require("pulse.navigators.git.status")
+local items = require("pulse.navigators.git.items")
 
 M.mode = {
 	name = "git",
@@ -47,12 +46,7 @@ function M.input_scope(state)
 end
 
 function M.items(state, query, panel_name)
-	panel_name = panel_name or "git_status"
-	state.active_panel = panel_name
-	if panel_name == "git_project_history" or panel_name == "git_file_history" then
-		return history.items(state, query, panel_name)
-	end
-	return status.items(state, query)
+	return items.items(state, query, panel_name)
 end
 
 function M.on_submit(ctx)

@@ -14,6 +14,15 @@ local function panel_scopes(entry)
 	return list_scopes(entry and entry.scopes) or { "workspace" }
 end
 
+local function is_visible_in_scope(entry, scope_name)
+	for _, allowed in ipairs(panel_scopes(entry)) do
+		if allowed == scope_name then
+			return true
+		end
+	end
+	return false
+end
+
 function M.is_buffer_only(navigator)
 	local panels = navigator and navigator.panels or {}
 	if #panels == 0 then
@@ -30,10 +39,8 @@ end
 
 function M.supports_scope(navigator, scope_name)
 	for _, entry in ipairs((navigator and navigator.panels) or {}) do
-		for _, allowed in ipairs(panel_scopes(entry)) do
-			if allowed == scope_name then
-				return true
-			end
+		if is_visible_in_scope(entry, scope_name) then
+			return true
 		end
 	end
 	return false
@@ -128,19 +135,16 @@ function M.visible_panels(navigators, scope_type)
 	for index, navigator in ipairs(navigators or {}) do
 		if navigator.panels and #navigator.panels > 0 then
 			for _, entry in ipairs(navigator.panels) do
-				for _, allowed in ipairs(panel_scopes(entry)) do
-					if allowed == scope_type then
-						visible[#visible + 1] = {
-							name = entry.name,
-							label = entry.label,
-							navigator = navigator.mode.name,
-							panel = entry.name,
-							start = entry.start or "",
-							scopes = panel_scopes(entry),
-							order = index,
-						}
-						break
-					end
+				if is_visible_in_scope(entry, scope_type) then
+					visible[#visible + 1] = {
+						name = entry.name,
+						label = entry.label,
+						navigator = navigator.mode.name,
+						panel = entry.name,
+						start = entry.start or "",
+						scopes = panel_scopes(entry),
+						order = index,
+					}
 				end
 			end
 		end
@@ -158,12 +162,16 @@ function M.visible_panels(navigators, scope_type)
 	return visible
 end
 
+function M.select(active_panels, surface)
+	if surface and surface.panel then
+		active_panels[surface.navigator] = surface.panel
+	end
+	return surface
+end
+
 function M.find_surface(panels, mode_name, panel_name)
 	for _, entry in ipairs(panels or {}) do
 		if entry.navigator == mode_name and entry.panel == panel_name then
-			return entry
-		end
-		if entry.navigator == mode_name and entry.panel == nil and panel_name == nil then
 			return entry
 		end
 	end

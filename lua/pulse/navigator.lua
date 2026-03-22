@@ -3,6 +3,7 @@ local actions = require("pulse.actions")
 local display = require("pulse.display")
 local layout = require("pulse.layout")
 local mode = require("pulse.mode")
+local router = require("pulse.router")
 local context_view = require("pulse.context")
 local config = require("pulse.config")
 local panel = require("pulse.panel")
@@ -36,6 +37,7 @@ local state = {
 		query = "",
 		panel = nil,
 		surface = nil,
+		surfaces = nil,
 		panel_header = nil,
 	},
 	bound_action_keys = {},
@@ -214,9 +216,10 @@ hook_ctx = function(_, item)
 					return
 				end
 				state.scope = next_scope
-				local surfaces = panel.visible_panels(state.modules, panel.scope_type(next_scope))
+				local surfaces = router.visible_surfaces(state.modules, next_scope)
 				local target = panel.default_surface(surfaces, nil)
 				if target and state.input then
+					panel.select(state.active_panels, target)
 					state.input:set_value(mode.switch_prompt(state.input:get_value(), target.navigator))
 				end
 				refresh()
@@ -311,30 +314,12 @@ local function split_body_height(total, list_height, context_height)
 	return half_high, half_low
 end
 
-local function input_scope()
-	local mod = state.current.mod
-	if mod and type(mod.input_scope) == "function" then
-		return mod.input_scope(state.current.state, state.scope)
-	end
-	return nil
-end
-
 local function visible_surfaces()
-	return panel.visible_panels(state.modules, panel.scope_type(state.scope))
+	return state.current.surfaces or router.visible_surfaces(state.modules, state.scope)
 end
 
 local function current_surface(panels)
 	return panel.find_surface(panels, state.current.mode_name, state.current.panel)
-end
-
-local function default_surface_for_mode(panels, mode_name, initial_panel)
-	local local_panels = {}
-	for _, entry in ipairs(panels or {}) do
-		if entry.navigator == mode_name then
-			local_panels[#local_panels + 1] = entry
-		end
-	end
-	return panel.default_surface(local_panels, initial_panel) or panel.default_surface(panels, initial_panel)
 end
 
 local function resolve_body_layout()
@@ -393,57 +378,38 @@ refresh = function()
 	local mode_name, query = mode.parse_prompt(prompt)
 	local mod = state.registry[mode_name]
 	local current_scope = panel.scope_type(state.scope)
-	local has_prefix = config.options._by_start and config.options._by_start[prompt:sub(1, 1)] ~= nil
-	if not has_prefix and current_scope == "buffer" and state.current.mode_name then
-		local current_mode = state.current.mode_name
-		local current_mod = state.registry[current_mode]
-		if current_mod and panel.supports_scope(current_mod, "buffer") then
-			mode_name = current_mode
-			query = prompt
-			mod = current_mod
-		end
+	local buffered_mode, buffered_mod = router.current_buffer_mode(prompt, current_scope, state.current.mode_name, state.registry)
+	if buffered_mode then
+		mode_name, mod, query = buffered_mode, buffered_mod, prompt
 	end
-	if state.scope and mod and not panel.supports_scope(mod, current_scope) then
-		if current_scope == "buffer" and not has_prefix then
-			local surfaces = panel.visible_panels(state.modules, current_scope)
-			local target = panel.default_surface(surfaces, nil)
-			if target and state.input then
-				if target.panel then
-					state.active_panels[target.navigator] = target.panel
-				end
-				local next_prompt = mode.switch_prompt(prompt, target.navigator)
-				if next_prompt ~= prompt then
-					state.input:set_value(next_prompt)
-					return
-				end
-			end
-		end
-		if panel.is_buffer_only(mod) then
-			state.scope = scope.from_buffer(state.source_bufnr)
-		elseif panel.supports_scope(mod, "workspace") then
-			state.scope = nil
-		end
-		current_scope = panel.scope_type(state.scope)
+
+	mode_name, mod, current_scope, redirected = router.reconcile_scope({
+		prompt = prompt,
+		mode_name = mode_name,
+		mod = mod,
+		current_scope = current_scope,
+		state = state,
+		input = state.input,
+		modules = state.modules,
+		source_bufnr = state.source_bufnr,
+	})
+	if redirected then
+		return
 	end
-	if not state.scope and panel.is_buffer_only(mod) then
-		state.scope = scope.from_buffer(state.source_bufnr)
-	end
+	router.ensure_implicit_buffer_scope(state, mod, state.source_bufnr)
+
 	local initial_panel = state.pending_initial_panel
-	local current_panel = panel.active_name(state.active_panels, mode_name, mod and mod.panels, initial_panel)
-	local surfaces = visible_surfaces()
-	local active_surface = panel.find_surface(surfaces, mode_name, current_panel)
-	if not active_surface then
-		active_surface = default_surface_for_mode(surfaces, mode_name, initial_panel)
-		if active_surface then
-			if active_surface.panel then
-				state.active_panels[active_surface.navigator] = active_surface.panel
-			end
-			local next_prompt = mode.switch_prompt(prompt, active_surface.navigator)
-			if next_prompt ~= prompt then
-				state.input:set_value(next_prompt)
-				return
-			end
-		end
+	local surfaces, active_surface, redirected_surface = router.resolve_surface({
+		prompt = prompt,
+		mode_name = mode_name,
+		mod = mod,
+		initial_panel = initial_panel,
+		state = state,
+		input = state.input,
+		modules = state.modules,
+	})
+	if redirected_surface then
+		return
 	end
 
 	mode_name = active_surface and active_surface.navigator or mode_name
@@ -466,6 +432,7 @@ refresh = function()
 	state.current.query = query
 	state.current.panel = active_panel
 	state.current.surface = active_surface
+	state.current.surfaces = surfaces
 	state.current.panel_header = panel.header_item(surfaces, active_surface and active_surface.name or nil)
 	state.items = items
 	state.pending_initial_panel = nil
@@ -486,20 +453,7 @@ refresh = function()
 		end
 	end
 
-	local navigator_mode = mod and mod.mode or {}
-	local prompt_prefix = " " .. (navigator_mode.icon or "") .. " "
-	local scoped = input_scope()
-	local scope_text = scope.prompt_text(scoped)
-	local prompt = prompt_prefix .. scope_text
-	if scope_text ~= "" then
-		prompt = prompt .. " "
-	end
-	state.input:set_prompt(prompt)
-	state.input:set_addons({
-		ghost = query == "" and active_surface and active_surface.label or nil,
-		right = { text = string.format("%d/%d", found, total), hl = "LineNr" },
-		prompt_matches = scope.prompt_matches(scoped, #prompt_prefix),
-	})
+	router.apply_prompt_ui(state.input, state.current.mod, state.current.state, state.scope, query, active_surface, found, total)
 
 	if is_header(state.list:selected_item()) then
 		state.list:move(1, is_header)
@@ -525,9 +479,7 @@ local function switch_panel(direction)
 
 	local target = panels[idx]
 	vim.schedule(function()
-		if target.panel then
-			state.active_panels[target.navigator] = target.panel
-		end
+		panel.select(state.active_panels, target)
 		if not is_visible() or not state.input then
 			return
 		end
@@ -631,9 +583,7 @@ local function click_tab_action()
 		if name then
 			for _, target in ipairs(visible_surfaces()) do
 				if target.name == name then
-					if target.panel then
-						state.active_panels[target.navigator] = target.panel
-					end
+					panel.select(state.active_panels, target)
 					state.input:set_value(mode.switch_prompt(state.input:get_value(), target.navigator))
 					break
 				end
@@ -718,7 +668,10 @@ local function bind_widgets()
 			on_left = function() return move_panel_from_input(-1) end,
 			on_right = function() return move_panel_from_input(1) end,
 			on_backspace = function(value)
-				local scoped = input_scope()
+				local scoped = nil
+				if state.current.mod and type(state.current.mod.input_scope) == "function" then
+					scoped = state.current.mod.input_scope(state.current.state, state.scope)
+				end
 				local start = state.current.surface and state.current.surface.start or ""
 				if scoped and start ~= "" and value == start then
 					hook_ctx("backspace"):clear_prefix()

@@ -200,6 +200,10 @@ end
 function M:render(width)
 	width = math.max(width or (self.win and vim.api.nvim_win_get_width(self.win)) or 20, 1)
 	self:_normalise_selection()
+	local view = nil
+	if self.win and vim.api.nvim_win_is_valid(self.win) then
+		view = vim.fn.winsaveview()
+	end
 
 	local lines, highlights = self:_visible_lines(width)
 	set_lines(self.buf, lines)
@@ -215,6 +219,14 @@ function M:render(width)
 
 	if self.win and vim.api.nvim_win_is_valid(self.win) then
 		local row = ((#self.items > 0) and (self.selected or 0) > 0) and self.selected or 1
+		if view then
+			local height = vim.api.nvim_win_get_height(self.win)
+			local max_topline = math.max(#lines - height + 1, 1)
+			pcall(vim.fn.winrestview, {
+				topline = math.min(view.topline or 1, max_topline),
+				leftcol = view.leftcol or 0,
+			})
+		end
 		pcall(vim.api.nvim_win_set_cursor, self.win, { row, 0 })
 		self:_ensure_group_header_visible(row)
 	end

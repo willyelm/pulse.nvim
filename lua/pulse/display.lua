@@ -198,7 +198,7 @@ end
 
 local function display_git_status(item)
 	local icon, style = icon_for_item("file", item.path)
-	local display = format_icon_item(icon, file_name(item.path), item.display_right or "", style)
+	local display = format_icon_item(icon, item.label or item.path or file_name(item.path), item.display_right or "", style)
 
 	-- Add highlighting for additions and deletions in right column
 	local right_str = item.display_right or ""
