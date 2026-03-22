@@ -61,6 +61,10 @@ local function write_value(buf, prompt, value)
   vim.bo[buf].modified = false
 end
 
+local function current_line(buf)
+  return (vim.api.nvim_buf_get_lines(buf, 0, 1, false)[1] or "")
+end
+
 function M.new(opts)
   local self = setmetatable({}, M)
   self.buf = assert(opts.buf, "input requires a buffer")
@@ -139,17 +143,27 @@ function M:set_win(win)
   self:set_addons(self.addons)
 end
 
-function M:set_prompt(prompt)
+function M:set_prompt(prompt, opts)
   prompt = prompt or ""
+  if self.prompt == prompt then
+    return false
+  end
+  opts = opts or {}
   local value = current_raw_value(self.buf, self.prompt)
   self._mute_change = true
   self.prompt = prompt
   vim.fn.prompt_setprompt(self.buf, self.prompt)
   if vim.api.nvim_buf_is_valid(self.buf) then
-    write_value(self.buf, self.prompt, value)
-    cursor_to_eol(self.win, self.buf)
+    local next_line = (self.prompt or "") .. tostring(value or "")
+    if current_line(self.buf) ~= next_line then
+      write_value(self.buf, self.prompt, value)
+    end
+    if opts.move_cursor_end then
+      cursor_to_eol(self.win, self.buf)
+    end
   end
   self._mute_change = false
+  return true
 end
 
 function M:get_value()
@@ -166,10 +180,18 @@ function M:is_cursor_at_end()
   return col >= value_end
 end
 
-function M:set_value(value)
+function M:set_value(value, opts)
+  opts = opts or {}
+  local next_line = (self.prompt or "") .. tostring(value or "")
+  if current_line(self.buf) == next_line then
+    return false
+  end
   write_value(self.buf, self.prompt, value)
-  cursor_to_eol(self.win, self.buf)
+  if opts.move_cursor_end then
+    cursor_to_eol(self.win, self.buf)
+  end
   self:set_addons(self.addons)
+  return true
 end
 
 function M:focus(insert_mode)

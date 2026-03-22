@@ -41,6 +41,13 @@ local function add_hl(highlights, group, row, start_col, end_col)
 	highlights[#highlights + 1] = { group = group, row = row, start_col = start_col, end_col = end_col }
 end
 
+local function with_window(win, fn)
+	if not (win and vim.api.nvim_win_is_valid(win)) then
+		return nil
+	end
+	return vim.api.nvim_win_call(win, fn)
+end
+
 local function set_lines(buf, lines)
 	vim.bo[buf].modifiable = true
 	vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
@@ -200,10 +207,6 @@ end
 function M:render(width)
 	width = math.max(width or (self.win and vim.api.nvim_win_get_width(self.win)) or 20, 1)
 	self:_normalise_selection()
-	local view = nil
-	if self.win and vim.api.nvim_win_is_valid(self.win) then
-		view = vim.fn.winsaveview()
-	end
 
 	local lines, highlights = self:_visible_lines(width)
 	set_lines(self.buf, lines)
@@ -215,20 +218,6 @@ function M:render(width)
 			end_col = item.end_col,
 			hl_group = item.group,
 		})
-	end
-
-	if self.win and vim.api.nvim_win_is_valid(self.win) then
-		local row = ((#self.items > 0) and (self.selected or 0) > 0) and self.selected or 1
-		if view then
-			local height = vim.api.nvim_win_get_height(self.win)
-			local max_topline = math.max(#lines - height + 1, 1)
-			pcall(vim.fn.winrestview, {
-				topline = math.min(view.topline or 1, max_topline),
-				leftcol = view.leftcol or 0,
-			})
-		end
-		pcall(vim.api.nvim_win_set_cursor, self.win, { row, 0 })
-		self:_ensure_group_header_visible(row)
 	end
 end
 
@@ -252,8 +241,10 @@ function M:set_win(win)
 end
 
 function M:set_selected(index)
+	local prev = self.selected
 	self.selected = index
 	self:_normalise_selection()
+	return prev ~= self.selected
 end
 
 function M:selected_item()
@@ -282,28 +273,9 @@ function M:_header_row_for(index)
 	return nil
 end
 
-function M:_ensure_group_header_visible(row)
-	if not (self.win and vim.api.nvim_win_is_valid(self.win)) then
-		return
-	end
-	local header_row = self:_header_row_for(row)
-	if not header_row then
-		return
-	end
-	local view = vim.fn.winsaveview()
-	if (view.topline or 1) > header_row then
-		pcall(vim.fn.winrestview, {
-			lnum = row,
-			col = 0,
-			topline = header_row,
-			leftcol = view.leftcol or 0,
-		})
-	end
-end
-
 function M:move(delta, skip)
 	if #self.items == 0 then
-		return
+		return false
 	end
 
 	local n = #self.items
@@ -314,11 +286,39 @@ function M:move(delta, skip)
 		self.selected = ((self.selected - 1 + step) % n) + 1
 		local item = self.items[self.selected]
 		if not skip or not skip(item) then
-			return
+			return true
 		end
 	end
 
 	self.selected = start
+	return false
+end
+
+function M:ensure_visible()
+	if not (self.win and vim.api.nvim_win_is_valid(self.win)) then
+		return
+	end
+	local row = ((#self.items > 0) and (self.selected or 0) > 0) and self.selected or 1
+	local height = vim.api.nvim_win_get_height(self.win)
+	local content_rows = math.max(#self.items, 1)
+	local topline
+	if content_rows <= height or row <= height then
+		topline = 1
+	else
+		topline = math.max(row - height + 1, 1)
+		local header_row = self:_header_row_for(row)
+		if header_row and topline > header_row and (row - header_row) < height then
+			topline = header_row
+		end
+	end
+	with_window(self.win, function()
+		vim.fn.winrestview({
+			lnum = row,
+			col = 0,
+			topline = topline,
+			leftcol = 0,
+		})
+	end)
 end
 
 return M

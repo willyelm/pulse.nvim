@@ -152,9 +152,9 @@ local function notify(message, level)
 	vim.notify("Pulse: " .. message, level or vim.log.levels.WARN)
 end
 
-local function focus_input(ctx)
-	if ctx and ctx.input then
-		ctx.input:focus(true)
+local function dispatch(ctx, effects)
+	if ctx and ctx.dispatch then
+		ctx.dispatch(effects)
 	end
 end
 
@@ -171,9 +171,7 @@ end
 
 local function refresh_actions(ctx)
 	items.invalidate(ctx and ctx.state)
-	if ctx and ctx.refresh then
-		ctx.refresh()
-	end
+	dispatch(ctx, { type = "refresh" })
 end
 
 local function action_input(prompt, default, cb)
@@ -189,7 +187,7 @@ local function action_add(ctx)
 	return action_input("Add: ", nil, function(value)
 		value = vim.trim(value or "")
 		if value == "" then
-			return focus_input(ctx)
+			return dispatch(ctx, { type = "focus_input" })
 		end
 		local dest = dest_dir .. "/" .. value
 		local ok
@@ -204,7 +202,7 @@ local function action_add(ctx)
 			notify("create failed or target already exists", vim.log.levels.ERROR)
 		end
 		refresh_actions(ctx)
-		focus_input(ctx)
+		dispatch(ctx, { type = "focus_input" })
 	end)
 end
 
@@ -216,7 +214,7 @@ local function action_rename(ctx)
 	local current = vim.fn.fnamemodify(src, ":t")
 	return action_input("Rename: ", current, function(value)
 		if not value or value == "" or value == current then
-			return focus_input(ctx)
+			return dispatch(ctx, { type = "focus_input" })
 		end
 		local dest = vim.fn.fnamemodify(src, ":h") .. "/" .. value
 		if path_taken(dest) then
@@ -224,12 +222,12 @@ local function action_rename(ctx)
 		elseif vim.fn.rename(src, dest) ~= 0 then
 			notify("rename failed", vim.log.levels.ERROR)
 		elseif ctx.scope and ctx.scope.kind == "file" and ctx.scope.path == src then
-			ctx.set_scope(scope.file(dest, vim.fn.bufnr(vim.fn.fnamemodify(dest, ":p"))))
+			dispatch(ctx, { type = "set_scope", scope = scope.file(dest, vim.fn.bufnr(vim.fn.fnamemodify(dest, ":p"))) })
 		elseif ctx.scope and ctx.scope.kind == "folder" and ctx.scope.path == src then
-			ctx.set_scope(scope.folder(dest))
+			dispatch(ctx, { type = "set_scope", scope = scope.folder(dest) })
 		end
 		refresh_actions(ctx)
-		focus_input(ctx)
+		dispatch(ctx, { type = "focus_input" })
 	end)
 end
 
@@ -246,7 +244,7 @@ local function action_delete(ctx)
 		return true
 	end
 	if ctx.scope and ctx.scope.path == src then
-		ctx.clear_scope()
+		dispatch(ctx, { type = "clear_scope" })
 	else
 		refresh_actions(ctx)
 	end
@@ -323,9 +321,7 @@ end
 M.mode = {
 	name = "files",
 	icon = "󰈔",
-	actions = function(ctx)
-		return file_actions(ctx)
-	end,
+	actions = file_actions,
 }
 
 M.context = false
@@ -371,15 +367,13 @@ local function toggle_folder(ctx)
 	if item.scope_parent then
 		local parent = items.parent_scope(ctx.state)
 		if parent then
-			ctx.set_scope(parent)
+			return { { type = "set_scope", scope = parent } }
 		else
-			ctx.clear_scope()
+			return { { type = "clear_scope" } }
 		end
-		return true
 	end
 	ctx.state.expanded[item.path] = not ctx.state.expanded[item.path]
-	ctx.refresh()
-	return true
+	return { { type = "refresh" } }
 end
 
 function M.on_tab(ctx)
@@ -387,29 +381,28 @@ function M.on_tab(ctx)
 		return
 	end
 	if ctx.item.kind == "folder" then
-		ctx.enter_scope(scope.folder(items.absolute_path(ctx.state.root, ctx.item.path)))
-		return
+		return { { type = "enter_scope", scope = scope.folder(items.absolute_path(ctx.state.root, ctx.item.path)) } }
 	end
-	if ctx.preview(ctx.item) then
-		local current_scope = ctx.source_scope and ctx.source_scope() or nil
-		if current_scope then
-			ctx.enter_scope(current_scope)
-		end
+	local current_scope = ctx.source_scope and ctx.source_scope() or nil
+	local effects = { { type = "preview", item = ctx.item } }
+	if current_scope then
+		effects[#effects + 1] = { type = "enter_scope", scope = current_scope }
 	end
+	return effects
 end
 
 function M.on_submit(ctx)
-	if toggle_folder(ctx) then
-		return
+	local toggled = toggle_folder(ctx)
+	if toggled then
+		return toggled
 	end
 	if ctx.item then
-		ctx.close()
-		if ctx.jump(ctx.item) then
-			local current_scope = ctx.source_scope and ctx.source_scope() or nil
-			if current_scope then
-				ctx.set_scope(current_scope)
-			end
+		local effects = { { type = "close" }, { type = "jump", item = ctx.item } }
+		local current_scope = ctx.source_scope and ctx.source_scope() or nil
+		if current_scope then
+			effects[#effects + 1] = { type = "set_scope", scope = current_scope }
 		end
+		return effects
 	end
 end
 

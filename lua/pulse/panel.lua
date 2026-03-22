@@ -162,14 +162,14 @@ function M.visible_panels(navigators, scope_type)
 	return visible
 end
 
-function M.select(active_panels, surface)
-	if surface and surface.panel then
-		active_panels[surface.navigator] = surface.panel
+function M.select(active_panels, panel_entry)
+	if panel_entry and panel_entry.panel then
+		active_panels[panel_entry.navigator] = panel_entry.panel
 	end
-	return surface
+	return panel_entry
 end
 
-function M.find_surface(panels, mode_name, panel_name)
+function M.find_panel(panels, mode_name, panel_name)
 	for _, entry in ipairs(panels or {}) do
 		if entry.navigator == mode_name and entry.panel == panel_name then
 			return entry
@@ -177,7 +177,7 @@ function M.find_surface(panels, mode_name, panel_name)
 	end
 end
 
-function M.default_surface(panels, initial_panel)
+function M.default_panel(panels, initial_panel)
 	for _, entry in ipairs(panels or {}) do
 		if entry.name == initial_panel then
 			return entry
@@ -237,27 +237,27 @@ function M.header_item(panels, active_name)
 	}
 end
 
-function M.render(target, ns, panel_header)
+function M.render(target, ns, menu)
 	if not (target and target.buf and vim.api.nvim_buf_is_valid(target.buf)) then
 		return
 	end
 
-	if not panel_header then
+	if not menu then
 		set_lines(target.buf, { "" })
 		vim.api.nvim_buf_clear_namespace(target.buf, ns, 0, -1)
 		return
 	end
 
 	local width = vim.api.nvim_win_is_valid(target.win) and vim.api.nvim_win_get_width(target.win) or 1
-	local full_text = tostring(panel_header.label or "")
-	local offset, available = viewport_for(width, full_text, panel_header.panel_blocks, panel_header.active_name)
+	local full_text = tostring(menu.label or "")
+	local offset, available = viewport_for(width, full_text, menu.panel_blocks, menu.active_name)
 	local visible = full_text:sub(offset + 1, offset + available)
-	panel_header.viewport_offset = offset
+	menu.viewport_offset = offset
 	local line = " " .. visible .. string.rep(" ", math.max(width - 2 - #visible, 0)) .. " "
 
 	set_lines(target.buf, { line })
 	vim.api.nvim_buf_clear_namespace(target.buf, ns, 0, -1)
-	for _, hl in ipairs(panel_header.panel_highlights or {}) do
+	for _, hl in ipairs(menu.panel_highlights or {}) do
 		local start_col = math.max(hl[1], offset)
 		local end_col = math.min(hl[2], offset + available)
 		if start_col < end_col then
@@ -270,9 +270,9 @@ function M.render(target, ns, panel_header)
 	end
 end
 
-function M.hit_test(panel_header, col)
-	local full_col = (tonumber(col) or 0) + (panel_header and panel_header.viewport_offset or 0)
-	for _, block in ipairs((panel_header and panel_header.panel_blocks) or {}) do
+function M.hit_test(menu, col)
+	local full_col = (tonumber(col) or 0) + (menu and menu.viewport_offset or 0)
+	for _, block in ipairs((menu and menu.panel_blocks) or {}) do
 		if full_col >= block.start_col and full_col < block.end_col then
 			return block.name
 		end

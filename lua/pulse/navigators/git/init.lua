@@ -14,7 +14,7 @@ M.panels = {
 }
 
 M.context = function(item)
-	return item and (item.kind == "git_commit" or item.code == "??" or item.added + item.removed > 0)
+	return item and (item.kind == "git_commit" or item.code == "??" or ((item.added or 0) + (item.removed or 0) > 0))
 end
 M.scope_aware = true
 M.context_item = git_context.context_item
@@ -54,20 +54,16 @@ function M.on_submit(ctx)
 	local panel_name = ctx and ctx.state and ctx.state.active_panel
 	if panel_name == "git_project_history" and item and item.kind == "git_commit" then
 		ctx.state.expanded[item.commit] = not ctx.state.expanded[item.commit]
-		ctx.refresh()
-		return
+		return { { type = "refresh" } }
 	end
 	if item and item.kind == "git_commit_file" then
-		ctx.jump(item)
-		ctx.close()
-		return
+		return { { type = "jump", item = item }, { type = "close" } }
 	end
 	if item and item.kind == "git_commit" then
 		return
 	end
 	if item then
-		ctx.jump(item)
-		ctx.close()
+		return { { type = "jump", item = item }, { type = "close" } }
 	end
 end
 

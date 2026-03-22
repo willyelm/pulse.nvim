@@ -5,18 +5,14 @@ local scope = require("pulse.scope")
 
 local M = {}
 
-function M.visible_surfaces(modules, current_scope)
-	return panel.visible_panels(modules, panel.scope_type(current_scope))
-end
-
-local function default_surface_for_mode(panels, mode_name, initial_panel)
+local function default_panel_for_mode(panels, mode_name, initial_panel)
 	local local_panels = {}
 	for _, entry in ipairs(panels or {}) do
 		if entry.navigator == mode_name then
 			local_panels[#local_panels + 1] = entry
 		end
 	end
-	return panel.default_surface(local_panels, initial_panel) or panel.default_surface(panels, initial_panel)
+	return panel.default_panel(local_panels, initial_panel) or panel.default_panel(panels, initial_panel)
 end
 
 function M.prompt_has_prefix(prompt)
@@ -33,28 +29,18 @@ function M.current_buffer_mode(prompt, current_scope, current_mode_name, registr
 	end
 end
 
-function M.reconcile_scope(args)
-	local prompt = args.prompt
-	local mode_name = args.mode_name
-	local mod = args.mod
-	local current_scope = args.current_scope
-	local state = args.state
-	local input = args.input
-	local modules = args.modules
-	local source_bufnr = args.source_bufnr
-
+function M.reconcile_scope(prompt, mode_name, mod, current_scope, state, modules, source_bufnr)
 	if not (state.scope and mod and not panel.supports_scope(mod, current_scope)) then
-		return mode_name, mod, current_scope, false
+		return mode_name, mod, current_scope, false, nil
 	end
 	if current_scope == "buffer" and not M.prompt_has_prefix(prompt) then
-		local surfaces = M.visible_surfaces(modules, state.scope)
-		local target = panel.default_surface(surfaces, nil)
-		if target and input then
+		local panels = panel.visible_panels(modules, state.scope and panel.scope_type(state.scope) or "workspace")
+		local target = panel.default_panel(panels, nil)
+		if target then
 			panel.select(state.active_panels, target)
 			local next_prompt = mode.switch_prompt(prompt, target.navigator)
 			if next_prompt ~= prompt then
-				input:set_value(next_prompt)
-				return mode_name, mod, current_scope, true
+				return mode_name, mod, current_scope, true, next_prompt
 			end
 		end
 	end
@@ -63,7 +49,7 @@ function M.reconcile_scope(args)
 	elseif panel.supports_scope(mod, "workspace") then
 		state.scope = nil
 	end
-	return mode_name, mod, panel.scope_type(state.scope), false
+	return mode_name, mod, panel.scope_type(state.scope), false, nil
 end
 
 function M.ensure_implicit_buffer_scope(state, mod, source_bufnr)
@@ -72,35 +58,26 @@ function M.ensure_implicit_buffer_scope(state, mod, source_bufnr)
 	end
 end
 
-function M.resolve_surface(args)
-	local prompt = args.prompt
-	local mode_name = args.mode_name
-	local mod = args.mod
-	local initial_panel = args.initial_panel
-	local state = args.state
-	local input = args.input
-	local modules = args.modules
-
+function M.resolve_panel(prompt, mode_name, mod, initial_panel, state, modules)
 	local current_panel = panel.active_name(state.active_panels, mode_name, mod and mod.panels, initial_panel)
-	local surfaces = M.visible_surfaces(modules, state.scope)
-	local active_surface = panel.find_surface(surfaces, mode_name, current_panel)
-	if active_surface then
-		return surfaces, active_surface, false
+	local panels = panel.visible_panels(modules, state.scope and panel.scope_type(state.scope) or "workspace")
+	local active_panel = panel.find_panel(panels, mode_name, current_panel)
+	if active_panel then
+		return panels, active_panel, false, nil
 	end
 
-	active_surface = default_surface_for_mode(surfaces, mode_name, initial_panel)
-	panel.select(state.active_panels, active_surface)
-	if active_surface and input then
-		local next_prompt = mode.switch_prompt(prompt, active_surface.navigator)
+	active_panel = default_panel_for_mode(panels, mode_name, initial_panel)
+	panel.select(state.active_panels, active_panel)
+	if active_panel then
+		local next_prompt = mode.switch_prompt(prompt, active_panel.navigator)
 		if next_prompt ~= prompt then
-			input:set_value(next_prompt)
-			return surfaces, active_surface, true
+			return panels, active_panel, true, next_prompt
 		end
 	end
-	return surfaces, active_surface, false
+	return panels, active_panel, false, nil
 end
 
-function M.apply_prompt_ui(input, current_mod, current_state, current_scope, query, active_surface, found, total)
+function M.prompt_ui(current_mod, current_state, current_scope, query, active_panel, found, total)
 	local navigator_mode = current_mod and current_mod.mode or {}
 	local prompt_prefix = " " .. (navigator_mode.icon or "") .. " "
 	local scoped = nil
@@ -112,12 +89,14 @@ function M.apply_prompt_ui(input, current_mod, current_state, current_scope, que
 	if scope_text ~= "" then
 		prompt = prompt .. " "
 	end
-	input:set_prompt(prompt)
-	input:set_addons({
-		ghost = query == "" and active_surface and active_surface.label or nil,
-		right = { text = string.format("%d/%d", found, total), hl = "LineNr" },
-		prompt_matches = scope.prompt_matches(scoped, #prompt_prefix),
-	})
+	return {
+		prompt = prompt,
+		addons = {
+			ghost = query == "" and active_panel and active_panel.label or nil,
+			right = { text = string.format("%d/%d", found, total), hl = "LineNr" },
+			prompt_matches = scope.prompt_matches(scoped, #prompt_prefix),
+		},
+	}
 end
 
 return M
