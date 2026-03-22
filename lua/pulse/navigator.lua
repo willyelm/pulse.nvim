@@ -55,6 +55,12 @@ local function item_key(item)
 	if not item or is_header(item) then
 		return nil
 	end
+	if item.kind == "git_commit" then
+		return "git_commit:" .. tostring(item.commit)
+	end
+	if item.kind == "git_commit_file" then
+		return "git_commit_file:" .. tostring(item.commit) .. ":" .. tostring(item.path)
+	end
 	if item.kind == "folder" or item.kind == "file" then
 		return item.kind .. ":" .. tostring(item.path)
 	end
@@ -362,7 +368,22 @@ refresh = function()
 	local mode_name, query = mode.parse_prompt(prompt)
 	local mod = state.registry[mode_name]
 	local current_scope = panel.scope_type(state.scope)
+	local has_prefix = config.options._by_start and config.options._by_start[prompt:sub(1, 1)] ~= nil
 	if state.scope and mod and not panel.supports_scope(mod, current_scope) then
+		if current_scope == "buffer" and not has_prefix then
+			local surfaces = panel.visible_panels(state.modules, current_scope)
+			local target = panel.default_surface(surfaces, nil)
+			if target and state.input then
+				if target.panel then
+					state.active_panels[target.navigator] = target.panel
+				end
+				local next_prompt = mode.switch_prompt(prompt, target.navigator)
+				if next_prompt ~= prompt then
+					state.input:set_value(next_prompt)
+					return
+				end
+			end
+		end
 		if panel.is_buffer_only(mod) then
 			state.scope = scope.from_buffer(state.source_bufnr)
 		elseif panel.supports_scope(mod, "workspace") then

@@ -2,6 +2,7 @@ local M = {}
 local diff_ui = require("pulse.ui.diff")
 local context = require("pulse.context")
 local scope = require("pulse.scope")
+local CONTEXT_CACHE = {}
 
 M.mode = {
 	name = "git",
@@ -18,6 +19,11 @@ M.context = function(item)
 end
 M.scope_aware = true
 
+local function git_lines(cmd)
+	local lines = vim.fn.systemlist(cmd)
+	return (vim.v.shell_error == 0) and lines or nil
+end
+
 local function line_count(path)
 	local resolved = (path and vim.fn.filereadable(path) == 1) and path or vim.fn.fnamemodify(path or "", ":p")
 	if vim.fn.filereadable(resolved) ~= 1 then
@@ -31,8 +37,7 @@ local function read_head_file(path)
 	if rel == "" then
 		return {}
 	end
-	local lines = vim.fn.systemlist({ "git", "--no-pager", "show", "HEAD:" .. rel })
-	return (vim.v.shell_error == 0) and lines or {}
+	return git_lines({ "git", "--no-pager", "show", "HEAD:" .. rel }) or {}
 end
 
 local function read_worktree_file(path)
@@ -41,12 +46,12 @@ local function read_worktree_file(path)
 end
 
 local function git_patch_for(path)
-	local diff = vim.fn.systemlist({ "git", "--no-pager", "diff", "--", path })
-	if vim.v.shell_error == 0 and #diff > 0 then
+	local diff = git_lines({ "git", "--no-pager", "diff", "--", path })
+	if diff and #diff > 0 then
 		return diff
 	end
-	diff = vim.fn.systemlist({ "git", "--no-pager", "diff", "--cached", "--", path })
-	if vim.v.shell_error == 0 and #diff > 0 then
+	diff = git_lines({ "git", "--no-pager", "diff", "--cached", "--", path })
+	if diff and #diff > 0 then
 		return diff
 	end
 	return { "No git diff for " .. tostring(path) }
@@ -56,8 +61,7 @@ local function read_commit_file(commit, path)
 	if not (commit and path and path ~= "") then
 		return {}
 	end
-	local lines = vim.fn.systemlist({ "git", "--no-pager", "show", commit .. ":" .. path })
-	return (vim.v.shell_error == 0) and lines or {}
+	return git_lines({ "git", "--no-pager", "show", commit .. ":" .. path }) or {}
 end
 
 local function pretty_date(date)
@@ -137,44 +141,60 @@ local function with_summary(lines, highlights, focus_row, added, removed)
 	return lines, highlights, (focus_row or 1) + 2
 end
 
+local function cached_context(key, producer)
+	local cached = CONTEXT_CACHE[key]
+	if cached then
+		return unpack(cached)
+	end
+	local value = { producer() }
+	CONTEXT_CACHE[key] = value
+	return unpack(value)
+end
+
 function M.context_item(item)
-	if item.kind == "git_commit" then
-		if item.history_kind == "file" and item.history_path then
-			local old_lines = read_commit_file(item.parent or (item.commit .. "^"), item.history_path)
-			local new_lines = read_commit_file(item.commit, item.history_path)
-			local lines, highlights, focus_row = diff_ui.from_lines(old_lines, new_lines, { context = 3 })
-			lines, highlights, focus_row = with_summary(lines, highlights, focus_row, item.added, item.removed)
-			local _, filetype = context.file_snippet(item.history_path, 1)
-			return lines, filetype, highlights, nil, focus_row
+	if item.kind == "git_commit" or item.kind == "git_commit_file" then
+		if item.kind == "git_commit_file" or (item.history_kind == "file" and item.history_path) then
+			local history_path = item.history_path or item.path
+			return cached_context("file:" .. tostring(item.commit) .. ":" .. tostring(history_path), function()
+				local old_lines = read_commit_file(item.parent or (item.commit .. "^"), history_path)
+				local new_lines = read_commit_file(item.commit, history_path)
+				local lines, highlights, focus_row = diff_ui.from_lines(old_lines, new_lines, { context = 3 })
+				lines, highlights, focus_row = with_summary(lines, highlights, focus_row, item.added, item.removed)
+				local _, filetype = context.file_snippet(history_path, 1)
+				return lines, filetype, highlights, nil, focus_row
+			end)
 		end
+		return cached_context("commit:" .. tostring(item.commit) .. ":" .. tostring(item.history_path or ""), function()
 			local cmd = {
 				"git",
 				"--no-pager",
 				"show",
 				"--stat",
-				"--date=short",
 				"--format=format:%h  %as  %an <%ae>%n%n%s%n%b",
 				item.commit,
 			}
-		if item.history_path then
-			cmd[#cmd + 1] = "--"
-			cmd[#cmd + 1] = item.history_path
-		end
-		local lines = vim.fn.systemlist(cmd)
-		if vim.v.shell_error ~= 0 or #lines == 0 then
-			lines = { "No git history for " .. tostring(item.commit or "") }
-		end
-		return lines, "git", {}, nil, 1
+			if item.history_path then
+				cmd[#cmd + 1] = "--"
+				cmd[#cmd + 1] = item.history_path
+			end
+			local lines = git_lines(cmd)
+			if not lines or #lines == 0 then
+				lines = { "No git history for " .. tostring(item.commit or "") }
+			end
+			return lines, "git", {}, nil, 1
+		end)
 	end
 	local path = item.path or item.filename
-	local old_lines, new_lines = read_head_file(path), read_worktree_file(path)
-	if #old_lines == 0 and #new_lines == 0 then
-		return git_patch_for(path), "text", {}, nil, 1
-	end
-	local lines, highlights, focus_row = diff_ui.from_lines(old_lines, new_lines, { context = 3 })
-	lines, highlights, focus_row = with_summary(lines, highlights, focus_row, item.added, item.removed)
-	local _, filetype = context.file_snippet(path, 1)
-	return lines, filetype, highlights, nil, focus_row
+	return cached_context("status:" .. tostring(path) .. ":" .. tostring(item.code or ""), function()
+		local old_lines, new_lines = read_head_file(path), read_worktree_file(path)
+		if #old_lines == 0 and #new_lines == 0 then
+			return git_patch_for(path), "text", {}, nil, 1
+		end
+		local lines, highlights, focus_row = diff_ui.from_lines(old_lines, new_lines, { context = 3 })
+		lines, highlights, focus_row = with_summary(lines, highlights, focus_row, item.added, item.removed)
+		local _, filetype = context.file_snippet(path, 1)
+		return lines, filetype, highlights, nil, focus_row
+	end)
 end
 
 M.on_tab = false
@@ -209,8 +229,8 @@ local function build_numstat_map()
 			end
 		end
 	end
-	absorb(vim.fn.systemlist({ "git", "diff", "--numstat" }))
-	absorb(vim.fn.systemlist({ "git", "diff", "--cached", "--numstat" }))
+	absorb(git_lines({ "git", "diff", "--numstat" }))
+	absorb(git_lines({ "git", "diff", "--cached", "--numstat" }))
 	return map
 end
 
@@ -225,66 +245,112 @@ local function history_pathspec(state, panel_name)
 	return nil
 end
 
-local function history_items(state, query, panel_name)
-	local pulse = require("pulse")
-	local q = vim.trim(query or "")
-	local match = pulse.make_matcher(q, { ignore_case = true, plain = true })
-	state.files = {}
-	state.all_files = {}
+local function file_change_right(added, removed)
+	local parts = {}
+	if (tonumber(added) or 0) > 0 then
+		parts[#parts + 1] = "+" .. tostring(added)
+	end
+	if (tonumber(removed) or 0) > 0 then
+		parts[#parts + 1] = "-" .. tostring(removed)
+	end
+	return table.concat(parts, " ")
+end
 
-	local cmd = {
-		"git",
-		"--no-pager",
-		"log",
-		"--pretty=format:%h%x09%at%x09%an%x09%ae%x09%s",
-		"--numstat",
-		"-n",
-		"200",
-	}
-	local pathspec = history_pathspec(state, panel_name)
+local function commit_files(state, commit, pathspec)
+	local cached = state.history_files[commit]
+	if cached then
+		return cached
+	end
+
+	local cmd = { "git", "--no-pager", "show", "--numstat", "--format=", commit }
 	if pathspec then
 		cmd[#cmd + 1] = "--"
 		cmd[#cmd + 1] = pathspec
 	end
-
-	local lines = vim.fn.systemlist(cmd)
-	if vim.v.shell_error ~= 0 then
-		return {}
-	end
-
-	local current = nil
-	for _, line in ipairs(lines) do
-		local commit, ts, author, email, subject = line:match("^([^\t]+)\t([^\t]+)\t([^\t]+)\t([^\t]+)\t(.*)$")
-		if commit and subject then
-			current = {
-				kind = "git_commit",
+	local out = {}
+	for _, line in ipairs(git_lines(cmd) or {}) do
+		local added, removed, path = line:match("^(%S+)%s+(%S+)%s+(.+)$")
+		if path and path ~= "" then
+			path = normalize_status_path(path)
+			out[#out + 1] = {
+				kind = "git_commit_file",
 				commit = commit,
 				parent = commit .. "^",
-				date = pretty_date_from_ts(ts),
-				timestamp = tonumber(ts) or 0,
-				author = author,
-				email = email,
-				subject = subject,
-				label = subject,
-				path = pathspec,
-				history_path = pathspec,
-				history_kind = panel_name == "git_file_history" and "file" or "project",
-				display_right = panel_name == "git_project_history" and relative_time(ts) or pretty_date_from_ts(ts),
-				added = 0,
-				removed = 0,
+				path = path,
+				filename = path,
+				label = vim.fn.fnamemodify(path, ":t"),
+				added = tonumber(added) or 0,
+				removed = tonumber(removed) or 0,
+				display_right = file_change_right(tonumber(added) or 0, tonumber(removed) or 0),
+				depth = 1,
 			}
-			state.all_files[#state.all_files + 1] = current
-			if match(table.concat({ commit, tostring(ts), author, email, subject, pathspec or "" }, " ")) then
-				state.files[#state.files + 1] = current
-			else
-				current = nil
+		end
+	end
+	state.history_files[commit] = out
+	return out
+end
+
+local function history_items(state, query, panel_name)
+	local pulse = require("pulse")
+	local q = vim.trim(query or "")
+	local match = pulse.make_matcher(q, { ignore_case = true, plain = true })
+	local pathspec = history_pathspec(state, panel_name)
+	local cache_key = panel_name .. "|" .. tostring(pathspec or "")
+	if state.history_key ~= cache_key then
+		state.history_key = cache_key
+		state.history_all = {}
+
+		local cmd = {
+			"git",
+			"--no-pager",
+			"log",
+			"--pretty=format:%h%x09%at%x09%an%x09%ae%x09%s",
+			"--numstat",
+			"-n",
+			"200",
+		}
+		if pathspec then
+			cmd[#cmd + 1] = "--"
+			cmd[#cmd + 1] = pathspec
+		end
+
+		local current = nil
+		for _, line in ipairs(git_lines(cmd) or {}) do
+			local commit, ts, author, email, subject = line:match("^([^\t]+)\t([^\t]+)\t([^\t]+)\t([^\t]+)\t(.*)$")
+			if commit and subject then
+				current = {
+					kind = "git_commit",
+					commit = commit,
+					parent = commit .. "^",
+					date = pretty_date_from_ts(ts),
+					timestamp = tonumber(ts) or 0,
+					author = author,
+					email = email,
+					subject = subject,
+					label = subject,
+					path = pathspec,
+					history_path = pathspec,
+					history_kind = panel_name == "git_file_history" and "file" or "project",
+					display_right = panel_name == "git_project_history" and relative_time(ts) or pretty_date_from_ts(ts),
+					added = 0,
+					removed = 0,
+				}
+				state.history_all[#state.history_all + 1] = current
+			elseif current then
+				local added, removed = line:match("^(%S+)%s+(%S+)%s+(.+)$")
+				if added and removed then
+					current.added = current.added + (tonumber(added) or 0)
+					current.removed = current.removed + (tonumber(removed) or 0)
+				end
 			end
-		elseif current then
-			local added, removed = line:match("^(%S+)%s+(%S+)%s+(.+)$")
-			if added and removed then
-				current.added = current.added + (tonumber(added) or 0)
-				current.removed = current.removed + (tonumber(removed) or 0)
-			end
+		end
+	end
+
+	state.all_files = state.history_all or {}
+	state.files = {}
+	for _, item in ipairs(state.all_files) do
+		if match(table.concat({ item.commit, tostring(item.timestamp), item.author, item.email, item.subject, pathspec or "" }, " ")) then
+			state.files[#state.files + 1] = item
 		end
 	end
 	if panel_name ~= "git_project_history" then
@@ -312,6 +378,12 @@ function M.init(ctx)
 	return {
 		files = {},
 		all_files = {},
+		history_files = {},
+		history_all = {},
+		expanded = {},
+		history_key = nil,
+		status_all = {},
+		status_key = nil,
 		scope = (scoped and scoped.kind == "folder" and scope.folder(scoped.path)) or nil,
 		scope_prefix = (scoped and scoped.kind == "folder" and (vim.fn.fnamemodify(scoped.path, ":.") .. "/")) or nil,
 	}
@@ -325,66 +397,91 @@ function M.items(state, query, panel_name)
 	panel_name = panel_name or "git_status"
 	state.active_panel = panel_name
 	if panel_name == "git_project_history" or panel_name == "git_file_history" then
-		return history_items(state, query, panel_name)
+		local items = history_items(state, query, panel_name)
+		if panel_name ~= "git_project_history" then
+			return items
+		end
+		local out = {}
+		for _, item in ipairs(items) do
+			out[#out + 1] = item
+			if item.kind == "git_commit" and state.expanded[item.commit] then
+				for _, child in ipairs(commit_files(state, item.commit, item.history_path)) do
+					out[#out + 1] = child
+				end
+			end
+		end
+		return out
 	end
 
 	local pulse = require("pulse")
 	local q = vim.trim(query or "")
 	local match = pulse.make_matcher(q, { ignore_case = true, plain = true })
-	state.files = {}
-	state.all_files = {}
-	local zero = { added = 0, removed = 0 }
-
-	local lines = vim.fn.systemlist({ "git", "status", "--porcelain=v1", "--untracked-files=all" })
-	if vim.v.shell_error ~= 0 then
-		return {}
-	end
-	local stats = build_numstat_map()
-	for _, line in ipairs(lines) do
-		local code = line:sub(1, 2)
-		local rest = vim.trim(line:sub(4))
-		if rest ~= "" then
-			local path = normalize_status_path(rest)
-			if path == "" then
-				goto continue
-			end
-			if state.scope_prefix and path:sub(1, #state.scope_prefix) ~= state.scope_prefix then
-				goto continue
-			end
-			local stat = stats[path] or zero
-			local code_trim = vim.trim(code)
-			local added = stat.added
-			if code_trim == "??" and added == 0 then
-				added = line_count(path)
-			end
-			local item = {
-				kind = "git_status",
-				code = code_trim,
-				path = path,
-				filename = path,
-				added = added,
-				removed = stat.removed,
-			}
-			local display = {}
-			if item.added > 0 then
-				display[#display + 1] = "+" .. item.added
-			end
-			if item.removed > 0 then
-				display[#display + 1] = "-" .. item.removed
-			end
-			local label = item.code
-			if label then
-				display[#display + 1] = label
-			end
-			item.display_right = table.concat(display, " ")
-			state.all_files[#state.all_files + 1] = item
-			if match(item.path .. " " .. item.code) then
-				state.files[#state.files + 1] = item
+	local status_key = tostring(state.scope_prefix or "")
+	if state.status_key ~= status_key then
+		state.status_key = status_key
+		state.status_all = {}
+		local zero = { added = 0, removed = 0 }
+		local stats = build_numstat_map()
+		for _, line in ipairs(git_lines({ "git", "status", "--porcelain=v1", "--untracked-files=all" }) or {}) do
+			local code = line:sub(1, 2)
+			local rest = vim.trim(line:sub(4))
+			if rest ~= "" then
+				local path = normalize_status_path(rest)
+				if path ~= "" and (not state.scope_prefix or path:sub(1, #state.scope_prefix) == state.scope_prefix) then
+					local stat = stats[path] or zero
+					local code_trim = vim.trim(code)
+					local added = stat.added
+					if code_trim == "??" and added == 0 then
+						added = line_count(path)
+					end
+					local item = {
+						kind = "git_status",
+						code = code_trim,
+						path = path,
+						filename = path,
+						added = added,
+						removed = stat.removed,
+					}
+					item.display_right = table.concat(vim.tbl_filter(function(v) return v ~= nil and v ~= "" end, {
+						item.added > 0 and ("+" .. item.added) or nil,
+						item.removed > 0 and ("-" .. item.removed) or nil,
+						item.code,
+					}), " ")
+					state.status_all[#state.status_all + 1] = item
+				end
 			end
 		end
-		::continue::
+	end
+	state.all_files = state.status_all or {}
+	state.files = {}
+	for _, item in ipairs(state.all_files) do
+		if match(item.path .. " " .. item.code) then
+			state.files[#state.files + 1] = item
+		end
 	end
 	return state.files
+end
+
+function M.on_submit(ctx)
+	local item = ctx and ctx.item
+	local panel_name = ctx and ctx.state and ctx.state.active_panel
+	if panel_name == "git_project_history" and item and item.kind == "git_commit" then
+		ctx.state.expanded[item.commit] = not ctx.state.expanded[item.commit]
+		ctx.refresh()
+		return
+	end
+	if item and item.kind == "git_commit_file" then
+		ctx.jump(item)
+		ctx.close()
+		return
+	end
+	if item and item.kind == "git_commit" then
+		return
+	end
+	if item then
+		ctx.jump(item)
+		ctx.close()
+	end
 end
 
 function M.total_count(state)

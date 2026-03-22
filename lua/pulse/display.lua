@@ -239,6 +239,25 @@ local function display_git_commit(item)
 	return out
 end
 
+local function display_git_commit_file(item)
+	local indent = string.rep("  ", tonumber(item.depth) or 0)
+	local icon, style = icon_for_item("file", item.path)
+	local left = string.format("%s%s %s", indent, icon, item.label or file_name(item.path))
+	local out = row(left, item.display_right or "", false, style and { { #indent, #indent + #icon, style } } or nil)
+	if item.display_right ~= "" then
+		out.right_matches = {}
+		local p1, p2 = item.display_right:find("%+%d+")
+		if p1 then
+			out.right_matches[#out.right_matches + 1] = { p1 - 1, p2, "PulseAdd" }
+		end
+		p1, p2 = item.display_right:find("%-%d+")
+		if p1 then
+			out.right_matches[#out.right_matches + 1] = { p1 - 1, p2, "PulseDelete" }
+		end
+	end
+	return out
+end
+
 local function display_diagnostic(item)
 	local icon, hl = icon_for_item("diagnostic", item.severity_name)
 	local pos = string.format("%s:%d:%d", file_name(item.filename), item.lnum or 1, item.col or 1)
@@ -269,6 +288,7 @@ local RENDERERS = {
 	fuzzy_search = display_grep,
 	git_status = display_git_status,
 	git_commit = display_git_commit,
+	git_commit_file = display_git_commit_file,
 	diagnostic = display_diagnostic,
 	symbol = display_symbol,
 	workspace_symbol = display_symbol,

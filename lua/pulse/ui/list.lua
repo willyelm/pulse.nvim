@@ -41,6 +41,21 @@ local function add_hl(highlights, group, row, start_col, end_col)
 	highlights[#highlights + 1] = { group = group, row = row, start_col = start_col, end_col = end_col }
 end
 
+local function is_header(item)
+	return item and item.kind == "header"
+end
+
+local function group_start(items, index)
+	local i = math.max(tonumber(index) or 1, 1)
+	while i > 1 and not is_header(items[i]) and not is_header(items[i - 1]) do
+		i = i - 1
+	end
+	if i > 1 and is_header(items[i - 1]) then
+		return i - 1
+	end
+	return i
+end
+
 local function set_lines(buf, lines)
 	vim.bo[buf].modifiable = true
 	vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
@@ -221,12 +236,13 @@ function M:render(width)
 		local row = ((#self.items > 0) and (self.selected or 0) > 0) and self.selected or 1
 		local height = vim.api.nvim_win_get_height(self.win)
 		local max_top = math.max(#lines - height + 1, 1)
-		local topline = view and view.topline or 1
-		topline = math.min(math.max(topline, 1), max_top)
-		if row < topline then
-			topline = row
-		elseif row > topline + height - 1 then
-			topline = math.max(row - height + 1, 1)
+		local topline = clamp(math.floor(row - (height / 2)), 1, max_top)
+		local start = group_start(self.items, row)
+		if start < row then
+			topline = math.min(topline, start)
+		end
+		if row <= height then
+			topline = 1
 		end
 		pcall(vim.api.nvim_win_call, self.win, function()
 			vim.fn.winrestview({
