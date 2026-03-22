@@ -234,6 +234,9 @@ function M:set_max_visible(max_visible)
 end
 
 function M:set_win(win)
+	if self.win == win then
+		return
+	end
 	self.win = win
 	if self.win and vim.api.nvim_win_is_valid(self.win) then
 		window.configure_content_window(self.win)

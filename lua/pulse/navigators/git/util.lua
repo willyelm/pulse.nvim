@@ -72,17 +72,6 @@ function M.relative_time(ts)
 	return string.format("%d year%s ago", years, years == 1 and "" or "s")
 end
 
-function M.diff_summary(added, removed)
-	local parts = {}
-	if (tonumber(added) or 0) > 0 then
-		parts[#parts + 1] = string.format("%d insertions(+)", added)
-	end
-	if (tonumber(removed) or 0) > 0 then
-		parts[#parts + 1] = string.format("%d deletions(-)", removed)
-	end
-	return #parts > 0 and table.concat(parts, ", ") or "No line changes"
-end
-
 function M.file_change_right(added, removed)
 	local parts = {}
 	if (tonumber(added) or 0) > 0 then

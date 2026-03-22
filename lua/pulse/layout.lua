@@ -37,6 +37,23 @@ function M.new(box)
 		local width = vim.api.nvim_win_get_width(box.win)
 		local show_context = context_height > 0
 		local show_panels = refs and refs.show_panels == true
+		local function sync_refs()
+			if refs.list then
+				refs.list.win = self.sections.list and self.sections.list.win or nil
+			end
+			if refs.panels then
+				refs.panels.buf = show_panels and self.sections.panels and self.sections.panels.buf or nil
+				refs.panels.win = show_panels and self.sections.panels and self.sections.panels.win or nil
+			end
+			if refs.input then
+				refs.input:set_win(self.sections.input and self.sections.input.win or nil)
+			end
+			if refs.context then
+				local buf = show_context and self.sections.context and self.sections.context.buf or nil
+				local win = show_context and self.sections.context and self.sections.context.win or nil
+				refs.context:set_target(buf, win)
+			end
+		end
 		if
 			self.sections.input
 			and is_open(self.sections.input)
@@ -48,6 +65,7 @@ function M.new(box)
 			and self.last_dims.width == width
 			and self.last_dims.panels == show_panels
 		then
+			sync_refs()
 			return
 		end
 
@@ -101,21 +119,7 @@ function M.new(box)
 			end
 		end
 
-		if refs.list then
-			refs.list.win = self.sections.list.win
-		end
-		if refs.panels then
-			refs.panels.buf = show_panels and self.sections.panels.buf or nil
-			refs.panels.win = show_panels and self.sections.panels.win or nil
-		end
-		if refs.input then
-			refs.input:set_win(self.sections.input.win)
-		end
-		if refs.context then
-			local buf = show_context and self.sections.context.buf or nil
-			local win = show_context and self.sections.context.win or nil
-			refs.context:set_target(buf, win)
-		end
+		sync_refs()
 
 		self.last_dims = { body = body_height, context = context_height, width = width, panels = show_panels }
 	end

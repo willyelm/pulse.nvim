@@ -37,27 +37,6 @@ local function read_commit_file(commit, path)
 	return util.git_lines({ "git", "--no-pager", "show", commit .. ":" .. path }) or {}
 end
 
-local function with_summary(lines, highlights, focus_row, added, removed)
-	lines = vim.deepcopy(lines or {})
-	highlights = vim.deepcopy(highlights or {})
-	table.insert(lines, 1, util.diff_summary(added, removed))
-	table.insert(lines, 2, "")
-	for _, hl in ipairs(highlights) do
-		hl.row = hl.row + 2
-	end
-	local summary = lines[1]
-	local plus = summary:find("insertions%(%%+%)", 1)
-	if plus then
-		highlights[#highlights + 1] = { group = "PulseAdd", row = 0, start_col = 0, end_col = plus + 11, priority = 250 }
-	end
-	local minus = summary:find("deletions%(%%-%)", 1)
-	if minus then
-		local start_col = summary:sub(1, minus):match(".*(), ") or 0
-		highlights[#highlights + 1] = { group = "PulseDelete", row = 0, start_col = start_col, end_col = #summary, priority = 250 }
-	end
-	return lines, highlights, (focus_row or 1) + 2
-end
-
 local function cached(key, producer)
 	local value = CACHE[key]
 	if value then
@@ -76,26 +55,33 @@ function M.context_item(item)
 				local old_lines = read_commit_file(item.parent or (item.commit .. "^"), history_path)
 				local new_lines = read_commit_file(item.commit, history_path)
 				local lines, highlights, focus_row = diff_ui.from_lines(old_lines, new_lines, { context = 3 })
-				lines, highlights, focus_row = with_summary(lines, highlights, focus_row, item.added, item.removed)
 				local _, filetype = context.file_snippet(history_path, 1)
 				return lines, filetype, highlights, nil, focus_row
 			end)
 		end
 		return cached("commit:" .. tostring(item.commit) .. ":" .. tostring(item.history_path or ""), function()
-			local cmd = {
+			local info = util.git_lines({
 				"git",
 				"--no-pager",
 				"show",
 				"--stat",
-				"--format=format:%h  %as  %an <%ae>%n%n%s%n%b",
+				"--format=format:Commit: %h%nDate: %as%nAuthor: %an <%ae>",
 				item.commit,
-			}
-			if item.history_path then
-				cmd[#cmd + 1] = "--"
-				cmd[#cmd + 1] = item.history_path
+				"--",
+				item.history_path or ".",
+			}) or {}
+			local lines = {}
+			for _, line in ipairs(info) do
+				if line:match("files? changed") then
+					lines[#lines + 1] = ""
+					lines[#lines + 1] = line
+					break
+				end
+				if line ~= "" and not line:find(" | ", 1, true) then
+					lines[#lines + 1] = line
+				end
 			end
-			local lines = util.git_lines(cmd)
-			if not lines or #lines == 0 then
+			if #lines == 0 then
 				lines = { "No git history for " .. tostring(item.commit or "") }
 			end
 			return lines, "git", {}, nil, 1
@@ -109,7 +95,6 @@ function M.context_item(item)
 			return git_patch_for(path), "text", {}, nil, 1
 		end
 		local lines, highlights, focus_row = diff_ui.from_lines(old_lines, new_lines, { context = 3 })
-		lines, highlights, focus_row = with_summary(lines, highlights, focus_row, item.added, item.removed)
 		local _, filetype = context.file_snippet(path, 1)
 		return lines, filetype, highlights, nil, focus_row
 	end)

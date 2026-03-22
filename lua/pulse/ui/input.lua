@@ -137,6 +137,9 @@ function M.new(opts)
 end
 
 function M:set_win(win)
+  if self.win == win then
+    return
+  end
   self.win = win
   vim.fn.prompt_setprompt(self.buf, self.prompt)
   configure_window(self.win)

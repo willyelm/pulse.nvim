@@ -478,8 +478,12 @@ local function render_current_view(body, menu)
 		show_panels = body.show_panels,
 	})
 	panel.render(state.session.panels, state.session.panels_ns, menu)
-	if body.context_spec and state.context and state.context.win and vim.api.nvim_win_is_valid(state.context.win) then
-		state.context:set(unpack(body.context_spec))
+	if state.context and state.context.win and vim.api.nvim_win_is_valid(state.context.win) then
+		if body.context_spec then
+			state.context:set(unpack(body.context_spec))
+		else
+			state.context:set({}, "text", {}, nil, 1)
+		end
 	end
 	state.list:render(vim.api.nvim_win_get_width(state.list.win))
 	state.list:ensure_visible()
@@ -580,7 +584,10 @@ local function apply_view_model(vm)
 	state.input:set_prompt(vm.prompt_ui.prompt, { move_cursor_end = true })
 	state.input:set_addons(vm.prompt_ui.addons)
 	sync_panel_action_keymaps()
-	render_current_view(vm.body, vm.menu)
+	render_current_view(
+		compute_body_layout(state.items, vm.mod, vm.panels, vm.panel_entry),
+		vm.menu
+	)
 end
 
 refresh = function()
@@ -660,21 +667,26 @@ sync_panel_action_keymaps = function()
 	if not state.input or not state.list then
 		return
 	end
+	local enabled = panel_actions()
+	local next_keys = {}
+
+	for lhs, run in pairs(enabled) do
+		if type(lhs) == "string" and lhs ~= "" and type(run) == "function" then
+			next_keys[#next_keys + 1] = lhs
+		end
+	end
+	table.sort(next_keys)
+
+	if vim.deep_equal(state.bound_action_keys, next_keys) then
+		return
+	end
 
 	for _, lhs in ipairs(state.bound_action_keys or {}) do
 		pcall(vim.keymap.del, { "n", "i" }, lhs, { buffer = state.input.buf })
 		pcall(vim.keymap.del, "n", lhs, { buffer = state.list.buf })
 	end
 
-	state.bound_action_keys = {}
-	local enabled = panel_actions()
-
-	for lhs, run in pairs(enabled) do
-		if type(lhs) == "string" and lhs ~= "" and type(run) == "function" then
-			state.bound_action_keys[#state.bound_action_keys + 1] = lhs
-		end
-	end
-	table.sort(state.bound_action_keys)
+	state.bound_action_keys = next_keys
 
 	for _, lhs in ipairs(state.bound_action_keys) do
 		vim.keymap.set({ "n", "i" }, lhs, function() return run_panel_action(lhs) end, {
@@ -773,7 +785,10 @@ local function bind_widgets()
 			min_visible = 1,
 			render_item = display.to_display,
 		})
-		state.context = context_view.new({ buf = sections.context.buf, win = sections.context.win })
+		state.context = context_view.new({
+			buf = (sections.context and sections.context.buf) or vim.api.nvim_create_buf(false, true),
+			win = sections.context and sections.context.win or nil,
+		})
 
 		local files_navigator = state.registry.files
 		state.input = ui.input.new({
@@ -841,7 +856,8 @@ local function show(opts)
 		return
 	end
 
-	state.session.layout:apply(10, 8, {})
+	local last_dims = state.session.layout.last_dims or {}
+	state.session.layout:apply(last_dims.body or 10, last_dims.context or 0, { show_panels = last_dims.panels == true })
 	bind_widgets()
 
 	if state.navigator_opts.initial_prompt and state.navigator_opts.initial_prompt ~= "" then

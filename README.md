@@ -15,19 +15,19 @@ approach to move quickly between navigator modes:
 | ----------- | ----------------------------- |
 | (no prefix) | files                         |
 | `:`         | commands                      |
-| `~`         | git status                    |
+| `~`         | git                           |
 | `!`         | diagnostics                   |
-| `>`         | code actions (current buffer) |
 | `@`         | symbols (current buffer)      |
 | `#`         | workspace symbols             |
 | `$`         | live grep                     |
 | `?`         | fuzzy search (current buffer) |
+| `>`         | code actions (current buffer) |
 
 ## Requirements
 
 - Neovim `>= 0.10`
 - `ripgrep` (`rg`)
-- `git` (for git status context)
+- `git` (for git panels and previews)
 - `nvim-tree/nvim-web-devicons` (optional, recommended)
 
 ## Install (lazy.nvim)
@@ -44,34 +44,31 @@ approach to move quickly between navigator modes:
 
 ```lua
 require("pulse").setup({
-  cmdline = false, -- set true to enable experimental ':' cmdline replacement
+  cmdline = true, -- Enable experimental ':' cmdline replacement
   position = "top",
-  width = 0.50,
-  height = 0.75,
+  width = 0.70,
+  height = 0.90,
   border = "rounded",
-  navigators = {
-    files = {
-      icons = true,
-      filters = { "^%.git$", "%.DS_Store$" },
-      git = {
-        enable = true,
-        ignore = true,
-      },
-      open_on_directory = false,
-    },
-  },
 })
 ```
 
+## Navigators
+
+Navigators are the different modes you can enter in Pulse.
+Each navigator has its own data source, display, and actions.
+
+You can configure which navigators to
+load and their config options.
+
 **Default navigators** (all loaded if not specified):
 
-- `files` - Project files
+- `files` - Project files and opened buffers
 - `commands` - Vim commands
-- `git` - Git status and history
+- `git` - Git status and project and file history
 - `diagnostics` - LSP diagnostics
-- `code_action` - Code actions (current buffer)
-- `symbol` - Symbols (current buffer)
-- `workspace_symbol` - Workspace symbols
+- `code_actions` - Code actions (current buffer)
+- `symbols` - Symbols (current buffer)
+- `workspace_symbols` - Workspace symbols
 - `live_grep` - Search with ripgrep
 - `fuzzy_search` - Fuzzy search (current buffer)
 
@@ -82,8 +79,6 @@ require("pulse").setup({
   navigators = { "files", "commands", "git" },
 })
 ```
-
-## Navigator Config
 
 Each navigator can receive its own config directly through `navigators`:
 
@@ -102,35 +97,31 @@ require("pulse").setup({
 })
 ```
 
-You can also disable a default setting:
-
-```lua
-require("pulse").setup({
-  navigators = {
-    git = false,
-    files = {
-      icons = false,
-    },
-  },
-})
-```
-
 Current `files` options:
 
 - `icons`
+- `icon_color`
 - `filters`
 - `git.enable`
 - `git.ignore`
 - `open_on_directory`
 
-## Use Files As Default Tree
+## Files Navigator
 
-To open Pulse files instead of netrw for directory buffers like `nvim .`, set the netrw globals before setup and enable `open_on_directory` on the files navigator:
+Pulse files navigator shows project files and opened buffers. It can be used as
+a file explorer and replace netrw.
+
+### Setup as Default Tree
+
+To open Pulse files instead of netrw for directory buffers like `nvim .`,
+set the netrw globals before setup and enable `open_on_directory` on
+the files navigator:
 
 ```lua
+-- Set in your vim config
 vim.g.loaded_netrw = 1
 vim.g.loaded_netrwPlugin = 1
-
+-- Plugin
 require("pulse").setup({
   navigators = {
     files = {
@@ -140,12 +131,13 @@ require("pulse").setup({
 })
 ```
 
-With `lazy.nvim`, that typically looks like:
+With `lazy.nvim`:
 
 ```lua
+-- Set in your vim config
 vim.g.loaded_netrw = 1
 vim.g.loaded_netrwPlugin = 1
-
+-- Lazy plugin config
 {
   "willyelm/pulse.nvim",
   lazy = false,
@@ -183,16 +175,26 @@ vim.g.loaded_netrwPlugin = 1
 
 - `<Down>/<C-n>`: next item (from input)
 - `<Up>/<C-p>`: previous item (from input)
+- `<Left>/<Right>`:
+  - from input: switch panels when the cursor is at the end of the input
+  - from list: switch panels directly
 - `Esc`: close navigator
 - `<Tab>`:
-  - files: open in source window (navigator stays open)
+  - files:
+    - folder: enter folder scope
+    - file: preview in source window and enter buffer scope
   - symbols/workspace symbols: jump to location (navigator stays open)
   - live grep/fuzzy search: open/jump to location (navigator stays open)
   - diagnostics: jump to location (navigator stays open)
   - commands: replace input with selected command
-  - git status: no-op
+  - git: preview/jump depending on the current git panel item
 - `<CR>`: submit/open and close navigator
 - selection wraps from last->first and first->last
+
+When a scope token is present:
+
+- first backspace removes the current panel prefix
+- next backspace removes the scope token
 
 In `commands` mode:
 
@@ -204,10 +206,9 @@ In `commands` mode:
 
 ```lua
 vim.keymap.set("n", "<leader>p", "<cmd>Pulse<cr>", { desc = "Pulse" })
-vim.keymap.set("n", "<leader>p", "<cmd>Pulse commands<cr>", { desc = "Pulse Commands" })
 vim.keymap.set("n", "<leader>pg", "<cmd>Pulse git<cr>", { desc = "Pulse Git" })
 vim.keymap.set("n", "<leader>pd", "<cmd>Pulse diagnostics<cr>", { desc = "Pulse Diagnostics" })
-vim.keymap.set("n", "<leader>pc>", "<cmd>Pulse code_actions<cr>", { desc = "Pulse Code Actions" })
+vim.keymap.set("n", "<leader>pc", "<cmd>Pulse code_actions<cr>", { desc = "Pulse Code Actions" })
 vim.keymap.set("n", "<leader>ps", "<cmd>Pulse symbols<cr>", { desc = "Pulse Symbols" })
 vim.keymap.set("n", "<leader>pw", "<cmd>Pulse workspace_symbols<cr>", { desc = "Pulse Workspace Symbols" })
 vim.keymap.set("n", "<leader>pl", "<cmd>Pulse live_grep<cr>", { desc = "Pulse Live Grep" })
@@ -224,8 +225,8 @@ Pulse uses existing highlight groups, with optional overrides:
 - `PulseDelete`
 - `PulseDiffAdd`
 - `PulseDiffDelete`
-- `PulseDiffNAdd`
-- `PulseDiffNDelete`
+- `PulseDiffNAdd` - Secondary background for added lines in diff
+- `PulseDiffNDelete` - Secondary background for deleted lines in diff
 
 Example:
 
