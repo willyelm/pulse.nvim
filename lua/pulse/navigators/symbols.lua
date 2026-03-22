@@ -201,7 +201,36 @@ local function has_document_symbol_client(bufnr)
 	return false
 end
 
+local function valid_bufnr(bufnr)
+	return type(bufnr) == "number" and bufnr > 0 and vim.api.nvim_buf_is_valid(bufnr)
+end
+
+local function resolve_bufnr(ctx, scoped)
+	local bufnr = nil
+	if scoped and scoped.kind == "file" then
+		bufnr = scoped.bufnr
+		if not valid_bufnr(bufnr) and scoped.path and scoped.path ~= "" then
+			local existing = vim.fn.bufnr(scoped.path)
+			if type(existing) == "number" and existing > 0 then
+				bufnr = existing
+			else
+				bufnr = vim.fn.bufadd(scoped.path)
+			end
+		end
+	end
+	if not valid_bufnr(bufnr) then
+		bufnr = ctx and ctx.bufnr or nil
+	end
+	if not valid_bufnr(bufnr) then
+		bufnr = vim.api.nvim_get_current_buf()
+	end
+	return valid_bufnr(bufnr) and bufnr or nil
+end
+
 local function cached_symbols(bufnr)
+	if not valid_bufnr(bufnr) then
+		return nil
+	end
 	local tick = vim.api.nvim_buf_get_changedtick(bufnr)
 	local cached = CACHE[bufnr]
 	if cached and cached.tick == tick then
@@ -211,6 +240,9 @@ local function cached_symbols(bufnr)
 end
 
 local function store_symbols(bufnr, symbols)
+	if not valid_bufnr(bufnr) then
+		return symbols
+	end
 	CACHE[bufnr] = {
 		tick = vim.api.nvim_buf_get_changedtick(bufnr),
 		symbols = symbols,
@@ -220,9 +252,10 @@ end
 
 function M.init(ctx)
 	local scoped = ctx and ctx.scope
-	local bufnr = (scoped and scoped.kind == "file" and (scoped.bufnr or vim.fn.bufadd(scoped.path)))
-		or (ctx and ctx.bufnr)
-		or vim.api.nvim_get_current_buf()
+	local bufnr = resolve_bufnr(ctx, scoped)
+	if not bufnr then
+		return { symbols = {}, input_scope = nil }
+	end
 	pcall(vim.fn.bufload, bufnr)
 	local use_lsp = has_document_symbol_client(bufnr)
 	local cached = cached_symbols(bufnr)

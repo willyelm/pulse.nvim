@@ -72,17 +72,19 @@ local function commit_files(state, commit, pathspec)
 	for _, line in ipairs(util.git_lines(cmd) or {}) do
 		local added, removed, path = line:match("^(%S+)%s+(%S+)%s+(.+)$")
 		if path and path ~= "" then
-			path = util.normalize_status_path(path)
+			local parsed = util.parse_numstat_path(path)
+			path = parsed and parsed.path or util.normalize_status_path(path)
 			out[#out + 1] = {
 				kind = "git_commit_file",
 				commit = commit,
 				parent = commit .. "^",
 				path = path,
+				old_path = parsed and parsed.old_path or nil,
 				filename = path,
-				label = vim.fn.fnamemodify(path, ":t"),
+				label = parsed and parsed.label or vim.fn.fnamemodify(path, ":t"),
 				added = tonumber(added) or 0,
 				removed = tonumber(removed) or 0,
-				display_right = util.file_change_right(tonumber(added) or 0, tonumber(removed) or 0),
+				display_right = (parsed and parsed.right) or util.file_change_right(tonumber(added) or 0, tonumber(removed) or 0),
 				depth = 1,
 			}
 		end

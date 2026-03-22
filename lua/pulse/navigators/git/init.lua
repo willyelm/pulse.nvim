@@ -10,6 +10,23 @@ M.mode = {
 		{
 			key = "<CR>",
 			name = "Open",
+			when = function(ctx)
+				local item = ctx and ctx.item
+				local panel_name = ctx and ctx.panel and ctx.panel.name
+				if not item then
+					return false
+				end
+				if panel_name == "git_project_history" and item.kind == "git_commit" then
+					return true
+				end
+				if item.kind == "git_commit_file" then
+					return true
+				end
+				if item.kind == "git_commit" then
+					return false
+				end
+				return true
+			end,
 			run = function(ctx)
 				local item = ctx and ctx.item
 				local panel_name = ctx and ctx.panel and ctx.panel.name

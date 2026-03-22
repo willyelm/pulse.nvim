@@ -50,12 +50,13 @@ end
 function M.context_item(item)
 	if item.kind == "git_commit" or item.kind == "git_commit_file" then
 		if item.kind == "git_commit_file" or (item.history_kind == "file" and item.history_path) then
-			local history_path = item.history_path or item.path
-			return cached("file:" .. tostring(item.commit) .. ":" .. tostring(history_path), function()
-				local old_lines = read_commit_file(item.parent or (item.commit .. "^"), history_path)
-				local new_lines = read_commit_file(item.commit, history_path)
+			local new_path = item.history_path or item.path
+			local old_path = item.old_path or new_path
+			return cached("file:" .. tostring(item.commit) .. ":" .. tostring(old_path) .. ":" .. tostring(new_path), function()
+				local old_lines = read_commit_file(item.parent or (item.commit .. "^"), old_path)
+				local new_lines = read_commit_file(item.commit, new_path)
 				local lines, highlights, focus_row = diff_ui.from_lines(old_lines, new_lines, { context = 3 })
-				local _, filetype = context.file_snippet(history_path, 1)
+				local _, filetype = context.file_snippet(new_path, 1)
 				return lines, filetype, highlights, nil, focus_row
 			end)
 		end

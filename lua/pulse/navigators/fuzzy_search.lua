@@ -48,6 +48,32 @@ end
 
 local MAX_RESULTS = 400
 
+local function valid_bufnr(bufnr)
+	return type(bufnr) == "number" and bufnr > 0 and vim.api.nvim_buf_is_valid(bufnr)
+end
+
+local function resolve_bufnr(ctx, scoped)
+	local bufnr = nil
+	if scoped and scoped.kind == "file" then
+		bufnr = scoped.bufnr
+		if not valid_bufnr(bufnr) and scoped.path and scoped.path ~= "" then
+			local existing = vim.fn.bufnr(scoped.path)
+			if type(existing) == "number" and existing > 0 then
+				bufnr = existing
+			else
+				bufnr = vim.fn.bufadd(scoped.path)
+			end
+		end
+	end
+	if not valid_bufnr(bufnr) then
+		bufnr = ctx and ctx.bufnr or nil
+	end
+	if not valid_bufnr(bufnr) then
+		bufnr = vim.api.nvim_get_current_buf()
+	end
+	return valid_bufnr(bufnr) and bufnr or nil
+end
+
 local function refresh_lines(state)
 	local bufnr = state.bufnr
 	if not (bufnr and vim.api.nvim_buf_is_valid(bufnr)) then
@@ -106,9 +132,17 @@ end
 
 function M.init(ctx)
 	local scoped = ctx and ctx.scope
-	local bufnr = (scoped and scoped.kind == "file" and (scoped.bufnr or vim.fn.bufadd(scoped.path)))
-		or (ctx and ctx.bufnr)
-		or vim.api.nvim_get_current_buf()
+	local bufnr = resolve_bufnr(ctx, scoped)
+	if not bufnr then
+		return {
+			bufnr = nil,
+			filename = "",
+			lines = {},
+			line_count = 0,
+			tick = -1,
+			input_scope = nil,
+		}
+	end
 	pcall(vim.fn.bufload, bufnr)
 	return {
 		bufnr = bufnr,

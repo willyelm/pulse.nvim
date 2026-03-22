@@ -27,6 +27,39 @@ function M.normalize_status_path(path)
 	return path
 end
 
+function M.parse_numstat_path(path)
+	if not path or path == "" then
+		return nil
+	end
+	if not path:find("=>", 1, true) then
+		local normalized = M.normalize_status_path(path)
+		return {
+			path = normalized,
+			old_path = nil,
+			label = vim.fn.fnamemodify(normalized, ":t"),
+			right = nil,
+		}
+	end
+
+	local old_path, new_path
+	local prefix, old_mid, new_mid, suffix = path:match("^(.-){(.-) => (.-)}(.*)$")
+	if prefix ~= nil then
+		old_path = prefix .. old_mid .. suffix
+		new_path = prefix .. new_mid .. suffix
+	else
+		old_path, new_path = path:match("^(.-) => (.+)$")
+	end
+
+	old_path = M.normalize_status_path(old_path or path)
+	new_path = M.normalize_status_path(new_path or path)
+	return {
+		path = new_path,
+		old_path = old_path,
+		label = vim.fn.fnamemodify(new_path, ":t"),
+		right = old_path ~= "" and ("renamed from " .. old_path) or nil,
+	}
+end
+
 function M.pretty_date(date)
 	if not date or date == "" then
 		return ""
