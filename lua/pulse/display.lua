@@ -175,7 +175,8 @@ local function display_grep(item)
 		line = file_name(item.path or item.filename)
 	end
 	local pos = string.format("%d:%d", item.lnum or 1, item.col or 1)
-	local out = row(line, string.format("%s:%s", file_name(item.path or item.filename), pos))
+	local right = item.kind == "fuzzy_search" and pos or string.format("%s:%s", file_name(item.path or item.filename), pos)
+	local out = row(line, right)
 
 	local q = vim.trim(item.query or "")
 	if q ~= "" then
