@@ -184,7 +184,6 @@ local function hook_ctx(reason, item)
 		end,
 		input = state.input,
 		refresh = refresh,
-		mode = state.current.mod and state.current.mod.mode,
 	}
 end
 

@@ -115,7 +115,6 @@ function M.init(ctx)
 		root = project_root,
 		opts = opts,
 		opened = collect_opened_files(),
-		recent = collect_recent_files(project_root),
 		files = nil,
 		ignored = nil,
 		git_status = nil,
@@ -669,8 +668,7 @@ local function panel_paths(state, panel_name)
 		return state.opened, {}
 	end
 	if panel_name == "files_recent" then
-		state.recent = filtered_paths(collect_recent_files(state.root), current_opts(state))
-		return state.recent, {}
+		return filtered_paths(collect_recent_files(state.root), current_opts(state)), {}
 	end
 	return collect_project_files(state)
 end
