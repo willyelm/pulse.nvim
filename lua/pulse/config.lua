@@ -1,7 +1,6 @@
 local M = {
 	defaults = {
 		cmdline = false,
-		initial_mode = "insert",
 		position = "top",
 		width = 0.50,
 		height = 0.75,
