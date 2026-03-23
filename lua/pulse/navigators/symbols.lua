@@ -7,7 +7,7 @@ M.icon = "󰘧"
 M.actions = {
 	{
 		key = "<CR>",
-		name = "open",
+		name = "jump",
 		when = function(ctx)
 			return ctx and ctx.item ~= nil
 		end,
