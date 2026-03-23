@@ -2,6 +2,7 @@ local pulse = require("pulse")
 local scope = require("pulse.scope")
 
 local M = {}
+local PROJECT_CACHE = {}
 
 local function normalize_path(path)
 	return vim.fn.fnamemodify(path, ":p")
@@ -203,28 +204,34 @@ local function normalize_status_path(path)
 	return path
 end
 
-local function git_status_map(root, opts)
+local function git_status_and_ignored(root, opts)
 	if not (opts.git and opts.git.enable) or vim.fn.isdirectory(root .. "/.git") ~= 1 then
-		return {}
+		return {}, {}
 	end
-	local out = {}
+	local status_map, ignored, seen_ignored = {}, {}, {}
 	local cmd = { "git", "-C", root, "status", "--porcelain=v1", "--untracked-files=all" }
 	if opts.git.ignore then
 		cmd[#cmd + 1] = "--ignored=matching"
 	end
 	local lines = vim.fn.systemlist(cmd)
 	if vim.v.shell_error ~= 0 then
-		return out
+		return status_map, ignored
 	end
 	for _, line in ipairs(lines or {}) do
-		local code = line:sub(1, 2)
-		local rest = vim.trim(line:sub(4))
-		local path = normalize_status_path(rest)
+		local code = vim.trim(line:sub(1, 2))
+		local path = normalize_status_path(vim.trim(line:sub(4)))
 		if path ~= "" then
-			out[path] = vim.trim(code)
+			if code == "!!" then
+				if not seen_ignored[path] then
+					seen_ignored[path] = true
+					ignored[#ignored + 1] = path
+				end
+			else
+				status_map[path] = code
+			end
 		end
 	end
-	return out
+	return status_map, ignored
 end
 
 local function status_tokens(code)
@@ -336,8 +343,22 @@ function M.collect_project_files(state)
 		return state.files, state.ignored
 	end
 	local root, opts = state.root or vim.fn.getcwd(), state.opts
+	local cache_key = table.concat({
+		root,
+		tostring(opts.git and opts.git.enable == true),
+		tostring(opts.git and opts.git.ignore == true),
+		table.concat(opts.filters or {}, "\0"),
+	}, "|")
+	local cached = PROJECT_CACHE[cache_key]
+	if cached then
+		state.files = cached.files
+		state.ignored = cached.ignored
+		state.git_status = cached.git_status
+		return state.files, state.ignored
+	end
 	local files, ignored, seen = {}, {}, {}
-	state.git_status = git_status_map(root, opts)
+	local initial_ignored
+	state.git_status, initial_ignored = git_status_and_ignored(root, opts)
 	local function add_paths(paths, is_ignored)
 		for _, path in ipairs(paths or {}) do
 			path = normalize_entry_path(root, path)
@@ -353,8 +374,7 @@ function M.collect_project_files(state)
 	if opts.git.enable and vim.fn.isdirectory(root .. "/.git") == 1 then
 		add_paths(vim.fn.systemlist({ "git", "-C", root, "ls-files", "--cached", "--others", "--exclude-standard" }), false)
 		if opts.git.ignore then
-			add_paths(vim.fn.systemlist({ "git", "-C", root, "ls-files", "--ignored", "--others", "--exclude-standard" }), true)
-			add_paths(vim.fn.systemlist({ "git", "-C", root, "ls-files", "--ignored", "--others", "--exclude-standard", "--directory" }), true)
+			add_paths(initial_ignored, true)
 		else
 			add_paths(vim.fn.systemlist({ "rg", "--files", "--hidden", "--no-ignore", "-g", "!.git", root }), false)
 		end
@@ -375,6 +395,11 @@ function M.collect_project_files(state)
 	end
 	table.sort(files, sort_names)
 	state.files, state.ignored = files, ignored
+	PROJECT_CACHE[cache_key] = {
+		files = state.files,
+		ignored = state.ignored,
+		git_status = state.git_status,
+	}
 	return state.files, state.ignored
 end
 
@@ -552,6 +577,13 @@ end
 function M.invalidate(state)
 	if not state then
 		return
+	end
+	if state.root then
+		for key in pairs(PROJECT_CACHE) do
+			if key:sub(1, #state.root + 1) == (state.root .. "|") then
+				PROJECT_CACHE[key] = nil
+			end
+		end
 	end
 	state.files = nil
 	state.ignored = nil
