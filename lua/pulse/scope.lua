@@ -31,6 +31,7 @@ function M.file(path, bufnr)
     bufnr = bufnr,
     label = vim.fn.fnamemodify(path, ":t"),
     icon = icon,
+    icon_hl = hl,
   }
 end
 
@@ -93,10 +94,14 @@ function M.prompt_matches(scope, prompt_prefix_len)
     return nil
   end
   local start_col = prompt_prefix_len or 0
-  local label_end = start_col + #M.prompt_text(scope)
-  return {
-    { start_col, label_end, "PulseNormal" },
+  local text = M.prompt_text(scope)
+  local matches = {
+    { start_col, start_col + #text, "PulseNormal" },
   }
+  if scope.kind == "file" and scope.icon_hl then
+    matches[#matches + 1] = { start_col + 1, start_col + 1 + #(scope.icon or ""), scope.icon_hl }
+  end
+  return matches
 end
 
 function M.valid_bufnr(bufnr)

@@ -1,4 +1,5 @@
 local pulse = require("pulse")
+local file_items = require("pulse.navigators.files.items")
 local util = require("pulse.navigators.git.util")
 
 local M = {}
@@ -57,65 +58,50 @@ local function load_status_all(state)
 end
 
 local function commit_files(state, commit, pathspec)
-	local cached = state.history_files[commit]
-	if cached then
-		return cached
-	end
-
-	local cmd = { "git", "--no-pager", "show", "--numstat", "--format=", commit }
-	if pathspec then
-		cmd[#cmd + 1] = "--"
-		cmd[#cmd + 1] = pathspec
-	end
-
-	local files = {}
-	for _, line in ipairs(util.git_lines(cmd) or {}) do
-		local added, removed, path = line:match("^(%S+)%s+(%S+)%s+(.+)$")
-		if path and path ~= "" then
-			local parsed = util.parse_numstat_path(path)
-			path = parsed and parsed.path or util.normalize_status_path(path)
-			local old_path = parsed and parsed.old_path or nil
-			files[#files + 1] = {
-				kind = "git_commit_file",
-				commit = commit,
-				parent = commit .. "^",
-				path = path,
-				old_path = old_path,
-				filename = path,
-				label = parsed and parsed.label or util.path_name(path),
-				added = tonumber(added) or 0,
-				removed = tonumber(removed) or 0,
-				display_right = old_path and util.rename_right(old_path, path, tonumber(added) or 0, tonumber(removed) or 0)
-					or util.file_change_right(tonumber(added) or 0, tonumber(removed) or 0),
-				depth = 2,
-			}
+	local entries = state.history_files[commit]
+	if not entries then
+		local cmd = { "git", "--no-pager", "show", "--numstat", "--format=", commit }
+		if pathspec then
+			cmd[#cmd + 1] = "--"
+			cmd[#cmd + 1] = pathspec
 		end
-	end
 
-	table.sort(files, function(a, b)
-		if util.path_dir(a.path) == util.path_dir(b.path) then
-			return (a.path or "") < (b.path or "")
-		end
-		return util.path_dir(a.path) < util.path_dir(b.path)
-	end)
-
-	local out, current_dir = {}, nil
-	for _, file in ipairs(files) do
-		local dir = util.path_dir(file.path)
-		if dir ~= current_dir then
-			current_dir = dir
-			if dir ~= "" then
-				out[#out + 1] = { kind = "header", label = dir, depth = 1, folder = true, expanded = true }
+		entries = {}
+		for _, line in ipairs(util.git_lines(cmd) or {}) do
+			local added, removed, path = line:match("^(%S+)%s+(%S+)%s+(.+)$")
+			if path and path ~= "" then
+				local parsed = util.parse_numstat_path(path)
+				path = parsed and parsed.path or util.normalize_status_path(path)
+				local old_path = parsed and parsed.old_path or nil
+				entries[#entries + 1] = {
+					kind = "git_commit_file",
+					commit = commit,
+					parent = commit .. "^",
+					path = path,
+					old_path = old_path,
+					filename = path,
+					label = parsed and parsed.label or util.path_name(path),
+					added = tonumber(added) or 0,
+					removed = tonumber(removed) or 0,
+					display_right = old_path and util.rename_right(old_path, path, tonumber(added) or 0, tonumber(removed) or 0)
+						or util.file_change_right(tonumber(added) or 0, tonumber(removed) or 0),
+				}
 			end
 		end
-		if dir == "" then
-			file.depth = 1
-		end
-		out[#out + 1] = file
+		state.history_files[commit] = entries
 	end
-
-	state.history_files[commit] = out
-	return out
+	return file_items.build_tree(entries, state.expanded, {
+		icons = true,
+		icon_color = false,
+		compact_dirs = true,
+		base_depth = 1,
+		folder_key = function(path)
+			return commit .. ":" .. path
+		end,
+		folder_expanded = function()
+			return true
+		end,
+	})
 end
 
 local function load_history_all(state, panel_name)
@@ -238,7 +224,6 @@ end
 
 function M.items(state, query, panel_name)
 	panel_name = panel_name or "git_status"
-	state.active_panel = panel_name
 	if panel_name == "git_project_history" or panel_name == "git_file_history" then
 		return history_items(state, query, panel_name)
 	end

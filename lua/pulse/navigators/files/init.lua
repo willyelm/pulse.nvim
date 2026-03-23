@@ -10,6 +10,7 @@ local toggle_folder
 local DEFAULT_OPTS = {
 	icons = false,
 	icon_color = false,
+	compact_dirs = false,
 	open_on_directory = false,
 	filters = {},
 	git = {

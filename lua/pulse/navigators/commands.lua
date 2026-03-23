@@ -6,7 +6,7 @@ M.icon = ""
 M.actions = {
 	{
 		key = "<CR>",
-		name = "Run",
+		name = "run",
 		run = function(ctx)
 			M.on_submit(ctx)
 			return false
@@ -14,7 +14,7 @@ M.actions = {
 	},
 	{
 		key = "<Tab>",
-		name = "Fill",
+		name = "fill",
 		when = function(ctx)
 			return ctx and ctx.has_selection and ctx.item ~= nil and ctx.input ~= nil
 		end,

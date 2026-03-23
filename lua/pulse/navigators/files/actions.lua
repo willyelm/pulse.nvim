@@ -178,6 +178,10 @@ function M.preview(ctx, toggle_folder)
 	if not (ctx and ctx.item) then
 		return
 	end
+	if ctx.item.scope_parent then
+		toggle_folder(ctx)
+		return
+	end
 	if ctx.item.kind == "folder" then
 		ctx.enter_scope(scope.folder(items.absolute_path(ctx.state.root, ctx.item.path)))
 		return
@@ -225,7 +229,19 @@ function M.mode_actions(ctx, toggle_folder)
 	local actions = {
 		{
 			key = "<CR>",
-			name = "Open",
+			name = function(next)
+				local next_item = next and next.item
+				if not next_item then
+					return nil
+				end
+				if next_item.scope_parent then
+					return "close"
+				end
+				if next_item.kind == "folder" then
+					return next_item.expanded and "close" or "open"
+				end
+				return "open"
+			end,
 			when = function(next)
 				return next and next.item ~= nil
 			end,
@@ -233,7 +249,19 @@ function M.mode_actions(ctx, toggle_folder)
 		},
 		{
 			key = "<Tab>",
-			name = "Preview",
+			name = function(next)
+				local next_item = next and next.item
+				if not next_item then
+					return nil
+				end
+				if next_item.scope_parent then
+					return "close"
+				end
+				if next_item.kind == "folder" then
+					return "view"
+				end
+				return "preview"
+			end,
 			when = function(next)
 				return next and next.item ~= nil
 			end,
@@ -241,16 +269,16 @@ function M.mode_actions(ctx, toggle_folder)
 				return M.preview(next, toggle_folder)
 			end,
 		},
-		{ key = "<C-a>", name = "Add", run = M.add },
+		{ key = "<C-a>", name = "add", run = M.add },
 	}
 	if editable then
-		actions[#actions + 1] = { key = "<C-d>", name = "Delete", run = M.delete }
-		actions[#actions + 1] = { key = "<C-r>", name = "Rename", run = M.rename }
-		actions[#actions + 1] = { key = "<C-x>", name = "Cut", run = function(next) return M.stage_transfer(next, "cut") end }
-		actions[#actions + 1] = { key = "<C-c>", name = "Copy", run = function(next) return M.stage_transfer(next, "copy") end }
+		actions[#actions + 1] = { key = "<C-d>", name = "delete", run = M.delete }
+		actions[#actions + 1] = { key = "<C-r>", name = "rename", run = M.rename }
+		actions[#actions + 1] = { key = "<C-x>", name = "cut", run = function(next) return M.stage_transfer(next, "cut") end }
+		actions[#actions + 1] = { key = "<C-c>", name = "copy", run = function(next) return M.stage_transfer(next, "copy") end }
 	end
 	if transfer and transfer.path then
-		actions[#actions + 1] = { key = "<C-v>", name = "Paste", run = M.paste }
+		actions[#actions + 1] = { key = "<C-v>", name = "paste", run = M.paste }
 	end
 	return actions
 end

@@ -255,9 +255,13 @@ local function action_ctx(item)
 	}
 end
 
-local function action_label(def)
+local function action_label(def, ctx, item)
 	if type(def) == "table" then
-		return def.name or def.label
+		local label = def.name or def.label
+		if type(label) == "function" then
+			return label(ctx, item)
+		end
+		return label
 	end
 	return nil
 end
@@ -312,7 +316,7 @@ local function panel_actions(item)
 		if type(lhs) == "string" and lhs ~= "" and type(run) == "function" then
 			actions[lhs] = {
 				run = run,
-				label = action_label(def),
+				label = action_label(def, ctx, item_value),
 				enabled = action_allowed(def, ctx, item_value),
 			}
 			ordered[#ordered + 1] = lhs

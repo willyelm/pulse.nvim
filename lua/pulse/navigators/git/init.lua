@@ -9,7 +9,23 @@ M.icon = "󰊢"
 M.actions = {
 		{
 			key = "<CR>",
-			name = "Open",
+			name = function(ctx)
+				local item = ctx and ctx.item
+				local panel_name = ctx and ctx.panel and ctx.panel.name
+				if not item then
+					return nil
+				end
+				if panel_name == "git_project_history" and item.kind == "git_commit" then
+					return (ctx.state and ctx.state.expanded and ctx.state.expanded[item.commit]) and "hide files" or "show files"
+				end
+				if panel_name == "git_project_history" and item.kind == "folder" then
+					return "toggle"
+				end
+				if item.kind == "git_status" then
+					return "open"
+				end
+				return nil
+			end,
 			when = function(ctx)
 				local item = ctx and ctx.item
 				local panel_name = ctx and ctx.panel and ctx.panel.name
@@ -19,13 +35,13 @@ M.actions = {
 				if panel_name == "git_project_history" and item.kind == "git_commit" then
 					return true
 				end
-				if item.kind == "git_commit_file" then
+				if panel_name == "git_project_history" and item.kind == "folder" then
 					return true
 				end
 				if item.kind == "git_commit" then
 					return false
 				end
-				return true
+				return item.kind == "git_status"
 			end,
 			run = function(ctx)
 				local item = ctx and ctx.item
@@ -35,9 +51,9 @@ M.actions = {
 					ctx.refresh()
 					return
 				end
-				if item and item.kind == "git_commit_file" then
-					ctx.jump(item)
-					ctx.close()
+				if panel_name == "git_project_history" and item and item.kind == "folder" and item.tree_key then
+					ctx.state.expanded[item.tree_key] = not item.expanded
+					ctx.refresh()
 					return
 				end
 				if item and item.kind == "git_commit" then
