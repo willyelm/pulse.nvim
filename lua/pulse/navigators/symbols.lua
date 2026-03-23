@@ -37,8 +37,6 @@ M.panels = {
 }
 
 M.context = false
-M.scope_aware = true
-M.scope_clears_to_files = true
 
 local SymbolKind = vim.lsp.protocol.SymbolKind or {}
 local NODE_KINDS = {

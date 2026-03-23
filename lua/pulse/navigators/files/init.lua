@@ -153,7 +153,7 @@ end
 
 toggle_folder = function(ctx)
 	local item = ctx and ctx.item
-	if not (ctx and ctx.state and item and item.kind == "folder" and item.path and not item.search_group) then
+	if not (ctx and ctx.state and item and item.kind == "folder" and item.path) then
 		return false
 	end
 	if item.scope_parent then

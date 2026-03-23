@@ -140,7 +140,7 @@ local function visible_panels(scope_value)
 end
 
 local function default_panel_for_scope(scope_value)
-	return panel.default_panel(panel.visible_panels(state.modules, panel.scope_type(scope_value)), nil)
+	return panel.default_panel(visible_panels(scope_value), nil)
 end
 
 local function set_scope(scope_value)
@@ -170,8 +170,10 @@ local function clear_scope()
 			return
 		end
 		state.scope = nil
-		if state.current.mod and state.current.mod.scope_clears_to_files then
-			set_prompt_mode("files")
+		local target = default_panel_for_scope(nil)
+		if target then
+			panel.select(state.active_panels, target)
+			set_prompt_mode(target.navigator)
 		end
 		refresh()
 	end)
@@ -373,8 +375,9 @@ end
 local function navigator_state(mode_name)
 	local current = state.states[mode_name]
 	local mod = state.registry[mode_name]
-	local current_scope_key = mod and mod.scope_aware and scope.key(state.scope) or ""
-	if current and (not mod.scope_aware or current._scope_key == current_scope_key) then
+	local scoped = mod and (panel.supports_scope(mod, "buffer") or panel.supports_scope(mod, "folder")) or false
+	local current_scope_key = scoped and scope.key(state.scope) or ""
+	if current and (not scoped or current._scope_key == current_scope_key) then
 		return current
 	end
 

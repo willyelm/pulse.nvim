@@ -525,7 +525,7 @@ local function build_search_items(state, paths, ignored_map)
 			return sort_names(a.name, b.name)
 		end)
 		if dir ~= "" and #files > 1 then
-			items[#items + 1] = item("folder", dir, dir_label, 0, false, state.opts, { expanded = true, search_group = true })
+			items[#items + 1] = item("folder", dir, dir_label, 0, false, state.opts, { expanded = true })
 			for _, file in ipairs(files) do
 				items[#items + 1] = file_item(state.opts, file.path, file.name, 1, file.ignored, file.is_open, file.status)
 			end

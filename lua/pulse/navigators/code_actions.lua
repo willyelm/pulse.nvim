@@ -24,8 +24,6 @@ M.panels = {
 }
 
 M.context = false
-M.scope_aware = true
-M.scope_clears_to_files = true
 
 local function apply_action(action, client, req_ctx)
 	if action.edit then

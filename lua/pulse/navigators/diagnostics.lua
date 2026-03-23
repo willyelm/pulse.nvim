@@ -37,8 +37,6 @@ M.panels = {
 }
 
 M.context = true
-M.scope_aware = true
-M.scope_clears_to_files = true
 
 local severity_name = {
 	[vim.diagnostic.severity.ERROR] = "ERROR",

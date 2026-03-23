@@ -37,8 +37,6 @@ M.panels = {
 }
 
 M.context = true
-M.scope_aware = true
-M.scope_clears_to_files = true
 
 function M.context_item(item)
 	return context.file_snippet(item.path or item.filename, item.lnum, item.query, item.match_cols)

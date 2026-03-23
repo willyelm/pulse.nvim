@@ -76,7 +76,6 @@ M.panels = {
 M.context = function(item)
 	return item and (item.kind == "git_commit" or item.code == "??" or ((item.added or 0) + (item.removed or 0) > 0))
 end
-M.scope_aware = true
 M.context_item = git_context.context_item
 
 function M.init(ctx)
