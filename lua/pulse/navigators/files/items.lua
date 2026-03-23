@@ -271,9 +271,10 @@ local function right_matches(tokens)
 end
 
 local function display_meta(tokens)
+	local text = (#tokens > 0) and table.concat(tokens, " ") or nil
 	return {
-		display_right = (#tokens > 0) and table.concat(tokens, " ") or "",
-		right_matches = right_matches(tokens),
+		display_right = text,
+		right_matches = text and right_matches(tokens) or nil,
 	}
 end
 
@@ -590,10 +591,18 @@ function M.items(state, query, panel_name)
 					compact_dirs = state.opts.compact_dirs == true,
 				}))
 			end
-			local items = {}
-			for _, path in ipairs(paths) do
-				items[#items + 1] = file_item(state.opts, path, scoped_display_path(state, path), 0, scoped or ignored_map[path] == true, open_map[path] == true or open_map[normalize_path(path)] == true, (state.git_status or {})[path])
-			end
+		local items = {}
+		for _, path in ipairs(paths) do
+			items[#items + 1] = file_item(
+				state.opts,
+				path,
+				scoped_display_path(state, path),
+				0,
+				scoped or ignored_map[path] == true,
+				panel_name ~= "files_open" and (open_map[path] == true or open_map[normalize_path(path)] == true) or false,
+				(state.git_status or {})[path]
+			)
+		end
 		return items
 	end
 	local match = pulse.make_matcher(query, { ignore_case = true, plain = true })
