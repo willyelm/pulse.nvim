@@ -10,6 +10,13 @@
 
 
 
+
+## [0.5.1] - 2026-03-21
+
+### Changed
+
+- fix: improved panel switching and input cursor
+
 ## [0.5.0] - 2026-03-21
 
 ### New
@@ -123,10 +130,4 @@
 
 - chore: separate release jobs
 - fix: hide previews for files and command pickers
-
-## [0.1.2] - 2026-02-22
-
-### Changed
-
-- chore: add changelog release
 
