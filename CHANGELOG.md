@@ -12,6 +12,13 @@
 
 
 
+
+## [0.6.1] - 2026-03-23
+
+### Changed
+
+- fix: improve cold start git status in files navigator
+
 ## [0.6.0] - 2026-03-23
 
 ### New
@@ -149,10 +156,4 @@
 ### Changed
 
 - fix: use correct icon colors
-
-## [0.1.6] - 2026-02-23
-
-### Changed
-
-- chore: fix relesae action
 
