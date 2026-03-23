@@ -1,10 +1,9 @@
 local M = {}
 local pulse = require("pulse")
 
-M.mode = {
-	name = "workspace_symbol",
-	icon = "󰒕",
-	actions = {
+M.name = "workspace_symbol"
+M.icon = "󰒕"
+M.actions = {
 		{
 			key = "<CR>",
 			name = "Open",
@@ -31,7 +30,6 @@ M.mode = {
 				end
 			end,
 		},
-	},
 }
 M.panels = {
 	{ start = "#", name = "workspace_symbol", label = "Workspace Symbols", scopes = { "workspace" } },

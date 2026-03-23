@@ -1,6 +1,5 @@
 local config = require("pulse.config")
 local navigator = require("pulse.pulse")
-local mode = require("pulse.mode")
 local panel = require("pulse.panel_menu")
 local scope = require("pulse.scope")
 
@@ -70,12 +69,12 @@ local function pulse_command(opts)
 		return
 	end
 
-	local mode_name, panel_name = mode.find_by_command(name)
+	local mode_name, panel_name = config.find_by_command(name)
 	if not registry()[mode_name] then
 		vim.notify("Pulse: unknown navigator '" .. tostring(name) .. "'", vim.log.levels.ERROR)
 		return
 	end
-	local next_prompt = mode.switch_prompt(navigator.get_prompt() or "", mode_name)
+	local next_prompt = config.switch_prompt(navigator.get_prompt() or "", mode_name)
 	local extra_opts = nil
 	if panel.is_buffer_only(registry()[mode_name]) then
 		local current_scope = scope.from_buffer()
@@ -116,7 +115,7 @@ function M.setup(opts)
 				return config.for_navigator("files").open_on_directory == true
 			end,
 			open = function(path)
-				open_panel(mode.switch_prompt("", "files"), { cwd = path })
+				open_panel(config.switch_prompt("", "files"), { cwd = path })
 			end,
 		})
 	end

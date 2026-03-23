@@ -1,29 +1,27 @@
 local M = {}
 local execute
 
-M.mode = {
-	name = "commands",
-	icon = "",
-	actions = {
-		{
-			key = "<CR>",
-			name = "Run",
-			run = function(ctx)
-				M.on_submit(ctx)
-				return false
-			end,
-		},
-		{
-			key = "<Tab>",
-			name = "Fill",
-			when = function(ctx)
-				return ctx and ctx.has_selection and ctx.item ~= nil and ctx.input ~= nil
-			end,
-			run = function(ctx)
-				M.on_tab(ctx)
-				return true
-			end,
-		},
+M.name = "commands"
+M.icon = ""
+M.actions = {
+	{
+		key = "<CR>",
+		name = "Run",
+		run = function(ctx)
+			M.on_submit(ctx)
+			return false
+		end,
+	},
+	{
+		key = "<Tab>",
+		name = "Fill",
+		when = function(ctx)
+			return ctx and ctx.has_selection and ctx.item ~= nil and ctx.input ~= nil
+		end,
+		run = function(ctx)
+			M.on_tab(ctx)
+			return true
+		end,
 	},
 }
 

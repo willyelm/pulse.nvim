@@ -116,7 +116,7 @@ function M.visible_panels(navigators, scope_type)
 					visible[#visible + 1] = {
 						name = entry.name,
 						label = entry.label,
-						navigator = navigator.mode.name,
+						navigator = navigator.name,
 						panel = entry.name,
 						start = entry.start or "",
 						scopes = panel_scopes(entry),

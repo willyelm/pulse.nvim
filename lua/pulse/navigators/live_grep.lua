@@ -2,10 +2,9 @@ local M = {}
 local context = require("pulse.context")
 local scope = require("pulse.scope")
 
-M.mode = {
-	name = "live_grep",
-	icon = "󰍉",
-	actions = {
+M.name = "live_grep"
+M.icon = "󰍉"
+M.actions = {
 		{
 			key = "<CR>",
 			name = "Open",
@@ -32,7 +31,6 @@ M.mode = {
 				end
 			end,
 		},
-	},
 }
 M.panels = {
 	{ start = "$", name = "live_grep", label = "Live Grep", scopes = { "workspace", "folder" } },

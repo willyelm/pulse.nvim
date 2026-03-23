@@ -2,36 +2,34 @@ local M = {}
 local scope = require("pulse.scope")
 local CACHE = {}
 
-M.mode = {
-	name = "symbol",
-	icon = "󰘧",
-	actions = {
-		{
-			key = "<CR>",
-			name = "Open",
-			when = function(ctx)
-				return ctx and ctx.item ~= nil
-			end,
-			run = function(ctx)
-				if ctx and ctx.item then
-					ctx.jump(ctx.item)
-					ctx.close()
-					return false
-				end
-			end,
-		},
-		{
-			key = "<Tab>",
-			name = "Preview",
-			when = function(ctx)
-				return ctx and ctx.item ~= nil
-			end,
-			run = function(ctx)
-				if ctx and ctx.item then
-					ctx.preview(ctx.item)
-				end
-			end,
-		},
+M.name = "symbol"
+M.icon = "󰘧"
+M.actions = {
+	{
+		key = "<CR>",
+		name = "Open",
+		when = function(ctx)
+			return ctx and ctx.item ~= nil
+		end,
+		run = function(ctx)
+			if ctx and ctx.item then
+				ctx.jump(ctx.item)
+				ctx.close()
+				return false
+			end
+		end,
+	},
+	{
+		key = "<Tab>",
+		name = "Preview",
+		when = function(ctx)
+			return ctx and ctx.item ~= nil
+		end,
+		run = function(ctx)
+			if ctx and ctx.item then
+				ctx.preview(ctx.item)
+			end
+		end,
 	},
 }
 M.panels = {

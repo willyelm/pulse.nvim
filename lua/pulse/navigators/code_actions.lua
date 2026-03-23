@@ -1,10 +1,9 @@
 local M = {}
 local scope = require("pulse.scope")
 
-M.mode = {
-	name = "code_action",
-	icon = "󰌶",
-	actions = {
+M.name = "code_action"
+M.icon = "󰌶"
+M.actions = {
 		{
 			key = "<CR>",
 			name = "Run",
@@ -19,7 +18,6 @@ M.mode = {
 				end
 			end,
 		},
-	},
 }
 M.panels = {
 	{ start = ">", name = "code_action", label = "Code Actions", scopes = { "buffer" } },

@@ -3,7 +3,6 @@ local action = require("pulse.action")
 local action_menu = require("pulse.action_menu")
 local display = require("pulse.display")
 local layout = require("pulse.layout")
-local mode = require("pulse.mode")
 local context_view = require("pulse.context")
 local config = require("pulse.config")
 local panel = require("pulse.panel_menu")
@@ -132,7 +131,7 @@ end
 
 local function set_prompt_mode(name)
 	if state.input then
-		state.input:set_value(mode.switch_prompt(state.input:get_value(), name), { move_cursor_end = true })
+		state.input:set_value(config.switch_prompt(state.input:get_value(), name), { move_cursor_end = true })
 	end
 end
 
@@ -291,7 +290,7 @@ end
 
 local function panel_action_defs(item)
 	local mod = state.current.mod
-	local mode_actions = mod and mod.mode and mod.mode.actions
+	local mode_actions = mod and mod.actions
 	if type(mode_actions) == "function" then
 		local actions = mode_actions(action_ctx(item))
 		return type(actions) == "table" and actions or {}
@@ -463,7 +462,7 @@ local function reconcile_scope(prompt, mode_name, mod, current_scope)
 		local target = default_panel_for_scope(state.scope)
 		if target then
 			panel.select(state.active_panels, target)
-			local next_prompt = mode.switch_prompt(prompt, target.navigator)
+			local next_prompt = config.switch_prompt(prompt, target.navigator)
 			if next_prompt ~= prompt then
 				state.input:set_value(next_prompt, { move_cursor_end = true })
 				return mode_name, mod, current_scope, true
@@ -497,7 +496,7 @@ local function resolve_panel(prompt, mode_name, mod, initial_panel)
 	end, panels), initial_panel) or panel.default_panel(panels, initial_panel)
 	panel.select(state.active_panels, active_panel)
 	if active_panel then
-		local next_prompt = mode.switch_prompt(prompt, active_panel.navigator)
+		local next_prompt = config.switch_prompt(prompt, active_panel.navigator)
 		if next_prompt ~= prompt then
 			state.input:set_value(next_prompt, { move_cursor_end = true })
 			return panels, active_panel, true
@@ -507,7 +506,7 @@ local function resolve_panel(prompt, mode_name, mod, initial_panel)
 end
 
 local function prompt_ui(mod, navigator, query, active_panel, found, total)
-	local prompt_prefix = " " .. ((mod and mod.mode and mod.mode.icon) or "") .. " "
+	local prompt_prefix = " " .. ((mod and mod.icon) or "") .. " "
 	local scoped = nil
 	if mod and type(mod.input_scope) == "function" then
 		scoped = mod.input_scope(navigator, state.scope)
@@ -601,7 +600,7 @@ end
 
 local function compute_view_model()
 	local prompt = state.input:get_value()
-	local mode_name, query = mode.parse_prompt(prompt)
+	local mode_name, query = config.parse_prompt(prompt)
 	local mod = state.registry[mode_name]
 	local current_scope = panel.scope_type(state.scope)
 	local buffered_mode, buffered_mod = current_buffer_mode(prompt, current_scope)
@@ -719,7 +718,7 @@ local function switch_panel(direction)
 		if not is_visible() or not state.input then
 			return
 		end
-			state.input:set_value(mode.switch_prompt(state.input:get_value(), target.navigator), { move_cursor_end = true })
+			state.input:set_value(config.switch_prompt(state.input:get_value(), target.navigator), { move_cursor_end = true })
 			refresh()
 	end)
 	return true
@@ -790,7 +789,7 @@ local function click_tab_action()
 				if target.name == name then
 					state.pending_selected_key = remembered_selection(target.navigator, target.panel, state.scope)
 					panel.select(state.active_panels, target)
-					state.input:set_value(mode.switch_prompt(state.input:get_value(), target.navigator), { move_cursor_end = true })
+					state.input:set_value(config.switch_prompt(state.input:get_value(), target.navigator), { move_cursor_end = true })
 					break
 				end
 			end
@@ -868,7 +867,7 @@ local function bind_widgets()
 		state.input = ui.input.new({
 			buf = sections.input.buf,
 			win = sections.input.win,
-			prompt = " " .. ((files_navigator and files_navigator.mode and files_navigator.mode.icon) or "") .. " ",
+			prompt = " " .. ((files_navigator and files_navigator.icon) or "") .. " ",
 			on_change = refresh,
 			on_escape = hide,
 			on_down = function() move_selection(1) end,

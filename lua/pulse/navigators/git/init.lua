@@ -1,12 +1,12 @@
 local M = {}
 local scope = require("pulse.scope")
+local sync = require("pulse.sync")
 local git_context = require("pulse.navigators.git.context")
 local items = require("pulse.navigators.git.items")
 
-M.mode = {
-	name = "git",
-	icon = "󰊢",
-	actions = {
+M.name = "git"
+M.icon = "󰊢"
+M.actions = {
 		{
 			key = "<CR>",
 			name = "Open",
@@ -49,7 +49,6 @@ M.mode = {
 				end
 			end,
 		},
-	},
 }
 
 M.panels = {
@@ -66,7 +65,7 @@ M.context_item = git_context.context_item
 
 function M.init(ctx)
 	local scoped = ctx and ctx.scope
-	return {
+	local state = {
 		files = {},
 		all_files = {},
 		history_files = {},
@@ -77,7 +76,15 @@ function M.init(ctx)
 		status_key = nil,
 		scope = (scoped and scoped.kind == "folder" and scope.folder(scoped.path)) or nil,
 		scope_prefix = (scoped and scoped.kind == "folder" and (vim.fn.fnamemodify(scoped.path, ":.") .. "/")) or nil,
+		_on_update = ctx and ctx.on_update or nil,
 	}
+	sync.register(state, {
+		group = "PulseGitSync",
+		events = { "FocusGained", "ShellCmdPost", "DirChanged", "BufWritePost" },
+		invalidate = items.invalidate,
+		on_update = state._on_update,
+	})
+	return state
 end
 
 function M.input_scope(state)

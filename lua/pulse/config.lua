@@ -24,7 +24,7 @@ local state = {
 	navigator_options = {},
 	navigator_registry = {},
 	by_start = {},
-	default_mode = nil,
+	default_navigator = nil,
 }
 
 local function navigator_config(opts)
@@ -75,8 +75,39 @@ function M.by_start()
 	return state.by_start
 end
 
-function M.default_mode()
-	return state.default_mode or "files"
+function M.default_navigator()
+	return state.default_navigator or "files"
+end
+
+function M.parse_prompt(prompt)
+	prompt = prompt or ""
+	local entry = state.by_start[prompt:sub(1, 1)]
+	if entry then
+		return entry.navigator, prompt:sub(entry.strip)
+	end
+	return M.default_navigator(), prompt
+end
+
+function M.switch_prompt(prompt, navigator_name)
+	local _, query = M.parse_prompt(prompt or "")
+	local navigator = state.navigator_registry[navigator_name]
+	local prefix = navigator and navigator.panels and navigator.panels[1] and navigator.panels[1].start or ""
+	return prefix .. query
+end
+
+function M.find_by_command(name)
+	for navigator_name, navigator in pairs(state.navigator_registry) do
+		if (navigator.command_name or navigator_name) == name then
+			return navigator_name, nil
+		end
+	end
+	for navigator_name, navigator in pairs(state.navigator_registry) do
+		for _, panel in ipairs(navigator.panels or {}) do
+			if panel.name == name then
+				return navigator_name, panel.name
+			end
+		end
+	end
 end
 
 function M.setup(opts)
@@ -89,7 +120,7 @@ function M.setup(opts)
 	local navigators = {}
 	local registry = {}
 	local by_start = {}
-	local default_mode = nil
+	local default_navigator = nil
 
 	for _, p in ipairs(navigators_config) do
 		local navigator_module
@@ -106,27 +137,27 @@ function M.setup(opts)
 			vim.notify("Pulse: invalid navigator entry (must be string name or module)", vim.log.levels.WARN)
 		end
 
-		if navigator_module and navigator_module.mode and navigator_module.mode.name and type(navigator_module.init) == "function" and type(navigator_module.items) == "function" then
-			local mode_name = navigator_module.mode.name
-			if registry[mode_name] then
-				vim.notify("Pulse: duplicate navigator name '" .. mode_name .. "'", vim.log.levels.WARN)
+		if navigator_module and navigator_module.name and type(navigator_module.init) == "function" and type(navigator_module.items) == "function" then
+			local navigator_name = navigator_module.name
+			if registry[navigator_name] then
+				vim.notify("Pulse: duplicate navigator name '" .. navigator_name .. "'", vim.log.levels.WARN)
 			else
 				navigators[#navigators + 1] = navigator_module
-				registry[mode_name] = navigator_module
+				registry[navigator_name] = navigator_module
 
 				if not (navigator_module.panels and #navigator_module.panels > 0) then
-					vim.notify("Pulse: navigator '" .. mode_name .. "' must define panels", vim.log.levels.WARN)
+					vim.notify("Pulse: navigator '" .. navigator_name .. "' must define panels", vim.log.levels.WARN)
 				end
 				for _, entry in ipairs(navigator_module.panels or {}) do
 					local start = entry.start or ""
 					if start ~= "" then
-						if by_start[start] and by_start[start].mode ~= mode_name then
+						if by_start[start] and by_start[start].navigator ~= navigator_name then
 							vim.notify("Pulse: prefix '" .. start .. "' already taken, ignoring panel '" .. tostring(entry.name) .. "'", vim.log.levels.WARN)
 						else
-							by_start[start] = { mode = mode_name, strip = #start + 1 }
+							by_start[start] = { navigator = navigator_name, strip = #start + 1 }
 						end
-					elseif not default_mode then
-						default_mode = mode_name
+					elseif not default_navigator then
+						default_navigator = navigator_name
 					end
 				end
 			end
@@ -139,7 +170,7 @@ function M.setup(opts)
 	state.navigator_options = per_navigator
 	state.navigator_registry = registry
 	state.by_start = by_start
-	state.default_mode = default_mode
+	state.default_navigator = default_navigator
 end
 
 return M

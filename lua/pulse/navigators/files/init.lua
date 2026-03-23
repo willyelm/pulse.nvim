@@ -1,10 +1,10 @@
 local M = {}
 local actions = require("pulse.navigators.files.actions")
 local items = require("pulse.navigators.files.items")
+local sync = require("pulse.sync")
 local uv = vim.uv or vim.loop
 
 local WATCHERS = {}
-local WATCHER_GROUP
 local toggle_folder
 
 local DEFAULT_OPTS = {
@@ -17,20 +17,6 @@ local DEFAULT_OPTS = {
 		ignore = true,
 	},
 }
-
-local function schedule_state_refresh(state)
-	if not state or state._refresh_pending then
-		return
-	end
-	state._refresh_pending = true
-	vim.schedule(function()
-		state._refresh_pending = false
-		items.invalidate(state)
-		if state._on_update then
-			state._on_update()
-		end
-	end)
-end
 
 local function mark_dirty(state)
 	if state then
@@ -46,29 +32,19 @@ local function close_watcher(root, watcher)
 	WATCHERS[root] = nil
 end
 
-local function subscribe_events()
-	if WATCHER_GROUP then
-		return
+local function has_subscribers(watcher)
+	for _ in pairs(watcher.subscribers) do
+		return true
 	end
-	WATCHER_GROUP = vim.api.nvim_create_augroup("PulseFilesSync", { clear = true })
-	vim.api.nvim_create_autocmd({ "FocusGained", "BufWritePost", "ShellCmdPost", "DirChanged", "CursorHold", "CursorHoldI" }, {
-		group = WATCHER_GROUP,
-		callback = function()
-			for root, watcher in pairs(WATCHERS) do
-				local has_subscribers = false
-				for subscribed in pairs(watcher.subscribers) do
-					has_subscribers = true
-					if subscribed._dirty then
-						subscribed._dirty = false
-						schedule_state_refresh(subscribed)
-					end
-				end
-				if not has_subscribers then
-					close_watcher(root, watcher)
-				end
-			end
-		end,
-	})
+	return false
+end
+
+local function prune_watchers()
+	for root, watcher in pairs(WATCHERS) do
+		if not has_subscribers(watcher) then
+			close_watcher(root, watcher)
+		end
+	end
 end
 
 local function ensure_watcher(root)
@@ -120,11 +96,9 @@ local function file_actions(ctx)
 	return actions.mode_actions(ctx, toggle_folder)
 end
 
-M.mode = {
-	name = "files",
-	icon = "󰈔",
-	actions = file_actions,
-}
+M.name = "files"
+M.icon = "󰈔"
+M.actions = file_actions
 
 M.context = false
 M.panels = {
@@ -144,10 +118,26 @@ function M.init(ctx)
 		expanded = {},
 		scope = ctx and ctx.scope or nil,
 		_on_update = ctx and ctx.on_update or nil,
-		_refresh_pending = false,
 		_dirty = false,
 	}
-	subscribe_events()
+	sync.register(state, {
+		group = "PulseFilesSync",
+		events = { "FocusGained", "BufWritePost", "ShellCmdPost", "DirChanged", "CursorHold", "CursorHoldI" },
+		when = function(current)
+			if current and current._dirty then
+				current._dirty = false
+				return true
+			end
+			return false
+		end,
+		invalidate = items.invalidate,
+		on_update = function()
+			prune_watchers()
+			if state._on_update then
+				state._on_update()
+			end
+		end,
+	})
 	ensure_watcher(project_root).subscribers[state] = true
 	return state
 end

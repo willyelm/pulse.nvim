@@ -2,10 +2,9 @@ local M = {}
 local context = require("pulse.context")
 local scope = require("pulse.scope")
 
-M.mode = {
-	name = "fuzzy_search",
-	icon = "󱉶",
-	actions = {
+M.name = "fuzzy_search"
+M.icon = "󱉶"
+M.actions = {
 		{
 			key = "<CR>",
 			name = "Open",
@@ -32,7 +31,6 @@ M.mode = {
 				end
 			end,
 		},
-	},
 }
 M.panels = {
 	{ start = "?", name = "fuzzy_search", label = "Fuzzy Search", scopes = { "buffer" } },

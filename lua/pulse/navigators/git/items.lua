@@ -245,4 +245,17 @@ function M.items(state, query, panel_name)
 	return status_items(state, query)
 end
 
+function M.invalidate(state)
+	if not state then
+		return
+	end
+	state.files = {}
+	state.all_files = {}
+	state.history_files = {}
+	state.history_all = {}
+	state.history_key = nil
+	state.status_all = {}
+	state.status_key = nil
+end
+
 return M
