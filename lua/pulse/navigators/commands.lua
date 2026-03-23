@@ -69,6 +69,7 @@ function M.on_submit(ctx)
 	if vim.trim(tostring(raw)) == "" then
 		return
 	end
+	ctx.set_query((ctx.panel and ctx.panel.start) or "")
 	ctx.close()
 	execute({ command = raw })
 end
