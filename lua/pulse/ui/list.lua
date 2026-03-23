@@ -1,7 +1,7 @@
 local M = {}
 M.__index = M
 local window = require("pulse.ui.window")
-local MATCH_HL = "PulseListMatch"
+local MATCH_HL = "Search"
 local SIDE_PADDING = 1
 
 local function clamp(value, min_value, max_value)
@@ -99,7 +99,6 @@ function M.new(opts)
 	self.visible_count = self.min_visible
 	self.ns = vim.api.nvim_create_namespace("pulse_ui_list")
 	self.color_hl_cache = {}
-	pcall(vim.api.nvim_set_hl, 0, MATCH_HL, { bold = true, default = true })
 
 	window.configure_isolated_buffer(self.buf, { buftype = "nofile", modifiable = false, bufhidden = "hide" })
 

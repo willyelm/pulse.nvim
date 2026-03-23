@@ -56,8 +56,33 @@ function M.parse_numstat_path(path)
 		path = new_path,
 		old_path = old_path,
 		label = vim.fn.fnamemodify(new_path, ":t"),
-		right = old_path ~= "" and ("renamed from " .. old_path) or nil,
+		right = nil,
 	}
+end
+
+function M.path_dir(path)
+	local dir = vim.fn.fnamemodify(path or "", ":h")
+	return dir == "." and "" or dir
+end
+
+function M.path_name(path)
+	return vim.fn.fnamemodify(path or "", ":t")
+end
+
+function M.rename_right(old_path, new_path, added, removed)
+	local old_name = old_path or ""
+	if old_name ~= "" and M.path_dir(old_path) == M.path_dir(new_path) then
+		old_name = M.path_name(old_path)
+	end
+	local parts = {}
+	if old_name ~= "" then
+		parts[#parts + 1] = "renamed from " .. old_name
+	end
+	local stats = M.file_change_right(added, removed)
+	if stats ~= "" then
+		parts[#parts + 1] = stats
+	end
+	return table.concat(parts, " ")
 end
 
 function M.pretty_date(date)

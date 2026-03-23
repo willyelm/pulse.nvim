@@ -235,9 +235,9 @@ end
 local function right_matches(tokens)
 	local matches, col = {}, 0
 	for i, token in ipairs(tokens or {}) do
-		local hl = (token == "+" or token == "??") and "PulseAdd"
-			or (token == "-") and "PulseDelete"
-			or (token == "~") and "PulseChange"
+		local hl = (token == "+" or token == "??") and "Added"
+			or (token == "-") and "Removed"
+			or (token == "~") and "Changed"
 			or (token == "!") and "Comment"
 			or nil
 		if hl then

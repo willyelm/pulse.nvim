@@ -1,5 +1,5 @@
 local M = {}
-local buffer_scope = require("pulse.buffer_scope")
+local scope = require("pulse.scope")
 
 M.mode = {
 	name = "code_action",
@@ -74,12 +74,12 @@ local function execute(item)
 end
 
 function M.init(ctx)
-	local bufnr = buffer_scope.resolve(ctx)
+	local bufnr = scope.resolve_bufnr(ctx)
 	pcall(vim.fn.bufload, bufnr)
 	local win = ctx and ctx.win or 0
 	local state = {
 		actions = {},
-		input_scope = buffer_scope.input_scope(ctx, bufnr),
+		input_scope = scope.input_scope(ctx, bufnr),
 	}
 
 	local cursor = nil

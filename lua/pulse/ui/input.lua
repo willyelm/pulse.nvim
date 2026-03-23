@@ -2,8 +2,6 @@ local M = {}
 M.__index = M
 
 local window = require("pulse.ui.window")
-local mode = require("pulse.mode")
-local MODE_HL = "PulseModePrefix"
 
 local function configure_window(win)
   if not (win and vim.api.nvim_win_is_valid(win)) then
@@ -82,7 +80,6 @@ function M.new(opts)
   self.augroup = vim.api.nvim_create_augroup("PulseUIInput" .. tostring(self.buf), { clear = true })
   self.ns = vim.api.nvim_create_namespace("pulse_ui_input")
   self.addons = {}
-  pcall(vim.api.nvim_set_hl, 0, MODE_HL, { bold = true, default = true })
 
   window.configure_isolated_buffer(self.buf, { buftype = "prompt", modifiable = true, bufhidden = "hide" })
   vim.fn.prompt_setprompt(self.buf, self.prompt)
@@ -221,16 +218,6 @@ function M:set_addons(addons)
   end
 
   vim.api.nvim_buf_clear_namespace(self.buf, self.ns, 0, -1)
-
-  local first = self:get_value():sub(1, 1)
-  local by_start = mode.by_start()
-  if by_start[first] then
-    pcall(vim.api.nvim_buf_set_extmark, self.buf, self.ns, 0, 0, {
-      end_row = 0,
-      end_col = 1,
-      hl_group = MODE_HL,
-    })
-  end
 
   for _, match in ipairs(self.addons.prompt_matches or {}) do
     pcall(vim.api.nvim_buf_set_extmark, self.buf, self.ns, 0, match[1], {

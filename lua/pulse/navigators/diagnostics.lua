@@ -1,6 +1,6 @@
 local M = {}
-local buffer_scope = require("pulse.buffer_scope")
 local context = require("pulse.context")
+local scope = require("pulse.scope")
 
 M.mode = {
 	name = "diagnostics",
@@ -50,11 +50,11 @@ local severity_name = {
 }
 
 function M.init(ctx)
-	local bufnr = buffer_scope.resolve(ctx)
+	local bufnr = scope.resolve_bufnr(ctx)
 	pcall(vim.fn.bufload, bufnr)
 	return {
 		current_bufnr = bufnr,
-		input_scope = buffer_scope.input_scope(ctx, bufnr),
+		input_scope = (ctx and ctx.scope and ctx.scope.kind == "file") and scope.input_scope(ctx, bufnr) or nil,
 	}
 end
 

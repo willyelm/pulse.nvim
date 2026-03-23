@@ -18,13 +18,6 @@ local DEFAULT_OPTS = {
 	},
 }
 
-local function setup_highlights()
-	pcall(vim.api.nvim_set_hl, 0, "PulseAdd", { link = "Added", default = true })
-	pcall(vim.api.nvim_set_hl, 0, "PulseDelete", { link = "Removed", default = true })
-	pcall(vim.api.nvim_set_hl, 0, "PulseChange", { link = "Changed", default = true })
-	pcall(vim.api.nvim_set_hl, 0, "PulseOpenFile", { bold = true, default = true })
-end
-
 local function schedule_state_refresh(state)
 	if not state or state._refresh_pending then
 		return
@@ -140,7 +133,6 @@ M.panels = {
 }
 
 function M.init(ctx)
-	setup_highlights()
 	local project_root = type(ctx) == "string" and ctx or (ctx and ctx.cwd) or vim.fn.getcwd()
 	local state = {
 		root = project_root,

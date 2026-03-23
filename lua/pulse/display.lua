@@ -91,6 +91,21 @@ local function icon_for_item(item_type, name)
 end
 
 local function display_header(item)
+	if item.folder then
+		local indent = string.rep("  ", tonumber(item.depth) or 0)
+		local suffix = item.scope_parent and "" or "/"
+		if item.no_icon then
+			local out = row(indent .. (item.label or file_name(item.path)) .. suffix, item.display_right or "", false)
+			out.right_group = "LineNr"
+			out.right_matches = item.right_matches
+			return out
+		end
+		local icon = item.expanded and "󰷏" or "󰉋"
+		local out = row(string.format("%s%s %s%s", indent, icon, item.label or file_name(item.path), suffix), item.display_right or "", false, { { #indent, #indent + #icon, item.icon_color and "Directory" or nil } })
+		out.right_group = "LineNr"
+		out.right_matches = item.right_matches
+		return out
+	end
 	if item.path then
 		local icon, style = icon_for_item("file", item.path)
 		local left = string.format("%s %s", icon, item.label or "")
@@ -131,7 +146,7 @@ local function display_file(item)
 	end
 	local left_group = item.ignored and "Comment" or false
 	if item.is_open and not item.ignored then
-		left_group = "PulseOpenFile"
+		left_group = "Title"
 	end
 	local right_group = item.ignored and "Comment" or "LineNr"
 	if item.ignored then
@@ -162,8 +177,8 @@ local function display_folder(item)
 		return out
 	end
 	local icon = item.expanded and "󰷏" or "󰉋"
-	local icon_hl = item.ignored and "Comment" or (item.icon_color and "Directory" or nil)
-	local out = row(string.format("%s%s %s%s", indent, icon, item.label or file_name(item.path), suffix), item.display_right or "", group, { { #indent, #indent + #icon, icon_hl } })
+	local icon_hl = item.ignored and "Comment" or nil
+	local out = row(string.format("%s%s %s%s", indent, icon, item.label or file_name(item.path), suffix), item.display_right or "", group, icon_hl and { { #indent, #indent + #icon, icon_hl } } or nil)
 	out.right_group = item.ignored and "Comment" or "LineNr"
 	out.right_matches = item.right_matches
 	return out
@@ -177,6 +192,8 @@ local function display_grep(item)
 	local pos = string.format("%d:%d", item.lnum or 1, item.col or 1)
 	local right = item.kind == "fuzzy_search" and pos or string.format("%s:%s", file_name(item.path or item.filename), pos)
 	local out = row(line, right)
+	out.left_group = false
+	out.right_group = false
 
 	local q = vim.trim(item.query or "")
 	if q ~= "" then
@@ -208,24 +225,24 @@ local function display_git_status(item)
 		-- Highlight additions (+N)
 		local p1, p2 = right_str:find("%+%d+")
 		if p1 then
-			display.right_matches[#display.right_matches + 1] = { p1 - 1, p2, "PulseAdd" }
+			display.right_matches[#display.right_matches + 1] = { p1 - 1, p2, "Added" }
 		end
 		-- Highlight deletions (-N)
 		p1, p2 = right_str:find("%-%d+")
 		if p1 then
-			display.right_matches[#display.right_matches + 1] = { p1 - 1, p2, "PulseDelete" }
+			display.right_matches[#display.right_matches + 1] = { p1 - 1, p2, "Removed" }
 		end
 		p1, p2 = right_str:find("?", 1, true)
 		if p1 then
-			display.right_matches[#display.right_matches + 1] = { p1 - 1, p2, "PulseAdd" }
+			display.right_matches[#display.right_matches + 1] = { p1 - 1, p2, "Added" }
 		end
 		p1, p2 = right_str:find("A", 1, true)
 		if p1 then
-			display.right_matches[#display.right_matches + 1] = { p1 - 1, p2, "PulseAdd" }
+			display.right_matches[#display.right_matches + 1] = { p1 - 1, p2, "Added" }
 		end
 		p1, p2 = right_str:find("D", 1, true)
 		if p1 then
-			display.right_matches[#display.right_matches + 1] = { p1 - 1, p2, "PulseDelete" }
+			display.right_matches[#display.right_matches + 1] = { p1 - 1, p2, "Removed" }
 		end
 	end
 
@@ -240,19 +257,22 @@ local function display_git_commit(item)
 end
 
 local function display_git_commit_file(item)
-	local indent = string.rep("  ", tonumber(item.depth) or 0)
-	local icon, style = icon_for_item("file", item.path)
-	local left = string.format("%s%s %s", indent, icon, item.label or file_name(item.path))
-	local out = row(left, item.display_right or "", false, style and { { #indent, #indent + #icon, style } } or nil)
+	local out = display_file(vim.tbl_extend("force", {
+		kind = "file",
+		no_icon = false,
+		icon_color = false,
+		ignored = false,
+		is_open = false,
+	}, item))
 	if item.display_right ~= "" then
-		out.right_matches = {}
+		out.right_matches = out.right_matches or {}
 		local p1, p2 = item.display_right:find("%+%d+")
 		if p1 then
-			out.right_matches[#out.right_matches + 1] = { p1 - 1, p2, "PulseAdd" }
+			out.right_matches[#out.right_matches + 1] = { p1 - 1, p2, "Added" }
 		end
 		p1, p2 = item.display_right:find("%-%d+")
 		if p1 then
-			out.right_matches[#out.right_matches + 1] = { p1 - 1, p2, "PulseDelete" }
+			out.right_matches[#out.right_matches + 1] = { p1 - 1, p2, "Removed" }
 		end
 	end
 	return out

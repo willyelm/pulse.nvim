@@ -1,5 +1,5 @@
 local M = {}
-local buffer_scope = require("pulse.buffer_scope")
+local scope = require("pulse.scope")
 local CACHE = {}
 
 M.mode = {
@@ -202,7 +202,7 @@ local function has_document_symbol_client(bufnr)
 end
 
 local function cached_symbols(bufnr)
-	if not buffer_scope.valid(bufnr) then
+	if not scope.valid_bufnr(bufnr) then
 		return nil
 	end
 	local tick = vim.api.nvim_buf_get_changedtick(bufnr)
@@ -214,7 +214,7 @@ local function cached_symbols(bufnr)
 end
 
 local function store_symbols(bufnr, symbols)
-	if not buffer_scope.valid(bufnr) then
+	if not scope.valid_bufnr(bufnr) then
 		return symbols
 	end
 	CACHE[bufnr] = {
@@ -225,7 +225,7 @@ local function store_symbols(bufnr, symbols)
 end
 
 function M.init(ctx)
-	local bufnr = buffer_scope.resolve(ctx)
+	local bufnr = scope.resolve_bufnr(ctx)
 	if not bufnr then
 		return { symbols = {}, input_scope = nil }
 	end
@@ -244,7 +244,7 @@ function M.init(ctx)
 	end
 	local state = {
 		symbols = symbols,
-		input_scope = buffer_scope.input_scope(ctx, bufnr),
+		input_scope = scope.input_scope(ctx, bufnr),
 	}
 	if not use_lsp then
 		return state

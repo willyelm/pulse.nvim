@@ -10,7 +10,7 @@ local function selected_path(ctx)
 	if not (ctx and ctx.state and item and item.path) then
 		return nil
 	end
-	if item.scope_parent or item.search_group then
+	if item.scope_parent then
 		return nil
 	end
 	return items.absolute_path(ctx.state.root, item.path)
@@ -221,7 +221,7 @@ end
 
 function M.mode_actions(ctx, toggle_folder)
 	local item = ctx and ctx.item
-	local editable = item and (item.kind == "file" or item.kind == "folder") and not item.scope_parent and not item.search_group
+	local editable = item and (item.kind == "file" or item.kind == "folder") and not item.scope_parent
 	local actions = {
 		{
 			key = "<CR>",

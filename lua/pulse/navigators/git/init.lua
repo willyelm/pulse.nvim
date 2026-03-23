@@ -65,9 +65,6 @@ M.scope_aware = true
 M.context_item = git_context.context_item
 
 function M.init(ctx)
-	pcall(vim.api.nvim_set_hl, 0, "PulseAdd", { link = "Added", default = true })
-	pcall(vim.api.nvim_set_hl, 0, "PulseDelete", { link = "Removed", default = true })
-	pcall(vim.api.nvim_set_hl, 0, "PulseChange", { link = "Changed", default = true })
 	local scoped = ctx and ctx.scope
 	return {
 		files = {},

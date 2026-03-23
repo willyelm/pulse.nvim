@@ -1,6 +1,6 @@
 local M = {}
 local context = require("pulse.context")
-local buffer_scope = require("pulse.buffer_scope")
+local scope = require("pulse.scope")
 
 M.mode = {
 	name = "fuzzy_search",
@@ -105,7 +105,7 @@ local function fuzzy_score(haystack, n)
 end
 
 function M.init(ctx)
-	local bufnr = buffer_scope.resolve(ctx)
+	local bufnr = scope.resolve_bufnr(ctx)
 	if not bufnr then
 		return {
 			bufnr = nil,
@@ -123,7 +123,7 @@ function M.init(ctx)
 		lines = {},
 		line_count = 0,
 		tick = -1,
-		input_scope = buffer_scope.input_scope(ctx, bufnr),
+		input_scope = scope.input_scope(ctx, bufnr),
 	}
 end
 

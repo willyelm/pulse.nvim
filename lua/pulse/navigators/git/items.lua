@@ -68,26 +68,50 @@ local function commit_files(state, commit, pathspec)
 		cmd[#cmd + 1] = pathspec
 	end
 
-	local out = {}
+	local files = {}
 	for _, line in ipairs(util.git_lines(cmd) or {}) do
 		local added, removed, path = line:match("^(%S+)%s+(%S+)%s+(.+)$")
 		if path and path ~= "" then
 			local parsed = util.parse_numstat_path(path)
 			path = parsed and parsed.path or util.normalize_status_path(path)
-			out[#out + 1] = {
+			local old_path = parsed and parsed.old_path or nil
+			files[#files + 1] = {
 				kind = "git_commit_file",
 				commit = commit,
 				parent = commit .. "^",
 				path = path,
-				old_path = parsed and parsed.old_path or nil,
+				old_path = old_path,
 				filename = path,
-				label = parsed and parsed.label or vim.fn.fnamemodify(path, ":t"),
+				label = parsed and parsed.label or util.path_name(path),
 				added = tonumber(added) or 0,
 				removed = tonumber(removed) or 0,
-				display_right = (parsed and parsed.right) or util.file_change_right(tonumber(added) or 0, tonumber(removed) or 0),
-				depth = 1,
+				display_right = old_path and util.rename_right(old_path, path, tonumber(added) or 0, tonumber(removed) or 0)
+					or util.file_change_right(tonumber(added) or 0, tonumber(removed) or 0),
+				depth = 2,
 			}
 		end
+	end
+
+	table.sort(files, function(a, b)
+		if util.path_dir(a.path) == util.path_dir(b.path) then
+			return (a.path or "") < (b.path or "")
+		end
+		return util.path_dir(a.path) < util.path_dir(b.path)
+	end)
+
+	local out, current_dir = {}, nil
+	for _, file in ipairs(files) do
+		local dir = util.path_dir(file.path)
+		if dir ~= current_dir then
+			current_dir = dir
+			if dir ~= "" then
+				out[#out + 1] = { kind = "header", label = dir, depth = 1, folder = true, expanded = true }
+			end
+		end
+		if dir == "" then
+			file.depth = 1
+		end
+		out[#out + 1] = file
 	end
 
 	state.history_files[commit] = out

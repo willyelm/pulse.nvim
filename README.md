@@ -217,12 +217,17 @@ vim.keymap.set("n", "<leader>pf", "<cmd>Pulse fuzzy_search<cr>", { desc = "Pulse
 
 ## Theming
 
-Pulse uses existing highlight groups, with optional overrides:
+Pulse mostly uses native Neovim highlight groups for color:
 
-- `PulseModePrefix`
-- `PulseListMatch`
-- `PulseAdd`
-- `PulseDelete`
+- `DiffAdd`
+- `DiffDelete`
+- `DiffChange`
+- `Directory`
+- `LineNr`
+- `Title`
+
+Pulse-specific groups are only used where it needs custom UI treatment:
+
 - `PulseDiffAdd`
 - `PulseDiffDelete`
 - `PulseDiffNAdd` - Secondary background for added lines in diff
@@ -231,8 +236,6 @@ Pulse uses existing highlight groups, with optional overrides:
 Example:
 
 ```lua
-vim.api.nvim_set_hl(0, "PulseAdd", { link = "Added" })
-vim.api.nvim_set_hl(0, "PulseDelete", { link = "Removed" })
 vim.api.nvim_set_hl(0, "PulseDiffAdd", { link = "DiffAdd" })
 vim.api.nvim_set_hl(0, "PulseDiffDelete", { link = "DiffDelete" })
 ```

@@ -3,7 +3,6 @@ local M = {}
 local ok_devicons, devicons = pcall(require, "nvim-web-devicons")
 local FILE_ICON_FALLBACK = ""
 local MAX_LABEL_LEN = 24
-local color_hl_cache = {}
 
 local function normalize_path(path)
   if not path or path == "" then
@@ -16,22 +15,8 @@ local function file_icon(path)
   if not ok_devicons then
     return FILE_ICON_FALLBACK, nil
   end
-  local icon, color = devicons.get_icon_color(vim.fn.fnamemodify(path, ":t"), vim.fn.fnamemodify(path, ":e"), { default = true })
-  return icon or FILE_ICON_FALLBACK, color
-end
-
-local function icon_hl(color, fallback)
-  if type(color) ~= "string" or color == "" then
-    return fallback
-  end
-  local hl = color_hl_cache[color]
-  if hl then
-    return hl
-  end
-  hl = "PulseScopeIcon_" .. color:gsub("[^%w]", "")
-  color_hl_cache[color] = hl
-  pcall(vim.api.nvim_set_hl, 0, hl, { fg = color })
-  return hl
+  local icon, hl = devicons.get_icon(vim.fn.fnamemodify(path, ":t"), vim.fn.fnamemodify(path, ":e"), { default = true })
+  return icon or FILE_ICON_FALLBACK, hl
 end
 
 function M.file(path, bufnr)
@@ -39,14 +24,13 @@ function M.file(path, bufnr)
   if not path then
     return nil
   end
-  local icon, color = file_icon(path)
+  local icon, hl = file_icon(path)
   return {
     kind = "file",
     path = path,
     bufnr = bufnr,
     label = vim.fn.fnamemodify(path, ":t"),
     icon = icon,
-    icon_hl = icon_hl(color),
   }
 end
 
@@ -61,13 +45,12 @@ function M.folder(path)
     path = path,
     label = vim.fn.fnamemodify(path, ":t"),
     icon = "󰉋",
-    icon_hl = "Directory",
   }
 end
 
 function M.from_buffer(bufnr)
   bufnr = bufnr or vim.api.nvim_get_current_buf()
-  if not (bufnr and vim.api.nvim_buf_is_valid(bufnr)) then
+  if not M.valid_bufnr(bufnr) then
     return nil
   end
   local path = vim.api.nvim_buf_get_name(bufnr)
@@ -110,16 +93,51 @@ function M.prompt_matches(scope, prompt_prefix_len)
     return nil
   end
   local start_col = prompt_prefix_len or 0
-  local icon = tostring(scope.icon or "")
-  local icon_end = start_col + 1 + #icon
   local label_end = start_col + #M.prompt_text(scope)
-  local matches = {
+  return {
     { start_col, label_end, "PulseNormal" },
   }
-  if icon ~= "" and scope.icon_hl then
-    matches[#matches + 1] = { start_col + 1, icon_end, scope.icon_hl }
+end
+
+function M.valid_bufnr(bufnr)
+  return type(bufnr) == "number" and bufnr > 0 and vim.api.nvim_buf_is_valid(bufnr)
+end
+
+function M.resolve_bufnr(ctx)
+  local scoped = ctx and ctx.scope or nil
+  local bufnr = nil
+
+  if scoped and scoped.kind == "file" then
+    bufnr = scoped.bufnr
+    if not M.valid_bufnr(bufnr) and scoped.path and scoped.path ~= "" then
+      local existing = vim.fn.bufnr(scoped.path)
+      if type(existing) == "number" and existing > 0 then
+        bufnr = existing
+      else
+        bufnr = vim.fn.bufadd(scoped.path)
+      end
+    end
   end
-  return matches
+
+  if not M.valid_bufnr(bufnr) then
+    bufnr = ctx and ctx.bufnr or nil
+  end
+  if not M.valid_bufnr(bufnr) then
+    bufnr = vim.api.nvim_get_current_buf()
+  end
+
+  return M.valid_bufnr(bufnr) and bufnr or nil
+end
+
+function M.input_scope(ctx, bufnr)
+  local scoped = ctx and ctx.scope or nil
+  if scoped and scoped.kind == "file" and scoped.path and bufnr then
+    return M.file(scoped.path, bufnr)
+  end
+  if bufnr then
+    return M.from_buffer(bufnr)
+  end
+  return nil
 end
 
 return M
