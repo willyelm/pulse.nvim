@@ -248,8 +248,8 @@ end
 local function expanded_signature(expanded)
 	local keys = {}
 	for key, value in pairs(expanded or {}) do
-		if value then
-			keys[#keys + 1] = key
+		if value ~= nil then
+			keys[#keys + 1] = key .. "=" .. tostring(value)
 		end
 	end
 	table.sort(keys)
