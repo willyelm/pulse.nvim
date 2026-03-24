@@ -393,12 +393,27 @@ local function lazy_tree_rows(state)
 		for _, child in ipairs(scan_dir(state, dir_rel, parent_ignored)) do
 			if child.kind == "folder" then
 				local label, folder_path, leaf = collapse_scanned_folder(state, child)
-				local ignored = parent_ignored == true or leaf.ignored == true
-				rows[#rows + 1] = item("folder", folder_path, label, depth, ignored, state.opts, vim.tbl_extend("force", {
-					expanded = state.expanded[folder_path] == true,
-				}, display_meta(ordered_statuses(add_status_set({}, leaf.status), ignored))))
-				if state.expanded[folder_path] == true then
-					walk(folder_path, depth + 1, ignored)
+				local leaf_children = state.opts.compact_dirs == true and scan_dir(state, leaf.path, leaf.ignored) or nil
+				if leaf_children and #leaf_children == 1 and leaf_children[1].kind == "file" then
+					local compact_file = leaf_children[1]
+					local path = compact_file.path
+					rows[#rows + 1] = file_item(
+						state.opts,
+						path,
+						label .. "/" .. compact_file.label,
+						depth,
+						parent_ignored == true or compact_file.ignored == true,
+						open_map[path] == true or open_map[normalize_path(path)] == true,
+						compact_file.status
+					)
+				else
+					local ignored = parent_ignored == true or leaf.ignored == true
+					rows[#rows + 1] = item("folder", folder_path, label, depth, ignored, state.opts, vim.tbl_extend("force", {
+						expanded = state.expanded[folder_path] == true,
+					}, display_meta(ordered_statuses(add_status_set({}, leaf.status), ignored))))
+					if state.expanded[folder_path] == true then
+						walk(folder_path, depth + 1, ignored)
+					end
 				end
 			else
 				local path = child.path
@@ -783,6 +798,17 @@ local function collapsed_folder(node, compact)
 	return table.concat(parts, "/"), current.path, current
 end
 
+local function collapsed_file(node, label)
+	if vim.tbl_count(node.dirs) ~= 0 or vim.tbl_count(node.files) ~= 1 then
+		return nil
+	end
+	local only = next(node.files)
+	local file = node.files[only]
+	return vim.tbl_extend("force", {}, file, {
+		label = label .. "/" .. (file.label or file.name or only),
+	})
+end
+
 function M.build_tree(entries, expanded, opts)
 	local tree_opts = opts or {}
 	local root = { dirs = {}, files = {}, statuses = {} }
@@ -854,6 +880,15 @@ function M.build_tree(entries, expanded, opts)
 		for _, name in ipairs(dir_names) do
 			local child = node.dirs[name]
 			local label, folder_path, leaf = collapsed_folder(child, tree_opts.compact_dirs == true)
+			local compact_file = tree_opts.compact_dirs == true and collapsed_file(leaf, label) or nil
+			if compact_file then
+				local ignored = parent_ignored == true or compact_file.ignored == true
+				local meta = compact_file.status and display_meta(status_tokens(compact_file.status)) or {}
+				items[#items + 1] = item(compact_file.kind or "file", compact_file.path, compact_file.name, depth, ignored, tree_opts, vim.tbl_extend("force", {
+					is_open = compact_file.is_open,
+				}, meta, compact_file))
+				goto continue
+			end
 			local folder_key = tree_opts.folder_key and tree_opts.folder_key(folder_path, leaf) or folder_path
 			local is_expanded = expanded[folder_key] == true
 			if not is_expanded and expanded[folder_key] == nil and tree_opts.folder_expanded then
@@ -868,6 +903,7 @@ function M.build_tree(entries, expanded, opts)
 			if is_expanded then
 				append(leaf, depth + 1, ignored)
 			end
+			::continue::
 		end
 		for _, name in ipairs(file_names) do
 			local file = node.files[name]

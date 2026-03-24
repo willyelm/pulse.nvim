@@ -94,14 +94,7 @@ function M.init(ctx)
 	sync.register(state, {
 		group = "PulseGitFocusSync",
 		events = { "FocusGained" },
-		invalidate = function(current)
-			local panel = current and current.current_panel
-			if panel == "git_project_history" or panel == "git_file_history" then
-				items.invalidate_history(current)
-				return
-			end
-			items.invalidate_status(current)
-		end,
+		invalidate = items.invalidate,
 		on_update = state._on_update,
 	})
 	sync.register(state, {
