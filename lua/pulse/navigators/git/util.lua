@@ -1,4 +1,5 @@
 local M = {}
+local uv = vim.uv or vim.loop
 
 function M.git_lines(cmd)
 	if cmd and cmd[1] == "git" then
@@ -13,11 +14,25 @@ function M.git_lines(cmd)
 end
 
 function M.line_count(path)
-	local resolved = (path and vim.fn.filereadable(path) == 1) and path or vim.fn.fnamemodify(path or "", ":p")
-	if vim.fn.filereadable(resolved) ~= 1 then
+	local resolved = vim.fn.fnamemodify(path or "", ":p")
+	local stat = resolved ~= "" and uv.fs_stat(resolved) or nil
+	if not (stat and stat.type == "file") then
 		return 0
 	end
-	return #vim.fn.readfile(resolved)
+	local fd = uv.fs_open(resolved, "r", 438)
+	if not fd then
+		return 0
+	end
+	local data = uv.fs_read(fd, stat.size or 0, 0) or ""
+	uv.fs_close(fd)
+	if data == "" then
+		return 0
+	end
+	local _, count = data:gsub("\n", "\n")
+	if data:sub(-1) == "\n" then
+		return count
+	end
+	return count + 1
 end
 
 function M.normalize_status_path(path)
