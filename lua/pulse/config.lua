@@ -12,7 +12,6 @@ local M = {
 			"diagnostics",
 			"code_actions",
 			"symbols",
-			"workspace_symbols",
 			"live_grep",
 			"fuzzy_search",
 		},
@@ -137,7 +136,12 @@ function M.setup(opts)
 			vim.notify("Pulse: invalid navigator entry (must be string name or module)", vim.log.levels.WARN)
 		end
 
-		if navigator_module and navigator_module.name and type(navigator_module.init) == "function" and type(navigator_module.items) == "function" then
+		if
+			navigator_module
+			and navigator_module.name
+			and type(navigator_module.init) == "function"
+			and type(navigator_module.items) == "function"
+		then
 			local navigator_name = navigator_module.name
 			if registry[navigator_name] then
 				vim.notify("Pulse: duplicate navigator name '" .. navigator_name .. "'", vim.log.levels.WARN)
@@ -152,7 +156,14 @@ function M.setup(opts)
 					local start = entry.start or ""
 					if start ~= "" then
 						if by_start[start] and by_start[start].navigator ~= navigator_name then
-							vim.notify("Pulse: prefix '" .. start .. "' already taken, ignoring panel '" .. tostring(entry.name) .. "'", vim.log.levels.WARN)
+							vim.notify(
+								"Pulse: prefix '"
+									.. start
+									.. "' already taken, ignoring panel '"
+									.. tostring(entry.name)
+									.. "'",
+								vim.log.levels.WARN
+							)
 						else
 							by_start[start] = { navigator = navigator_name, strip = #start + 1 }
 						end
