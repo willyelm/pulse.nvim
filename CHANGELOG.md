@@ -13,6 +13,16 @@
 
 
 
+
+## [0.6.2] - 2026-03-24
+
+### Changed
+
+- fix: support fullscreen with shift+enter
+- fix: improve performance and add virtualized items
+- fix: improve ignored path scanning
+- fix: delete input on command execution
+
 ## [0.6.1] - 2026-03-23
 
 ### Changed
@@ -150,10 +160,4 @@
 ### Changed
 
 - chore: update changelog
-
-## [0.1.7] - 2026-02-23
-
-### Changed
-
-- fix: use correct icon colors
 
