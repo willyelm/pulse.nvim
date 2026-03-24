@@ -716,7 +716,6 @@ local function compute_view_model()
 		items = items,
 		item_stats = stats,
 		prompt_ui = prompt_ui(mod, navigator, query, active_panel, found, total_text),
-		body = compute_body_layout(items, stats, mod, panels, active_panel),
 		mode_switched = mode_switched,
 		selected_key = selected,
 	}, false
@@ -755,7 +754,7 @@ local function apply_view_model(vm)
 	state.input:set_prompt(vm.prompt_ui.prompt, { move_cursor_end = true })
 	state.input:set_addons(vm.prompt_ui.addons)
 	sync_panel_action_keymaps()
-	render_current_view(vm.body, vm.menu)
+	render_current_view(compute_body_layout(vm.items, vm.item_stats, vm.mod, vm.panels, vm.panel_entry), vm.menu)
 end
 
 refresh = function()
