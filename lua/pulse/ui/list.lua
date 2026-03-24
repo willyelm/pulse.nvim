@@ -90,6 +90,7 @@ function M.new(opts)
 	self.max_visible = opts.max_visible or 15
 	self.min_visible = opts.min_visible or 3
 	self.allow_empty_selection = opts.allow_empty_selection == true
+	self.fill_height = opts.fill_height == true
 	self.render_item = assert(opts.render_item, "list requires render_item callback")
 	self.items = {}
 	self.source = {}
@@ -261,13 +262,22 @@ function M:set_items(items)
 	self.source = items or {}
 	self.items = is_provider(self.source) and {} or self.source
 	local count = self:item_count()
-	self.visible_count = (count == 0) and self.min_visible or clamp(count, self.min_visible, self.max_visible)
+	if self.fill_height then
+		self.visible_count = self.max_visible
+	else
+		self.visible_count = (count == 0) and self.min_visible or clamp(count, self.min_visible, self.max_visible)
+	end
 	self.viewport_top = clamp(self.viewport_top or 1, 1, math.max(count - self.visible_count + 1, 1))
 	self:_normalise_selection()
 end
 
 function M:set_max_visible(max_visible)
 	self.max_visible = math.max(tonumber(max_visible) or self.min_visible, self.min_visible)
+	self:set_items(self.source)
+end
+
+function M:set_fill_height(fill)
+	self.fill_height = fill == true
 	self:set_items(self.source)
 end
 

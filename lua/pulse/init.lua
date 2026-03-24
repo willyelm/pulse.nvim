@@ -117,7 +117,7 @@ function M.setup(opts)
 				return config.for_navigator("files").open_on_directory == true
 			end,
 			open = function(path)
-				open_panel(config.switch_prompt("", "files"), { cwd = path })
+				open_panel(config.switch_prompt("", "files"), { cwd = path, fullscreen = true })
 			end,
 		})
 	end

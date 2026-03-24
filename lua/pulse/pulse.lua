@@ -26,6 +26,7 @@ local state = {
 	source_win = nil,
 	cwd = nil,
 	navigator_opts = nil,
+	fullscreen = false,
 	pending_initial_panel = nil,
 	scope = nil,
 	current = {
@@ -146,6 +147,32 @@ local function set_prompt_mode(name)
 	if state.input then
 		state.input:set_value(config.switch_prompt(state.input:get_value(), name), { move_cursor_end = true })
 	end
+end
+
+local function current_box_opts()
+	if state.fullscreen then
+		return {
+			width = vim.o.columns,
+			height = vim.o.lines - vim.o.cmdheight,
+			row = 0,
+			col = 0,
+			border = "none",
+		}
+	end
+	return {
+		width = state.navigator_opts.width,
+		height = state.navigator_opts.height,
+		row = (state.navigator_opts.position == "top") and 1 or nil,
+		col = 0.5,
+		border = (state.navigator_opts.border == true) and "single" or state.navigator_opts.border,
+	}
+end
+
+local function apply_box_size()
+	if not (state.session and state.session.box) then
+		return
+	end
+	state.session.box:update(current_box_opts())
 end
 
 local function visible_panels(scope_value)
@@ -327,6 +354,20 @@ local function panel_actions(item)
 		end
 	end
 	return actions, ordered
+end
+
+local function visible_actions(item)
+	local actions, ordered = panel_actions(item)
+	local runs, labels, enabled = {}, {}, {}
+	for _, lhs in ipairs(ordered) do
+		local entry = actions[lhs]
+		if entry and entry.enabled then
+			runs[lhs] = entry.run
+			labels[lhs] = entry.label
+			enabled[#enabled + 1] = lhs
+		end
+	end
+	return runs, labels, enabled
 end
 
 local function run_in_source(item, opts)
@@ -521,15 +562,19 @@ local function compute_body_layout(items, stats, mod, panels, active_panel)
 	local item = current_item() or stats.first
 	local show_panels = active_panel ~= nil and panel.header_item(panels, active_panel.name or nil) ~= nil
 	local panel_rows = show_panels and 2 or 0
-	local total_height = math.max(layout.resolve_max_height(state.navigator_opts.height) - 2 - panel_rows, 1)
+	local _, _, enabled_actions = visible_actions(item)
+	local action_rows = (#enabled_actions > 0) and 2 or 0
+	local total_height = math.max(layout.resolve_max_height(current_box_opts().height) - 2 - panel_rows - action_rows, 1)
 	local item_total = stats.count
 	local list_need = math.max(item_total == 0 and state.list.min_visible or item_total, state.list.min_visible)
-	local list_height = math.min(list_need, total_height)
+	local list_height = state.fullscreen and total_height or math.min(list_need, total_height)
 	local context_height, spec = 0, nil
 
 	if should_show_context(mod and mod.context, item) then
 		context_height, spec = context_spec(item, mod)
 		list_height, context_height = split_body_height(total_height, list_height, context_height)
+	elseif state.fullscreen then
+		list_height = total_height
 	end
 
 	return {
@@ -542,15 +587,9 @@ end
 
 local function render_current_view(body, menu, opts)
 	opts = opts or {}
-	local actions, ordered = panel_actions()
-	local action_runs, action_labels = {}, {}
-	for lhs, entry in pairs(actions) do
-		if entry.enabled then
-			action_runs[lhs] = entry.run
-			action_labels[lhs] = entry.label
-		end
-	end
+	local action_runs, action_labels, ordered = visible_actions()
 	state.list:set_max_visible(body.list_height)
+	state.list:set_fill_height(state.fullscreen)
 	state.session.layout:apply(state.list.visible_count, body.context_height, {
 		list = state.list,
 		context = state.context,
@@ -558,7 +597,7 @@ local function render_current_view(body, menu, opts)
 		panels = state.session.panels,
 		actions = state.session.actions,
 		show_panels = body.show_panels,
-		show_actions = #(state.bound_action_keys or {}) > 0,
+		show_actions = #ordered > 0,
 	})
 	panel.render(state.session.panels, state.session.panels_ns, menu)
 	action_menu.render(
@@ -611,6 +650,16 @@ local function scroll_list(delta)
 		state.list:render(width)
 	end)
 	return true
+end
+
+local function toggle_fullscreen()
+	if not is_visible() then
+		return
+	end
+	state.fullscreen = not state.fullscreen
+	apply_box_size()
+	refresh()
+	schedule_focus_input()
 end
 
 local function compute_view_model()
@@ -913,6 +962,7 @@ local function bind_widgets()
 			prompt = " " .. ((files_navigator and files_navigator.icon) or "") .. " ",
 			debounce_ms = 50,
 			on_change = refresh,
+			on_shift_enter = toggle_fullscreen,
 			on_escape = hide,
 			on_down = function() move_selection(1) end,
 			on_up = function() move_selection(-1) end,
@@ -950,6 +1000,7 @@ local function show(opts)
 	state.registry = config.registry()
 	state.modules = config.options.navigators or {}
 	state.navigator_opts = session_mod.normalize_opts(vim.tbl_deep_extend("force", config.options or {}, opts or {}))
+	state.fullscreen = state.navigator_opts.fullscreen == true
 	state.pending_initial_panel = state.navigator_opts.initial_panel
 	state.session = session_mod.ensure(state.navigator_opts)
 	state.source_bufnr = vim.api.nvim_get_current_buf()
@@ -979,6 +1030,7 @@ local function show(opts)
 		state.input:set_value(state.navigator_opts.initial_prompt, { move_cursor_end = true })
 	end
 
+	apply_box_size()
 	refresh()
 	state.input:focus(true)
 end
