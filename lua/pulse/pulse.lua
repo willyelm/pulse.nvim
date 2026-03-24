@@ -517,7 +517,9 @@ local function prompt_ui(mod, navigator, query, active_panel, found, total_text)
 		prompt = prompt .. "  "
 	end
 	prompt = prompt .. scope_text
-	if prompt:sub(-1) ~= " " then
+	if scope_text ~= "" then
+		prompt = prompt .. " "
+	elseif prompt:sub(-1) ~= " " then
 		prompt = prompt .. " "
 	end
 	local prompt_matches = {}
