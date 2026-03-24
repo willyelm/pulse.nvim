@@ -69,6 +69,7 @@ function M.new(opts)
   self.win = assert(opts.win, "input requires a window")
   self.prompt = opts.prompt or ""
   self.on_change = opts.on_change
+  self.debounce_ms = opts.debounce_ms or 0
   self.on_submit = opts.on_submit
   self.on_escape = opts.on_escape
   self.on_down = opts.on_down
@@ -92,7 +93,18 @@ function M.new(opts)
         return
       end
       if self.on_change then
-        self.on_change(self:get_value())
+        if self.debounce_ms > 0 then
+          self._change_seq = (self._change_seq or 0) + 1
+          local seq = self._change_seq
+          vim.defer_fn(function()
+            if self._change_seq ~= seq then
+              return
+            end
+            self.on_change(self:get_value())
+          end, self.debounce_ms)
+        else
+          self.on_change(self:get_value())
+        end
       end
       vim.bo[self.buf].modified = false
     end,

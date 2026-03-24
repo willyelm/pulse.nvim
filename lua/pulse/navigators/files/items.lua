@@ -3,11 +3,19 @@ local scope = require("pulse.scope")
 local uv = vim.uv or vim.loop
 
 local M = {}
-local PROJECT_CACHE = {}
 local DIR_CACHE = {}
-local git_status_and_ignored
+local RESULT_LIMIT = 5000
 local path_exists
 local normalize_entry_path
+local normalize_status_path
+local build_search_items
+local add_status_set
+local display_meta
+local ordered_statuses
+local item
+local file_item
+local parent_item
+local stop_search_job
 
 local function normalize_path(path)
 	return vim.fn.fnamemodify(path, ":p")
@@ -168,21 +176,84 @@ local function dir_statuses(status_map)
 	return by_dir
 end
 
+local function parse_git_status_output(text)
+	local status_map, ignored, seen_ignored = {}, {}, {}
+	for _, line in ipairs(vim.split(text or "", "\n", { plain = true, trimempty = true })) do
+		local code = vim.trim(line:sub(1, 2))
+		local path = normalize_status_path(vim.trim(line:sub(4)))
+		if path ~= "" then
+			if code == "!!" then
+				if not seen_ignored[path] then
+					seen_ignored[path] = true
+					ignored[#ignored + 1] = path
+				end
+			else
+				status_map[path] = code
+			end
+		end
+	end
+	return status_map, ignored
+end
+
+local function warm_tree_metadata(state)
+	if state._metadata_loading or state.ignored or state.git_status or state.dir_statuses then
+		return
+	end
+	if not (state.opts.git and state.opts.git.enable) or vim.fn.isdirectory(state.root .. "/.git") ~= 1 then
+		state.ignored, state.git_status, state.dir_statuses = {}, {}, {}
+		return
+	end
+	state._metadata_loading = true
+	local cmd = { "git", "-c", "core.fsmonitor=false", "-C", state.root, "status", "--porcelain=v1", "--untracked-files=all" }
+	if state.opts.git.ignore then
+		cmd[#cmd + 1] = "--ignored=matching"
+	end
+	vim.system(cmd, { text = true }, function(result)
+		local status_map, ignored_list = {}, {}
+		if result.code == 0 then
+			status_map, ignored_list = parse_git_status_output(result.stdout)
+		end
+		local ignored = {}
+		for _, path in ipairs(ignored_list or {}) do
+			path = normalize_entry_path(state.root, path)
+			if path ~= "" and path_exists(state.root, path) and not is_filtered(path, state.opts) then
+				ignored[path] = true
+			end
+		end
+		state.git_status = status_map
+		state.ignored = ignored
+		state.dir_statuses = dir_statuses(status_map)
+		state._metadata_loading = false
+		for key in pairs(DIR_CACHE) do
+			if key:sub(1, #state.root + 1) == (state.root .. "/") or key == normalize_path(state.root) then
+				DIR_CACHE[key] = nil
+			end
+		end
+		state.tree_cache_key = nil
+		state.tree_provider = nil
+		if state._on_update then
+			vim.schedule(state._on_update)
+		end
+	end)
+end
+
 local function collect_tree_metadata(state)
 	if state.ignored and state.git_status and state.dir_statuses then
 		return state.ignored, state.git_status, state.dir_statuses
 	end
-	local ignored_list
-	state.git_status, ignored_list = git_status_and_ignored(state.root, state.opts)
-	state.ignored = {}
-	for _, path in ipairs(ignored_list or {}) do
-		path = normalize_entry_path(state.root, path)
-		if path ~= "" and path_exists(state.root, path) and not is_filtered(path, state.opts) then
-			state.ignored[path] = true
+	warm_tree_metadata(state)
+	return state.ignored or {}, state.git_status or {}, state.dir_statuses or {}
+end
+
+local function expanded_signature(expanded)
+	local keys = {}
+	for path, is_expanded in pairs(expanded or {}) do
+		if is_expanded then
+			keys[#keys + 1] = path
 		end
 	end
-	state.dir_statuses = dir_statuses(state.git_status or {})
-	return state.ignored, state.git_status or {}, state.dir_statuses
+	table.sort(keys, sort_names)
+	return table.concat(keys, "\0")
 end
 
 local function scan_dir(state, dir_rel, parent_ignored)
@@ -228,21 +299,97 @@ local function scan_dir(state, dir_rel, parent_ignored)
 	return children
 end
 
-local function lazy_tree_entries(state)
+local function collapse_scanned_folder(state, entry)
+	if state.opts.compact_dirs ~= true then
+		return entry.label, entry.path, entry
+	end
+	local parts = { entry.label }
+	local current = entry
+	while current and current.kind == "folder" do
+		local children = scan_dir(state, current.path, current.ignored)
+		if #children ~= 1 or children[1].kind ~= "folder" then
+			break
+		end
+		current = children[1]
+		parts[#parts + 1] = current.label
+	end
+	return table.concat(parts, "/"), current.path, current
+end
+
+local function provider_from_rows(rows)
+	local provider = {}
+
+	function provider:count()
+		return #rows
+	end
+
+	function provider:get(index)
+		return rows[index]
+	end
+
+	return provider
+end
+
+local function count_selectable(items)
+	local total = 0
+	local count = type(items) == "table" and type(items.count) == "function" and items:count() or #(items or {})
+	for i = 1, count do
+		local item = type(items) == "table" and type(items.get) == "function" and items:get(i) or items[i]
+		if item and item.kind ~= "header" and not item.scope_parent then
+			total = total + 1
+		end
+	end
+	return total
+end
+
+local function lazy_tree_rows(state)
+	local cache_key = table.concat({
+		tostring(folder_scope_prefix(state) or ""),
+		expanded_signature(state.expanded),
+	}, "|")
+	if state.tree_cache_key == cache_key and state.tree_provider then
+		return state.tree_provider
+	end
 	local ignored_map = collect_tree_metadata(state)
 	local scope_prefix = folder_scope_prefix(state) or ""
 	local root_ignored = scope_prefix ~= "" and (ignored_map[scope_prefix] == true or ignored_map[scope_prefix .. "/"] == true) or false
-	local entries = {}
-	local function walk(dir_rel, parent_ignored)
+	local open_map = opened_set(state)
+	local rows = {}
+
+	if scope_prefix ~= "" then
+		rows[#rows + 1] = parent_item(state)
+	end
+
+	local function walk(dir_rel, depth, parent_ignored)
 		for _, child in ipairs(scan_dir(state, dir_rel, parent_ignored)) do
-			entries[#entries + 1] = child
-			if child.kind == "folder" and state.expanded[child.path] == true then
-				walk(child.path, child.ignored)
+			if child.kind == "folder" then
+				local label, folder_path, leaf = collapse_scanned_folder(state, child)
+				local ignored = parent_ignored == true or leaf.ignored == true
+				rows[#rows + 1] = item("folder", folder_path, label, depth, ignored, state.opts, vim.tbl_extend("force", {
+					expanded = state.expanded[folder_path] == true,
+				}, display_meta(ordered_statuses(add_status_set({}, leaf.status), ignored))))
+				if state.expanded[folder_path] == true then
+					walk(folder_path, depth + 1, ignored)
+				end
+			else
+				local path = child.path
+				rows[#rows + 1] = file_item(
+					state.opts,
+					path,
+					child.label,
+					depth,
+					parent_ignored == true or child.ignored == true,
+					open_map[path] == true or open_map[normalize_path(path)] == true,
+					child.status
+				)
 			end
 		end
 	end
-	walk(scope_prefix, root_ignored)
-	return entries, ignored_map, scope_prefix, root_ignored
+
+	walk(scope_prefix, 0, root_ignored)
+	state.tree_cache_key = cache_key
+	state.tree_provider = provider_from_rows(rows)
+	return state.tree_provider
 end
 
 function M.parent_scope(state)
@@ -273,35 +420,6 @@ local function scoped_display_path(state, path)
 	return rel
 end
 
-local function apply_scope(state, paths, ignored, statuses)
-	local scoped = folder_scope_prefix(state)
-	if not scoped then
-		return paths, ignored, statuses
-	end
-	local prefix = scoped .. "/"
-	local scoped_paths, scoped_ignored, scoped_statuses = {}, {}, {}
-	local function in_scope(path)
-		local rel = relative_path(state.root, path)
-		return rel == scoped or rel:sub(1, #prefix) == prefix
-	end
-	for _, path in ipairs(paths or {}) do
-		if in_scope(path) then
-			scoped_paths[#scoped_paths + 1] = path
-		end
-	end
-	for path, value in pairs(ignored or {}) do
-		if in_scope(path) then
-			scoped_ignored[path] = value
-		end
-	end
-	for path, value in pairs(statuses or {}) do
-		if in_scope(path) then
-			scoped_statuses[path] = value
-		end
-	end
-	return scoped_paths, scoped_ignored, scoped_statuses
-end
-
 path_exists = function(root, path)
 	if not path or path == "" then
 		return false
@@ -324,7 +442,7 @@ normalize_entry_path = function(root, path)
 	return path
 end
 
-local function normalize_status_path(path)
+normalize_status_path = function(path)
 	if not path or path == "" then
 		return ""
 	end
@@ -336,36 +454,6 @@ local function normalize_status_path(path)
 		return path:sub(1, -2)
 	end
 	return path
-end
-
-git_status_and_ignored = function(root, opts)
-	if not (opts.git and opts.git.enable) or vim.fn.isdirectory(root .. "/.git") ~= 1 then
-		return {}, {}
-	end
-	local status_map, ignored, seen_ignored = {}, {}, {}
-	local cmd = { "git", "-C", root, "status", "--porcelain=v1", "--untracked-files=all" }
-	if opts.git.ignore then
-		cmd[#cmd + 1] = "--ignored=matching"
-	end
-	local lines = vim.fn.systemlist(cmd)
-	if vim.v.shell_error ~= 0 then
-		return status_map, ignored
-	end
-	for _, line in ipairs(lines or {}) do
-		local code = vim.trim(line:sub(1, 2))
-		local path = normalize_status_path(vim.trim(line:sub(4)))
-		if path ~= "" then
-			if code == "!!" then
-				if not seen_ignored[path] then
-					seen_ignored[path] = true
-					ignored[#ignored + 1] = path
-				end
-			else
-				status_map[path] = code
-			end
-		end
-	end
-	return status_map, ignored
 end
 
 local function right_matches(tokens)
@@ -387,7 +475,7 @@ local function right_matches(tokens)
 	return matches
 end
 
-local function display_meta(tokens)
+display_meta = function(tokens)
 	local text = (#tokens > 0) and table.concat(tokens, " ") or nil
 	return {
 		display_right = text,
@@ -395,7 +483,7 @@ local function display_meta(tokens)
 	}
 end
 
-local function ordered_statuses(statuses, ignored)
+ordered_statuses = function(statuses, ignored)
 	local out = {}
 	for _, token in ipairs({ "!", "??", "+", "~", "-" }) do
 		if token == "!" and ignored then
@@ -407,7 +495,7 @@ local function ordered_statuses(statuses, ignored)
 	return out
 end
 
-local function add_status_set(target, code)
+add_status_set = function(target, code)
 	target = target or {}
 	for _, token in ipairs(status_tokens(code)) do
 		target[token] = true
@@ -428,7 +516,7 @@ local function ensure_dir(node, name, path, ignored)
 	return child
 end
 
-local function item(kind, path, label, depth, ignored, opts, extra)
+item = function(kind, path, label, depth, ignored, opts, extra)
 	return vim.tbl_extend("force", {
 		kind = kind,
 		path = path,
@@ -440,77 +528,138 @@ local function item(kind, path, label, depth, ignored, opts, extra)
 	}, extra or {})
 end
 
-local function file_item(opts, path, label, depth, ignored, is_open, code)
+file_item = function(opts, path, label, depth, ignored, is_open, code)
 	return item("file", path, label, depth, ignored, opts, vim.tbl_extend("force", { is_open = is_open }, display_meta(status_tokens(code or (ignored and "!" or nil)))))
 end
 
-local function parent_item(state)
+parent_item = function(state)
 	return item("folder", "..", "..", 0, false, state.opts, { scope_parent = true, expanded = false })
 end
 
-function M.collect_project_files(state)
-	if state.files and state.ignored and state.git_status then
-		return state.files, state.ignored
+local function glob_escape(text)
+	return (text or ""):gsub("([%*%?%[%]{}\\])", "\\%1")
+end
+
+stop_search_job = function(state)
+	if type(state._search_job) == "table" and state._search_job.kill then
+		pcall(state._search_job.kill, state._search_job, 15)
+	elseif type(state._search_job) == "number" and state._search_job > 0 then
+		pcall(vim.fn.jobstop, state._search_job)
 	end
-	local root, opts = state.root or vim.fn.getcwd(), state.opts
-	local cache_key = table.concat({
-		root,
-		tostring(opts.git and opts.git.enable == true),
-		tostring(opts.git and opts.git.ignore == true),
-		table.concat(opts.filters or {}, "\0"),
-	}, "|")
-	local cached = PROJECT_CACHE[cache_key]
-	if cached then
-		state.files = cached.files
-		state.ignored = cached.ignored
-		state.git_status = cached.git_status
-		return state.files, state.ignored
+	state._search_job = nil
+end
+
+local function append_search_path(state, rel, query)
+	if (#(state.search_paths or {}) + #(state.search_folders or {})) >= RESULT_LIMIT then
+		state.search_limited = true
+		return
 	end
-	local files, ignored, seen = {}, {}, {}
-	local initial_ignored
-	state.git_status, initial_ignored = git_status_and_ignored(root, opts)
-	local function add_paths(paths, is_ignored)
-		for _, path in ipairs(paths or {}) do
-			path = normalize_entry_path(root, path)
-			if path ~= "" and path_exists(root, path) and not seen[path] and not is_filtered(path, opts) then
-				seen[path] = true
-				files[#files + 1] = path
+	if rel == "" or is_filtered(rel, state.opts) then
+		return
+	end
+	state._search_seen_paths = state._search_seen_paths or {}
+	if state._search_seen_paths[rel] then
+		return
+	end
+	state._search_seen_paths[rel] = true
+	state.search_paths = state.search_paths or {}
+	state.search_paths[#state.search_paths + 1] = rel
+
+	local q = (query or ""):lower()
+	if q == "" then
+		return
+	end
+	state._search_seen_folders = state._search_seen_folders or {}
+	state.search_folders = state.search_folders or {}
+	local dir = vim.fn.fnamemodify(rel, ":h")
+		while dir and dir ~= "." and dir ~= "" do
+			if (#(state.search_paths or {}) + #(state.search_folders or {})) >= RESULT_LIMIT then
+				state.search_limited = true
+				return
 			end
-			if is_ignored and path ~= "" and path_exists(root, path) and not is_filtered(path, opts) then
-				ignored[path] = true
-			end
+			if not state._search_seen_folders[dir] and dir:lower():find(q, 1, true) then
+				state._search_seen_folders[dir] = true
+				state.search_folders[#state.search_folders + 1] = dir
 		end
-	end
-	if opts.git.enable and vim.fn.isdirectory(root .. "/.git") == 1 then
-		add_paths(vim.fn.systemlist({ "git", "-C", root, "ls-files", "--cached", "--others", "--exclude-standard" }), false)
-		if opts.git.ignore then
-			add_paths(initial_ignored, true)
-		else
-			add_paths(vim.fn.systemlist({ "rg", "--files", "--hidden", "--no-ignore", "-g", "!.git", root }), false)
+		local parent = vim.fn.fnamemodify(dir, ":h")
+		if parent == dir then
+			break
 		end
-	else
-		local visible = vim.fn.systemlist({ "rg", "--files", "--hidden", "-g", "!.git", root })
-		local all = vim.fn.systemlist({ "rg", "--files", "--hidden", "--no-ignore", "-g", "!.git", root })
-		if vim.v.shell_error == 0 then
-			local visible_set = {}
-			for _, path in ipairs(visible or {}) do
-				visible_set[path] = true
-			end
-			for _, path in ipairs(all or {}) do
-				add_paths({ path }, not visible_set[path])
-			end
-		else
-			add_paths(visible, false)
-		end
+		dir = parent
 	end
-	table.sort(files, sort_names)
-	state.files, state.ignored = files, ignored
-	PROJECT_CACHE[cache_key] = {
-		files = state.files,
-		ignored = state.ignored,
-		git_status = state.git_status,
+end
+
+local function warm_search_query(state, query)
+	if state.search_query == query and (state.search_results ~= nil or state._search_job) then
+		return
+	end
+	stop_search_job(state)
+	state.search_query = query
+	state._search_match_gen = (state._search_match_gen or 0) + 1
+	local gen = state._search_match_gen
+	local ignored_map = state.ignored or {}
+	local search_root = (state.scope and state.scope.kind == "folder" and state.scope.path) or state.root
+	state.search_paths = {}
+	state.search_folders = {}
+	state.search_limited = false
+	state._search_seen_paths = {}
+	state._search_seen_folders = {}
+	state.search_results = build_search_items(state, ignored_map)
+	local cmd = {
+		"rg",
+		"--files",
+		"--hidden",
+		"-g",
+		"!.git",
+		"-g",
+		"*" .. glob_escape(query) .. "*",
+		search_root,
 	}
-	return state.files, state.ignored
+	state._search_job = vim.fn.jobstart(cmd, {
+		stdout_buffered = false,
+		stderr_buffered = true,
+		on_stdout = function(_, data)
+			if state._search_match_gen ~= gen or not data then
+				return
+			end
+			local changed = false
+			for _, path in ipairs(data) do
+				if path and path ~= "" then
+					local rel = relative_path(state.root, path)
+					local prev_paths = #(state.search_paths or {})
+					local prev_folders = #(state.search_folders or {})
+					append_search_path(state, rel, query)
+					if #(state.search_paths or {}) ~= prev_paths or #(state.search_folders or {}) ~= prev_folders then
+						changed = true
+					end
+					if state.search_limited then
+						stop_search_job(state)
+						break
+					end
+				end
+			end
+			if changed and state._on_update then
+				vim.schedule(state._on_update)
+			end
+		end,
+		on_exit = function()
+			if state._search_match_gen ~= gen then
+				return
+			end
+			table.sort(state.search_paths or {}, sort_names)
+			table.sort(state.search_folders or {}, sort_names)
+			state._search_job = nil
+			if state._on_update then
+				vim.schedule(state._on_update)
+			end
+		end,
+	})
+	if type(state._search_job) ~= "number" or state._search_job <= 0 then
+		state._search_job = nil
+		if state._on_update then
+			vim.schedule(state._on_update)
+		end
+	end
 end
 
 local function collapsed_folder(node, compact)
@@ -629,59 +778,53 @@ function M.build_tree(entries, expanded, opts)
 	return items
 end
 
-local function build_search_items(state, paths, ignored_map)
-	local groups, order = {}, {}
+build_search_items = function(state, ignored_map)
 	local git_status, open_map = state.git_status or {}, opened_set(state)
 	local scoped = scope_ignored(state, ignored_map)
-	for _, path in ipairs(paths or {}) do
-		local rel = scoped_display_path(state, path)
-		local dir = vim.fn.fnamemodify(rel, ":h")
-		if dir == "." then
-			dir = ""
-		end
-		if not groups[dir] then
-			groups[dir], order[#order + 1] = {}, dir
-		end
-		groups[dir][#groups[dir] + 1] = {
-			path = path,
-			rel = rel,
-			name = vim.fn.fnamemodify(rel, ":t"),
-			ignored = scoped or ignored_map[path] == true,
-			status = git_status[path],
-			is_open = open_map[path] == true or open_map[normalize_path(path)] == true,
-		}
-	end
-	table.sort(order, sort_names)
-	local items = {}
-	for _, dir in ipairs(order) do
-		local files = groups[dir]
-		local dir_label = dir == "" and "" or scoped_display_path(state, dir)
-		table.sort(files, function(a, b)
-			return sort_names(a.name, b.name)
-		end)
-		if dir ~= "" and #files > 1 then
-			items[#items + 1] = item("folder", dir, dir_label, 0, false, state.opts, { expanded = true })
-			for _, file in ipairs(files) do
-				items[#items + 1] = file_item(state.opts, file.path, file.name, 1, file.ignored, file.is_open, file.status)
-			end
-		else
-			for _, file in ipairs(files) do
-				items[#items + 1] = file_item(state.opts, file.path, file.rel, 0, file.ignored, file.is_open, file.status)
-			end
-		end
-	end
-	if state.scope and state.scope.kind == "folder" then
-		table.insert(items, 1, parent_item(state))
-	end
-	return items
-end
+	local has_parent = state.scope and state.scope.kind == "folder"
+	local provider = {}
 
-local function panel_paths(state, panel_name)
-	if panel_name == "files_open" then
-		state.opened = filtered_paths(M.collect_opened_files(), state.opts)
-		return state.opened, {}
+	function provider:count()
+		local total = #(state.search_folders or {}) + #(state.search_paths or {})
+		return total + (has_parent and 1 or 0)
 	end
-	return M.collect_project_files(state)
+
+	function provider:get(index)
+		index = tonumber(index) or 0
+		if index < 1 then
+			return nil
+		end
+		if has_parent then
+			if index == 1 then
+				return parent_item(state)
+			end
+			index = index - 1
+		end
+			local folders = state.search_folders or {}
+			local folder = folders[index]
+			if folder then
+				return item("folder", folder, scoped_display_path(state, folder), 0, scoped or ignored_map[folder] == true or ignored_map[folder .. "/"] == true, state.opts, {
+					expanded = false,
+					display_right = nil,
+				})
+			end
+			index = index - #folders
+			local path = (state.search_paths or {})[index]
+			if not path then
+				return nil
+			end
+		return file_item(
+			state.opts,
+			path,
+			scoped_display_path(state, path),
+			0,
+			scoped or ignored_map[path] == true,
+			open_map[path] == true or open_map[normalize_path(path)] == true,
+			git_status[path]
+		)
+	end
+
+	return provider
 end
 
 function M.invalidate(state)
@@ -689,20 +832,25 @@ function M.invalidate(state)
 		return
 	end
 	if state.root then
-		for key in pairs(PROJECT_CACHE) do
-			if key:sub(1, #state.root + 1) == (state.root .. "|") then
-				PROJECT_CACHE[key] = nil
-			end
-		end
 		for key in pairs(DIR_CACHE) do
 			if key:sub(1, #state.root + 1) == (state.root .. "/") or key == normalize_path(state.root) then
 				DIR_CACHE[key] = nil
 			end
 		end
 	end
-	state.files = nil
 	state.ignored = nil
 	state.git_status = nil
+	state.dir_statuses = nil
+	state.tree_cache_key = nil
+	state.tree_provider = nil
+	state.search_query = nil
+	state.search_results = nil
+	state._search_match_gen = 0
+	stop_search_job(state)
+	state.search_paths = nil
+	state.search_folders = nil
+	state._search_seen_paths = nil
+	state._search_seen_folders = nil
 	state.opened = M.collect_opened_files()
 end
 
@@ -711,64 +859,53 @@ function M.items(state, query, panel_name)
 		return {}
 	end
 	if not query or query == "" then
-		if panel_name == "files_all" then
-			local entries, lazy_ignored, scope_prefix, scoped = lazy_tree_entries(state)
-			local open_map = opened_set(state)
-			for _, entry in ipairs(entries) do
-				if entry.kind == "file" then
-					local path = entry.path
-					entry.is_open = open_map[path] == true or open_map[normalize_path(path)] == true
+			state.search_query = nil
+			state.search_results = nil
+			state.search_paths = nil
+			state.search_folders = nil
+			state._search_seen_paths = nil
+			state._search_seen_folders = nil
+			state._search_match_gen = (state._search_match_gen or 0) + 1
+				stop_search_job(state)
+				if panel_name == "files_all" then
+					return lazy_tree_rows(state)
 				end
+			local paths = filtered_paths(M.collect_opened_files(), state.opts)
+			local open_map = opened_set(state)
+			local items = {}
+			for _, path in ipairs(paths) do
+				items[#items + 1] = file_item(
+					state.opts,
+					path,
+					relative_path(state.root, path),
+					0,
+					false,
+					open_map[path] == true or open_map[normalize_path(path)] == true,
+					nil
+				)
 			end
-			return M.build_tree(entries, state.expanded or {}, vim.tbl_extend("force", {}, state.opts, {
-				ignored = lazy_ignored,
-				git_status = {},
-				initial_ignored = scoped,
-				scope_prefix = scope_prefix,
-				state = state,
-				compact_dirs = state.opts.compact_dirs == true,
-			}))
-		end
-		local paths, ignored_map = panel_paths(state, panel_name)
-		paths, ignored_map, state.git_status = apply_scope(state, paths, ignored_map, state.git_status or {})
-		local open_map = opened_set(state)
-		local scoped = scope_ignored(state, ignored_map)
-		local items = {}
-		for _, path in ipairs(paths) do
-			items[#items + 1] = file_item(
-				state.opts,
-				path,
-				scoped_display_path(state, path),
-				0,
-				scoped or ignored_map[path] == true,
-				panel_name ~= "files_open" and (open_map[path] == true or open_map[normalize_path(path)] == true) or false,
-				(state.git_status or {})[path]
-			)
-		end
-		return items
+			return items
 	end
-	local paths, ignored_map = M.collect_project_files(state)
-	paths, ignored_map, state.git_status = apply_scope(state, paths, ignored_map, state.git_status or {})
-	local match = pulse.make_matcher(query, { ignore_case = true, plain = true })
-	local matches = {}
-	for _, path in ipairs(paths) do
-		if match(path) then
-			matches[#matches + 1] = path
-		end
-	end
-	return build_search_items(state, matches, ignored_map)
+	warm_search_query(state, query)
+	return state.search_results or {}
 end
 
 function M.total_count(state, panel_name)
 	if state.scope and state.scope.kind == "file" then
 		return 0
 	end
-	if panel_name == "files_all" then
-		local entries = lazy_tree_entries(state)
-		return #entries
+	if panel_name == "files_all" and state.search_query and state.search_query ~= "" then
+		local count = count_selectable(state.search_results or {})
+		return { count = count, plus = state.search_limited == true }
 	end
-	local paths = panel_paths(state, panel_name)
-	paths = apply_scope(state, paths, {}, state.git_status or {})
+	if panel_name == "files_all" then
+		return count_selectable(lazy_tree_rows(state))
+	end
+	if state.search_query and state.search_results then
+		local count = count_selectable(state.search_results)
+		return { count = count, plus = state.search_limited == true }
+	end
+	local paths = filtered_paths(M.collect_opened_files(), state.opts)
 	return #paths
 end
 

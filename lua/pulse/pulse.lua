@@ -48,10 +48,6 @@ local hide
 local jump_in_source
 local preview_in_source
 
-local function navigator_opts(opts)
-	return session_mod.normalize_opts(vim.tbl_deep_extend("force", config.options or {}, opts or {}))
-end
-
 local function is_header(item)
 	return item and item.kind == "header"
 end
@@ -83,30 +79,47 @@ local function item_key(item)
 	end
 end
 
-local function find_item_index(items, key)
-	for i, item in ipairs(items or {}) do
-		if item_key(item) == key then
-			return i
-		end
+local function item_source_count(items)
+	if type(items) == "table" and type(items.count) == "function" then
+		return math.max(tonumber(items:count()) or 0, 0)
 	end
+	return #(items or {})
 end
 
-local function item_count(items)
-	local count = 0
-	for _, item in ipairs(items or {}) do
-		if not is_header(item) then
-			count = count + 1
+local function item_source_get(items, index)
+	index = tonumber(index) or 0
+	if index < 1 then
+		return nil
+	end
+	if type(items) == "table" then
+		if type(items.get) == "function" then
+			return items:get(index)
 		end
 	end
-	return count
+	return items and items[index] or nil
 end
 
-local function first_selectable(items)
-	for _, item in ipairs(items or {}) do
+local function analyse_items(items, selected_key)
+	local stats = {
+		count = 0,
+		first = nil,
+		first_index = nil,
+		selected_index = nil,
+	}
+	for i = 1, item_source_count(items) do
+		local item = item_source_get(items, i)
 		if not is_header(item) then
-			return item
+			stats.count = stats.count + 1
+			if not stats.first then
+				stats.first = item
+				stats.first_index = i
+			end
+			if selected_key and stats.selected_index == nil and item_key(item) == selected_key then
+				stats.selected_index = i
+			end
 		end
 	end
+	return stats
 end
 
 local function is_visible()
@@ -139,43 +152,27 @@ local function visible_panels(scope_value)
 	return panel.visible_panels(state.modules, panel.scope_type(scope_value or state.scope))
 end
 
-local function default_panel_for_scope(scope_value)
-	return panel.default_panel(visible_panels(scope_value), nil)
+local function buffer_only_navigator(navigator)
+	return panel.supports_scope(navigator, "buffer")
+		and not panel.supports_scope(navigator, "workspace")
+		and not panel.supports_scope(navigator, "folder")
 end
 
-local function set_scope(scope_value)
-	state.scope = scope_value
-	schedule_refresh()
-end
-
-local function enter_scope(scope_value)
+local function apply_scope_change(scope_value)
 	vim.schedule(function()
 		if not is_visible() then
 			return
 		end
 		state.scope = scope_value
-		local target = default_panel_for_scope(scope_value)
+		local target = panel.default_panel(visible_panels(scope_value), nil)
 		if target then
 			panel.select(state.active_panels, target)
 			set_prompt_mode(target.navigator)
 		end
 		refresh()
-		schedule_focus_input()
-	end)
-end
-
-local function clear_scope()
-	vim.schedule(function()
-		if not is_visible() then
-			return
+		if scope_value ~= nil then
+			schedule_focus_input()
 		end
-		state.scope = nil
-		local target = default_panel_for_scope(nil)
-		if target then
-			panel.select(state.active_panels, target)
-			set_prompt_mode(target.navigator)
-		end
-		refresh()
 	end)
 end
 
@@ -236,11 +233,16 @@ local function action_ctx(item)
 			end
 			return nil
 		end,
-		refresh = schedule_refresh,
-		focus = schedule_focus_input,
-		set_scope = set_scope,
-		enter_scope = enter_scope,
-		clear_scope = clear_scope,
+			refresh = schedule_refresh,
+			focus = schedule_focus_input,
+			set_scope = function(scope_value)
+				state.scope = scope_value
+				schedule_refresh()
+			end,
+			enter_scope = apply_scope_change,
+			clear_scope = function()
+				apply_scope_change(nil)
+			end,
 		clear_prefix = clear_prefix,
 		close = hide,
 		jump = jump_in_source,
@@ -446,37 +448,19 @@ local function split_body_height(total, list_height, context_height)
 	return half_high, half_low
 end
 
-local function prompt_has_prefix(prompt)
-	return config.by_start()[prompt:sub(1, 1)] ~= nil
-end
-
-local function current_buffer_mode(prompt, current_scope)
-	if current_scope ~= "buffer" or prompt_has_prefix(prompt) or not state.current.mode_name then
-		return nil, nil
-	end
-	local current_mod = state.registry[state.current.mode_name]
-	if current_mod and panel.supports_scope(current_mod, "buffer") then
-		return state.current.mode_name, current_mod
-	end
-	return nil, nil
-end
-
 local function reconcile_scope(prompt, mode_name, mod, current_scope)
 	if not (state.scope and mod and not panel.supports_scope(mod, current_scope)) then
 		return mode_name, mod, current_scope, false
 	end
-	if current_scope == "buffer" and not prompt_has_prefix(prompt) then
-		local target = default_panel_for_scope(state.scope)
+	if current_scope == "buffer" and config.by_start()[prompt:sub(1, 1)] == nil then
+		local target = panel.default_panel(visible_panels(state.scope), nil)
 		if target then
 			panel.select(state.active_panels, target)
-			local next_prompt = config.switch_prompt(prompt, target.navigator)
-			if next_prompt ~= prompt then
-				state.input:set_value(next_prompt, { move_cursor_end = true })
-				return mode_name, mod, current_scope, true
-			end
+			local next_mod = state.registry[target.navigator]
+			return target.navigator, next_mod, current_scope, false
 		end
 	end
-	if panel.is_buffer_only(mod) then
+	if buffer_only_navigator(mod) then
 		state.scope = scope.from_buffer(state.source_bufnr)
 	elseif panel.supports_scope(mod, "workspace") then
 		state.scope = nil
@@ -485,7 +469,7 @@ local function reconcile_scope(prompt, mode_name, mod, current_scope)
 end
 
 local function ensure_buffer_scope(mod)
-	if not state.scope and panel.is_buffer_only(mod) then
+	if not state.scope and buffer_only_navigator(mod) then
 		state.scope = scope.from_buffer(state.source_bufnr)
 	end
 end
@@ -512,7 +496,7 @@ local function resolve_panel(prompt, mode_name, mod, initial_panel)
 	return panels, active_panel, false
 end
 
-local function prompt_ui(mod, navigator, query, active_panel, found, total)
+local function prompt_ui(mod, navigator, query, active_panel, found, total_text)
 	local prompt_prefix = " " .. ((mod and mod.icon) or "") .. " "
 	local scoped = nil
 	if mod and type(mod.input_scope) == "function" then
@@ -527,18 +511,18 @@ local function prompt_ui(mod, navigator, query, active_panel, found, total)
 		prompt = prompt,
 		addons = {
 			ghost = query == "" and active_panel and active_panel.label or nil,
-			right = { text = string.format("%d/%d", found, total), hl = "LineNr" },
+			right = { text = string.format("%d/%s", found, total_text), hl = "LineNr" },
 			prompt_matches = scope.prompt_matches(scoped, #prompt_prefix),
 		},
-	}
+		}
 end
 
-local function compute_body_layout(items, mod, panels, active_panel)
-	local item = current_item() or first_selectable(items)
+local function compute_body_layout(items, stats, mod, panels, active_panel)
+	local item = current_item() or stats.first
 	local show_panels = active_panel ~= nil and panel.header_item(panels, active_panel.name or nil) ~= nil
 	local panel_rows = show_panels and 2 or 0
 	local total_height = math.max(layout.resolve_max_height(state.navigator_opts.height) - 2 - panel_rows, 1)
-	local item_total = item_count(items)
+	local item_total = stats.count
 	local list_need = math.max(item_total == 0 and state.list.min_visible or item_total, state.list.min_visible)
 	local list_height = math.min(list_need, total_height)
 	local context_height, spec = 0, nil
@@ -556,7 +540,8 @@ local function compute_body_layout(items, mod, panels, active_panel)
 	}
 end
 
-local function render_current_view(body, menu)
+local function render_current_view(body, menu, opts)
+	opts = opts or {}
 	local actions, ordered = panel_actions()
 	local action_runs, action_labels = {}, {}
 	for lhs, entry in pairs(actions) do
@@ -590,8 +575,10 @@ local function render_current_view(body, menu)
 			state.context:set({}, "text", {}, nil, 1)
 		end
 	end
+	if not opts.keep_scroll then
+		state.list:ensure_visible()
+	end
 	state.list:render(vim.api.nvim_win_get_width(state.list.win))
-	state.list:ensure_visible()
 end
 
 local function move_selection(delta)
@@ -599,10 +586,31 @@ local function move_selection(delta)
 		return
 	end
 	update_active()
+	local stats = analyse_items(state.items)
 	render_current_view(
-		compute_body_layout(state.items, state.current.mod, state.current.panels, state.current.panel_entry),
+		compute_body_layout(state.items, stats, state.current.mod, state.current.panels, state.current.panel_entry),
 		state.current.menu
 	)
+end
+
+local function scroll_list(delta)
+	if not state.list then
+		return false
+	end
+	local mouse = vim.fn.getmousepos()
+	if type(mouse) ~= "table" or mouse.winid ~= state.list.win then
+		return false
+	end
+	state.list:scroll(delta)
+	vim.schedule(function()
+		if not is_visible() or not state.list then
+			return
+		end
+		local width = (state.list.win and vim.api.nvim_win_is_valid(state.list.win)) and vim.api.nvim_win_get_width(state.list.win)
+			or nil
+		state.list:render(width)
+	end)
+	return true
 end
 
 local function compute_view_model()
@@ -610,10 +618,6 @@ local function compute_view_model()
 	local mode_name, query = config.parse_prompt(prompt)
 	local mod = state.registry[mode_name]
 	local current_scope = panel.scope_type(state.scope)
-	local buffered_mode, buffered_mod = current_buffer_mode(prompt, current_scope)
-	if buffered_mode then
-		mode_name, mod, query = buffered_mode, buffered_mod, prompt
-	end
 
 	mode_name, mod, current_scope, redirected = reconcile_scope(prompt, mode_name, mod, current_scope)
 	if redirected then
@@ -635,17 +639,22 @@ local function compute_view_model()
 	local mode_switched = mode_name ~= state.current.mode_name
 	local selected = item_key(current_item())
 	local items = mod.items(navigator, query, active_panel_name)
-	local found = item_count(items)
-	if found == 0 and #items > 0 then
-		items = {}
-	end
+	local stats = analyse_items(items, selected)
+	local found = stats.count
 	local total = found
+	local total_plus = false
 	if mod and type(mod.total_count) == "function" then
 		local ok, count = pcall(mod.total_count, navigator, active_panel_name)
-		if ok and type(count) == "number" then
+		if ok and type(count) == "table" then
+			if type(count.count) == "number" then
+				total = math.max(count.count, found)
+			end
+			total_plus = count.plus == true
+		elseif ok and type(count) == "number" then
 			total = math.max(count, found)
 		end
 	end
+	local total_text = tostring(total) .. (total_plus and "+" or "")
 	return {
 		mode_name = mode_name,
 		mod = mod,
@@ -656,14 +665,16 @@ local function compute_view_model()
 		panels = panels,
 		menu = panel.header_item(panels, active_panel and active_panel.name or nil),
 		items = items,
-		prompt_ui = prompt_ui(mod, navigator, query, active_panel, found, total),
-		body = compute_body_layout(items, mod, panels, active_panel),
+		item_stats = stats,
+		prompt_ui = prompt_ui(mod, navigator, query, active_panel, found, total_text),
+		body = compute_body_layout(items, stats, mod, panels, active_panel),
 		mode_switched = mode_switched,
 		selected_key = selected,
 	}, false
 end
 
 local function apply_view_model(vm)
+	local query_changed = vm.query ~= state.current.query
 	state.current.mode_name = vm.mode_name
 	state.current.mod = vm.mod
 	state.current.state = vm.state_obj
@@ -678,12 +689,15 @@ local function apply_view_model(vm)
 	state.list:set_items(vm.items)
 	state.list:set_allow_empty_selection(vm.mod and vm.mod.allow_empty_selection == true)
 	if state.pending_selected_key and not (vm.mod and vm.mod.allow_empty_selection == true) then
-		state.list:set_selected(find_item_index(vm.items, state.pending_selected_key) or state.list.selected)
+		state.list:set_selected(analyse_items(vm.items, state.pending_selected_key).selected_index or state.list.selected)
 		state.pending_selected_key = nil
+	elseif query_changed then
+		state.list.viewport_top = 1
+		state.list:set_selected(vm.item_stats.first_index or ((vm.mod and vm.mod.allow_empty_selection == true) and 0 or 1))
 	elseif vm.mode_switched then
 		state.list:set_selected((vm.mod and vm.mod.allow_empty_selection == true) and 0 or 1)
 	elseif vm.selected_key then
-		state.list:set_selected(find_item_index(vm.items, vm.selected_key) or state.list.selected)
+		state.list:set_selected(vm.item_stats.selected_index or state.list.selected)
 	end
 	if is_header(state.list:selected_item()) then
 		state.list:move(1, is_header)
@@ -692,7 +706,7 @@ local function apply_view_model(vm)
 	state.input:set_prompt(vm.prompt_ui.prompt, { move_cursor_end = true })
 	state.input:set_addons(vm.prompt_ui.addons)
 	sync_panel_action_keymaps()
-	render_current_view(compute_body_layout(state.items, vm.mod, vm.panels, vm.panel_entry), vm.menu)
+	render_current_view(vm.body, vm.menu)
 end
 
 refresh = function()
@@ -809,10 +823,11 @@ local function click_tab_action()
 		return
 	end
 
-	state.list:set_selected(tonumber(mouse.line) or 1)
+	state.list:set_selected(state.list:item_index_for_row(mouse.line) or state.list.selected)
 	update_active()
+	local stats = analyse_items(state.items)
 	render_current_view(
-		compute_body_layout(state.items, state.current.mod, state.current.panels, state.current.panel_entry),
+		compute_body_layout(state.items, stats, state.current.mod, state.current.panels, state.current.panel_entry),
 		state.current.menu
 	)
 	apply_tab_action()
@@ -828,14 +843,17 @@ local function move_panel_from_input(direction)
 	if not state.input:is_cursor_at_end() then
 		return false
 	end
-	local next_idx = idx + direction
-	return next_idx >= 1 and next_idx <= #(panels or {}) and switch_panel(direction) or false
-end
+		local next_idx = idx + direction
+		return next_idx >= 1 and next_idx <= #(panels or {}) and switch_panel(direction) or false
+	end
 
 local function setup_keymaps()
 	local map_opts = { noremap = true, silent = true }
 	local function map(mode_names, lhs, rhs, buffer)
 		vim.keymap.set(mode_names, lhs, rhs, vim.tbl_extend("force", map_opts, { buffer = buffer }))
+	end
+	local function map_expr(mode_names, lhs, rhs, buffer)
+		vim.keymap.set(mode_names, lhs, rhs, vim.tbl_extend("force", map_opts, { buffer = buffer, expr = true }))
 	end
 
 	for lhs, delta in pairs({ ["<Down>"] = 1, ["<Up>"] = -1 }) do
@@ -851,6 +869,24 @@ local function setup_keymaps()
 	end
 	map("n", "<LeftMouse>", click_tab_action, state.list.buf)
 	map({ "n", "i" }, "<LeftMouse>", click_tab_action, state.input.buf)
+	map({ "n", "i" }, "<ScrollWheelDown>", function() return scroll_list(3) end, state.list.buf)
+	map({ "n", "i" }, "<ScrollWheelUp>", function() return scroll_list(-3) end, state.list.buf)
+	map_expr({ "n", "i" }, "<ScrollWheelDown>", function()
+		return scroll_list(3) and "" or "<ScrollWheelDown>"
+	end, state.input.buf)
+	map_expr({ "n", "i" }, "<ScrollWheelUp>", function()
+		return scroll_list(-3) and "" or "<ScrollWheelUp>"
+	end, state.input.buf)
+	map({ "n", "i" }, "<ScrollWheelLeft>", function() return true end, state.list.buf)
+	map({ "n", "i" }, "<ScrollWheelRight>", function() return true end, state.list.buf)
+	map_expr({ "n", "i" }, "<ScrollWheelLeft>", function()
+		local mouse = vim.fn.getmousepos()
+		return (type(mouse) == "table" and mouse.winid == state.list.win) and "" or "<ScrollWheelLeft>"
+	end, state.input.buf)
+	map_expr({ "n", "i" }, "<ScrollWheelRight>", function()
+		local mouse = vim.fn.getmousepos()
+		return (type(mouse) == "table" and mouse.winid == state.list.win) and "" or "<ScrollWheelRight>"
+	end, state.input.buf)
 	map("n", "<Esc>", hide, state.list.buf)
 end
 
@@ -875,6 +911,7 @@ local function bind_widgets()
 			buf = sections.input.buf,
 			win = sections.input.win,
 			prompt = " " .. ((files_navigator and files_navigator.icon) or "") .. " ",
+			debounce_ms = 50,
 			on_change = refresh,
 			on_escape = hide,
 			on_down = function() move_selection(1) end,
@@ -887,14 +924,14 @@ local function bind_widgets()
 					scoped = state.current.mod.input_scope(state.current.state, state.scope)
 				end
 				local start = state.current.panel_entry and state.current.panel_entry.start or ""
-				if scoped and start ~= "" and value == start then
-					clear_prefix()
-					return true
-				end
-				if scoped and value == "" then
-					clear_scope()
-					return true
-				end
+					if scoped and start ~= "" and value == start then
+						clear_prefix()
+						return true
+					end
+					if scoped and value == "" then
+						apply_scope_change(nil)
+						return true
+					end
 				return false
 			end,
 		})
@@ -912,7 +949,7 @@ local function show(opts)
 	panel.setup_hl()
 	state.registry = config.registry()
 	state.modules = config.options.navigators or {}
-	state.navigator_opts = navigator_opts(opts)
+	state.navigator_opts = session_mod.normalize_opts(vim.tbl_deep_extend("force", config.options or {}, opts or {}))
 	state.pending_initial_panel = state.navigator_opts.initial_panel
 	state.session = session_mod.ensure(state.navigator_opts)
 	state.source_bufnr = vim.api.nvim_get_current_buf()
@@ -951,7 +988,7 @@ function M.open(opts)
 end
 
 function M.toggle(opts)
-	state.navigator_opts = navigator_opts(opts)
+	state.navigator_opts = session_mod.normalize_opts(vim.tbl_deep_extend("force", config.options or {}, opts or {}))
 	state.session = state.session or session_mod.ensure(state.navigator_opts)
 	if is_visible() then
 		hide()

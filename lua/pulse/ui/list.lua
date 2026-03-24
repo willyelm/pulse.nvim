@@ -41,18 +41,15 @@ local function add_hl(highlights, group, row, start_col, end_col)
 	highlights[#highlights + 1] = { group = group, row = row, start_col = start_col, end_col = end_col }
 end
 
-local function with_window(win, fn)
-	if not (win and vim.api.nvim_win_is_valid(win)) then
-		return nil
-	end
-	return vim.api.nvim_win_call(win, fn)
-end
-
 local function set_lines(buf, lines)
 	vim.bo[buf].modifiable = true
 	vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
 	vim.bo[buf].modifiable = false
 	vim.bo[buf].modified = false
+end
+
+local function is_provider(source)
+	return type(source) == "table" and type(source.count) == "function" and type(source.get) == "function"
 end
 
 local function normalise_item(rendered)
@@ -95,8 +92,10 @@ function M.new(opts)
 	self.allow_empty_selection = opts.allow_empty_selection == true
 	self.render_item = assert(opts.render_item, "list requires render_item callback")
 	self.items = {}
+	self.source = {}
 	self.selected = 1
 	self.visible_count = self.min_visible
+	self.viewport_top = 1
 	self.ns = vim.api.nvim_create_namespace("pulse_ui_list")
 	self.color_hl_cache = {}
 
@@ -130,7 +129,40 @@ end
 
 function M:_normalise_selection()
 	local min_sel = (self.allow_empty_selection and 0 or 1)
-	self.selected = clamp(self.selected or min_sel, min_sel, #self.items)
+	self.selected = clamp(self.selected or min_sel, min_sel, self:item_count())
+end
+
+function M:item_count()
+	if is_provider(self.source) then
+		return math.max(tonumber(self.source:count()) or 0, 0)
+	end
+	return #self.items
+end
+
+function M:item_at(index)
+	index = tonumber(index) or 0
+	if index < 1 then
+		return nil
+	end
+	if is_provider(self.source) then
+		return self.source:get(index)
+	end
+	return self.items[index]
+end
+
+function M:item_slice(start_idx, end_idx)
+	if end_idx < start_idx then
+		return {}
+	end
+	local out = {}
+	for i = start_idx, end_idx do
+		local item = self:item_at(i)
+		if item == nil then
+			break
+		end
+		out[#out + 1] = item
+	end
+	return out
 end
 
 function M:_add_matches(highlights, row, offset, text_len, matches)
@@ -151,8 +183,11 @@ function M:_visible_lines(width)
 	local highlights = {}
 	local total_width = math.max(width or 0, 1)
 	local content_width = math.max(total_width - (SIDE_PADDING * 2), 1)
+	local top = math.max(self.viewport_top or 1, 1)
+	local total_items = self:item_count()
+	local last = math.min(top + self.visible_count - 1, total_items)
 
-	if #self.items == 0 then
+	if total_items == 0 then
 		local text = "(No items)"
 		local fit = fit_to_width(text, content_width)
 		local fit_width = vim.fn.strdisplaywidth(fit)
@@ -160,7 +195,9 @@ function M:_visible_lines(width)
 		lines[1] = string.rep(" ", SIDE_PADDING) .. fit .. string.rep(" ", pad + SIDE_PADDING)
 		highlights[1] = { group = "Comment", row = 0, start_col = SIDE_PADDING, end_col = SIDE_PADDING + #fit }
 	else
-		for index, item in ipairs(self.items) do
+		local visible_items = self:item_slice(top, last)
+		for offset, item in ipairs(visible_items) do
+			local index = top + offset - 1
 			local spec = normalise_item(self.render_item(item, content_width))
 			local left = fit_to_width(spec.left, content_width)
 			local right = spec.right
@@ -179,8 +216,8 @@ function M:_visible_lines(width)
 				.. text
 				.. string.rep(" ", math.max(content_width - vim.fn.strdisplaywidth(text), 0))
 				.. string.rep(" ", SIDE_PADDING)
-			lines[index] = padded
-			local row = index - 1
+			local row = index - top
+			lines[row + 1] = padded
 
 			if index == self.selected then
 				add_hl(highlights, "Visual", row, 0, #padded)
@@ -221,15 +258,17 @@ function M:render(width)
 end
 
 function M:set_items(items)
-	self.items = items or {}
-	local count = #self.items
+	self.source = items or {}
+	self.items = is_provider(self.source) and {} or self.source
+	local count = self:item_count()
 	self.visible_count = (count == 0) and self.min_visible or clamp(count, self.min_visible, self.max_visible)
+	self.viewport_top = clamp(self.viewport_top or 1, 1, math.max(count - self.visible_count + 1, 1))
 	self:_normalise_selection()
 end
 
 function M:set_max_visible(max_visible)
 	self.max_visible = math.max(tonumber(max_visible) or self.min_visible, self.min_visible)
-	self:set_items(self.items)
+	self:set_items(self.source)
 end
 
 function M:set_win(win)
@@ -253,7 +292,19 @@ function M:selected_item()
 	if (self.selected or 0) < 1 then
 		return nil
 	end
-	return self.items[self.selected]
+	return self:item_at(self.selected)
+end
+
+function M:item_index_for_row(row)
+	row = tonumber(row) or 1
+	if row < 1 then
+		return nil
+	end
+	local index = (self.viewport_top or 1) + row - 1
+	if index < 1 or index > self:item_count() then
+		return nil
+	end
+	return index
 end
 
 function M:set_allow_empty_selection(allow)
@@ -263,11 +314,11 @@ end
 
 function M:_header_row_for(index)
 	index = tonumber(index) or 0
-	if index < 1 or index > #self.items then
+	if index < 1 or index > self:item_count() then
 		return nil
 	end
 	for i = index - 1, 1, -1 do
-		local item = self.items[i]
+		local item = self:item_at(i)
 		if item and item.kind == "header" then
 			return i
 		end
@@ -276,17 +327,17 @@ function M:_header_row_for(index)
 end
 
 function M:move(delta, skip)
-	if #self.items == 0 then
+	if self:item_count() == 0 then
 		return false
 	end
 
-	local n = #self.items
+	local n = self:item_count()
 	local step = (delta or 0) >= 0 and 1 or -1
 	local start = self.selected
 
 	for _ = 1, n do
 		self.selected = ((self.selected - 1 + step) % n) + 1
-		local item = self.items[self.selected]
+		local item = self:item_at(self.selected)
 		if not skip or not skip(item) then
 			return true
 		end
@@ -296,31 +347,28 @@ function M:move(delta, skip)
 	return false
 end
 
+function M:scroll(delta)
+	local total_items = self:item_count()
+	local max_top = math.max(total_items - self.visible_count + 1, 1)
+	self.viewport_top = clamp((self.viewport_top or 1) + (delta or 0), 1, max_top)
+	return true
+end
+
 function M:ensure_visible()
-	if not (self.win and vim.api.nvim_win_is_valid(self.win)) then
-		return
-	end
-	local row = ((#self.items > 0) and (self.selected or 0) > 0) and self.selected or 1
-	local height = vim.api.nvim_win_get_height(self.win)
-	local content_rows = math.max(#self.items, 1)
-	local topline
-	if content_rows <= height or row <= height then
-		topline = 1
-	else
-		topline = math.max(row - height + 1, 1)
+	local total_items = self:item_count()
+	local row = ((total_items > 0) and (self.selected or 0) > 0) and self.selected or 1
+	local height = self.visible_count
+	local content_rows = math.max(total_items, 1)
+	local max_top = math.max(content_rows - height + 1, 1)
+	local topline = 1
+	if content_rows > height then
+		topline = clamp(row - math.floor(height / 2), 1, max_top)
 		local header_row = self:_header_row_for(row)
 		if header_row and topline > header_row and (row - header_row) < height then
 			topline = header_row
 		end
 	end
-	with_window(self.win, function()
-		vim.fn.winrestview({
-			lnum = row,
-			col = 0,
-			topline = topline,
-			leftcol = 0,
-		})
-	end)
+	self.viewport_top = clamp(topline, 1, max_top)
 end
 
 return M

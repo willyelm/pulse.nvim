@@ -81,8 +81,6 @@ M.context_item = git_context.context_item
 function M.init(ctx)
 	local scoped = ctx and ctx.scope
 	local state = {
-		files = {},
-		all_files = {},
 		history_files = {},
 		history_all = {},
 		expanded = {},
@@ -93,12 +91,18 @@ function M.init(ctx)
 		scope_prefix = (scoped and scoped.kind == "folder" and (vim.fn.fnamemodify(scoped.path, ":.") .. "/")) or nil,
 		_on_update = ctx and ctx.on_update or nil,
 	}
-	sync.register(state, {
-		group = "PulseGitSync",
-		events = { "FocusGained", "ShellCmdPost", "DirChanged", "BufWritePost" },
-		invalidate = items.invalidate,
-		on_update = state._on_update,
-	})
+		sync.register(state, {
+			group = "PulseGitStatusSync",
+			events = { "FocusGained" },
+			invalidate = items.invalidate_status,
+			on_update = state._on_update,
+		})
+		sync.register(state, {
+			group = "PulseGitSync",
+			events = { "ShellCmdPost", "DirChanged", "BufWritePost" },
+			invalidate = items.invalidate,
+			on_update = state._on_update,
+		})
 	return state
 end
 
@@ -106,12 +110,17 @@ function M.input_scope(state)
 	return state and state.scope or nil
 end
 
-function M.items(state, query, panel_name)
-	return items.items(state, query, panel_name)
-end
+	function M.items(state, query, panel_name)
+		state.current_panel = panel_name
+		return items.items(state, query, panel_name)
+	end
 
 function M.total_count(state)
-	return #(state.all_files or {})
+	local count = #(state.current_panel == "git_status" and (state.status_all or {}) or (state.history_all or {}))
+	return {
+		count = count,
+		plus = state.history_has_more == false and count >= 5000,
+	}
 end
 
 return M

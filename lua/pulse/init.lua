@@ -76,7 +76,9 @@ local function pulse_command(opts)
 	end
 	local next_prompt = config.switch_prompt(navigator.get_prompt() or "", mode_name)
 	local extra_opts = nil
-	if panel.is_buffer_only(registry()[mode_name]) then
+	if panel.supports_scope(registry()[mode_name], "buffer")
+		and not panel.supports_scope(registry()[mode_name], "workspace")
+		and not panel.supports_scope(registry()[mode_name], "folder") then
 		local current_scope = scope.from_buffer()
 		if current_scope then
 			extra_opts = { scope = current_scope }

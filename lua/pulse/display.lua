@@ -298,6 +298,10 @@ local function display_symbol(item)
 	return row(string.format("%s%s %s", indent, icon, item.symbol or ""), kind, false, (hl and { { #indent, #indent + #icon, hl } } or nil))
 end
 
+local function display_loading(item)
+	return row(item.label or "Loading...", "", "Comment")
+end
+
 local RENDERERS = {
 	header = display_header,
 	command = display_command,
@@ -312,6 +316,7 @@ local RENDERERS = {
 	diagnostic = display_diagnostic,
 	symbol = display_symbol,
 	workspace_symbol = display_symbol,
+	loading = display_loading,
 }
 
 function M.to_display(item)

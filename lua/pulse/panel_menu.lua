@@ -24,10 +24,25 @@ local function is_visible_in_scope(entry, scope_name)
 end
 
 local function set_lines(buf, lines)
+	if not vim.api.nvim_buf_is_valid(buf) then
+		return
+	end
 	vim.bo[buf].modifiable = true
-	vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
+	local ok, err = pcall(vim.api.nvim_buf_set_lines, buf, 0, -1, false, lines)
 	vim.bo[buf].modifiable = false
 	vim.bo[buf].modified = false
+	if ok or not tostring(err):match("E565") then
+		return
+	end
+	vim.schedule(function()
+		if not vim.api.nvim_buf_is_valid(buf) then
+			return
+		end
+		vim.bo[buf].modifiable = true
+		pcall(vim.api.nvim_buf_set_lines, buf, 0, -1, false, lines)
+		vim.bo[buf].modifiable = false
+		vim.bo[buf].modified = false
+	end)
 end
 
 local function clamp(value, min_value, max_value)
@@ -109,7 +124,7 @@ end
 
 function M.visible_panels(navigators, scope_type)
 	local visible = {}
-	for index, navigator in ipairs(navigators or {}) do
+	for _, navigator in ipairs(navigators or {}) do
 		if navigator.panels and #navigator.panels > 0 then
 			for _, entry in ipairs(navigator.panels) do
 				if is_visible_in_scope(entry, scope_type) then
@@ -117,40 +132,15 @@ function M.visible_panels(navigators, scope_type)
 						name = entry.name,
 						label = entry.label,
 						navigator = navigator.name,
-						panel = entry.name,
-						start = entry.start or "",
-						scopes = panel_scopes(entry),
-						order = index,
-					}
+							panel = entry.name,
+							start = entry.start or "",
+							scopes = panel_scopes(entry),
+						}
+					end
 				end
-			end
 		end
-	end
-	if scope_type == "buffer" then
-		table.sort(visible, function(a, b)
-			local a_mixed = #a.scopes > 1
-			local b_mixed = #b.scopes > 1
-			if a_mixed ~= b_mixed then
-				return not a_mixed
-			end
-			return (a.order or 0) < (b.order or 0)
-		end)
 	end
 	return visible
-end
-
-function M.is_buffer_only(navigator)
-	local panels = navigator and navigator.panels or {}
-	if #panels == 0 then
-		return false
-	end
-	for _, entry in ipairs(panels) do
-		local scopes = panel_scopes(entry)
-		if #scopes ~= 1 or scopes[1] ~= "buffer" then
-			return false
-		end
-	end
-	return true
 end
 
 function M.supports_scope(navigator, scope_name)

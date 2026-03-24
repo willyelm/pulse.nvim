@@ -109,24 +109,32 @@ M.panels = {
 
 function M.init(ctx)
 	local project_root = type(ctx) == "string" and ctx or (ctx and ctx.cwd) or vim.fn.getcwd()
-	local state = {
-		root = project_root,
-		opts = items.navigator_opts(DEFAULT_OPTS, ctx and ctx.opts),
-		opened = items.collect_opened_files(),
-		files = nil,
-		ignored = nil,
-		git_status = nil,
+		local state = {
+			root = project_root,
+			opts = items.navigator_opts(DEFAULT_OPTS, ctx and ctx.opts),
+			opened = items.collect_opened_files(),
+			ignored = nil,
+			git_status = nil,
 		expanded = {},
 		scope = ctx and ctx.scope or nil,
 		_on_update = ctx and ctx.on_update or nil,
 		_dirty = false,
+		_opened_dirty = true,
 	}
+	local open_group = vim.api.nvim_create_augroup("PulseFilesOpened" .. tostring(state.root), { clear = false })
+	vim.api.nvim_create_autocmd({ "BufAdd", "BufDelete", "BufEnter", "BufWipeout" }, {
+		group = open_group,
+		callback = function()
+			state._opened_dirty = true
+		end,
+	})
 	sync.register(state, {
 		group = "PulseFilesSync",
-		events = { "FocusGained", "BufWritePost", "ShellCmdPost", "DirChanged", "CursorHold", "CursorHoldI" },
+		events = { "FocusGained", "BufWritePost", "ShellCmdPost", "DirChanged", "BufAdd", "BufDelete", "BufEnter", "BufWipeout" },
 		when = function(current)
-			if current and current._dirty then
+			if current and (current._dirty or current._opened_dirty) then
 				current._dirty = false
+				current._opened_dirty = false
 				return true
 			end
 			return false
@@ -165,7 +173,8 @@ toggle_folder = function(ctx)
 		end
 		return true
 	end
-	ctx.state.expanded[item.path] = not ctx.state.expanded[item.path]
+	local expanding = not ctx.state.expanded[item.path]
+	ctx.state.expanded[item.path] = expanding
 	ctx.refresh()
 	return true
 end

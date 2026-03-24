@@ -1,6 +1,13 @@
 local M = {}
 
 function M.git_lines(cmd)
+	if cmd and cmd[1] == "git" then
+		local next_cmd = { "git", "-c", "core.fsmonitor=false" }
+		for i = 2, #cmd do
+			next_cmd[#next_cmd + 1] = cmd[i]
+		end
+		cmd = next_cmd
+	end
 	local lines = vim.fn.systemlist(cmd)
 	return (vim.v.shell_error == 0) and lines or nil
 end

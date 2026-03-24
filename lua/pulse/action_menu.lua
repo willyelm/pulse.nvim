@@ -1,10 +1,25 @@
 local M = {}
 
 local function set_lines(buf, lines)
+	if not vim.api.nvim_buf_is_valid(buf) then
+		return
+	end
 	vim.bo[buf].modifiable = true
-	vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
+	local ok, err = pcall(vim.api.nvim_buf_set_lines, buf, 0, -1, false, lines)
 	vim.bo[buf].modifiable = false
 	vim.bo[buf].modified = false
+	if ok or not tostring(err):match("E565") then
+		return
+	end
+	vim.schedule(function()
+		if not vim.api.nvim_buf_is_valid(buf) then
+			return
+		end
+		vim.bo[buf].modifiable = true
+		pcall(vim.api.nvim_buf_set_lines, buf, 0, -1, false, lines)
+		vim.bo[buf].modifiable = false
+		vim.bo[buf].modified = false
+	end)
 end
 
 local function friendly_key(lhs)

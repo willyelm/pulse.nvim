@@ -43,8 +43,7 @@ function M.context_item(item)
 end
 
 local DEBOUNCE_MS = 60
-local MAX_RESULTS = 400
-
+local RESULT_LIMIT = 5000
 local function notify_update(state)
 	if type(state.on_update) ~= "function" or state.update_scheduled then
 		return
@@ -73,17 +72,19 @@ end
 
 local function reset_results(state)
 	state.items = {}
-	state.pending_items = nil
 	state.stopped = false
 end
 
 local function append_lines(state, lines, query)
-	local reached = false
 	for _, line in ipairs(lines or {}) do
+		if #(state.items or {}) >= RESULT_LIMIT then
+			state.stopped = true
+			return true
+		end
 		if line and line ~= "" then
 			local path, lnum, col, text = line:match("^(.-):(%d+):(%d+):(.*)$")
 			if path and lnum and col then
-				state.pending_items[#state.pending_items + 1] = {
+				state.items[#state.items + 1] = {
 					kind = "live_grep",
 					path = path,
 					filename = path,
@@ -94,17 +95,13 @@ local function append_lines(state, lines, query)
 				}
 			end
 		end
-		if #state.pending_items >= MAX_RESULTS then
-			reached = true
-			break
-		end
 	end
-	return reached
+	return #(state.items or {}) >= RESULT_LIMIT
 end
 
 local function start_search(state, query, token)
 	stop_job(state)
-	state.pending_items = {}
+	state.items = {}
 	state.stopped = false
 
 	local cmd = {
@@ -133,27 +130,22 @@ local function start_search(state, query, token)
 			if not data or #data == 0 then
 				return
 			end
-			local reached = append_lines(state, data, query)
-			if #state.pending_items > 0 then
-				state.items = state.pending_items
-				notify_update(state)
-			end
-			if reached then
-				state.stopped = true
-				stop_job(state)
-			end
-		end,
+				local reached = append_lines(state, data, query)
+				if #state.items > 0 then
+					notify_update(state)
+				end
+				if reached then
+					stop_job(state)
+				end
+			end,
 		on_exit = function(_, code)
 			if token ~= state.token then
 				return
 			end
 			state.job = nil
-			if code == 0 or code == 1 or state.stopped then
-				state.items = state.pending_items or {}
-			else
+			if not (code == 0 or code == 1 or state.stopped) then
 				state.items = {}
 			end
-			state.pending_items = nil
 			notify_update(state)
 		end,
 	})
@@ -168,7 +160,7 @@ end
 function M.init(ctx)
 	local scoped = ctx and ctx.scope
 	local cwd = (scoped and scoped.kind == "folder" and scoped.path) or (ctx and ctx.cwd) or vim.fn.getcwd()
-	return {
+	local state = {
 		on_update = ctx and ctx.on_update,
 		cwd = cwd,
 		query = "",
@@ -178,6 +170,15 @@ function M.init(ctx)
 		update_scheduled = false,
 		input_scope = (scoped and scoped.kind == "folder" and scope.folder(cwd)) or nil,
 	}
+		state.provider = {
+			count = function()
+				return #(state.items or {})
+			end,
+			get = function(_, index)
+				return state.items and state.items[index] or nil
+			end,
+		}
+	return state
 end
 
 function M.input_scope(state)
@@ -192,7 +193,7 @@ function M.items(state, query)
 		state.token = state.token + 1
 		stop_timer(state)
 		stop_job(state)
-		return {}
+		return state.provider
 	end
 
 	if q ~= state.query then
@@ -214,7 +215,7 @@ function M.items(state, query)
 		end)
 	end
 
-	return state.items
+	return state.provider
 end
 
 function M.dispose(state)
@@ -227,7 +228,11 @@ function M.dispose(state)
 end
 
 function M.total_count(state)
-	return #(state.items or {})
+	local count = #(state.items or {})
+	return {
+		count = count,
+		plus = count >= RESULT_LIMIT,
+	}
 end
 
 return M
