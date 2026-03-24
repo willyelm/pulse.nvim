@@ -5,32 +5,32 @@ local scope = require("pulse.scope")
 M.name = "fuzzy_search"
 M.icon = "󱉶"
 M.actions = {
-		{
-			key = "<CR>",
-			name = "jump",
-			when = function(ctx)
-				return ctx and ctx.item ~= nil
-			end,
-			run = function(ctx)
-				if ctx and ctx.item then
-					ctx.jump(ctx.item)
-					ctx.close()
-					return false
-				end
-			end,
-		},
-		{
-			key = "<Tab>",
-			name = "preview",
-			when = function(ctx)
-				return ctx and ctx.item ~= nil
-			end,
-			run = function(ctx)
-				if ctx and ctx.item then
-					ctx.preview(ctx.item)
-				end
-			end,
-		},
+	{
+		key = "<CR>",
+		name = "jump",
+		when = function(ctx)
+			return ctx and ctx.item ~= nil
+		end,
+		run = function(ctx)
+			if ctx and ctx.item then
+				ctx.jump(ctx.item)
+				ctx.close()
+				return false
+			end
+		end,
+	},
+	{
+		key = "<Tab>",
+		name = "preview",
+		when = function(ctx)
+			return ctx and ctx.item ~= nil
+		end,
+		run = function(ctx)
+			if ctx and ctx.item then
+				ctx.preview(ctx.item)
+			end
+		end,
+	},
 }
 M.panels = {
 	{ start = "?", name = "fuzzy_search", label = "Fuzzy Search", scopes = { "buffer" } },

@@ -41,13 +41,6 @@ local function add_hl(highlights, group, row, start_col, end_col)
 	highlights[#highlights + 1] = { group = group, row = row, start_col = start_col, end_col = end_col }
 end
 
-local function set_lines(buf, lines)
-	vim.bo[buf].modifiable = true
-	vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
-	vim.bo[buf].modifiable = false
-	vim.bo[buf].modified = false
-end
-
 local function is_provider(source)
 	return type(source) == "table" and type(source.count) == "function" and type(source.get) == "function"
 end
@@ -246,7 +239,7 @@ function M:render(width)
 	self:_normalise_selection()
 
 	local lines, highlights = self:_visible_lines(width)
-	set_lines(self.buf, lines)
+	window.set_lines(self.buf, lines)
 
 	vim.api.nvim_buf_clear_namespace(self.buf, self.ns, 0, -1)
 	for _, item in ipairs(highlights) do

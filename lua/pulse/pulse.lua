@@ -286,88 +286,51 @@ local function action_ctx(item)
 	}
 end
 
-local function action_label(def, ctx, item)
-	if type(def) == "table" then
-		local label = def.name or def.label
-		if type(label) == "function" then
-			return label(ctx, item)
-		end
-		return label
-	end
-	return nil
-end
-
-local function action_allowed(def, ctx, item)
-	if type(def) ~= "table" then
-		return true
-	end
-	local kinds = def["for"]
-	if kinds ~= nil then
-		if not item then
-			return false
-		end
-		local matched = false
-		for _, kind in ipairs(kinds) do
-			if item.kind == kind then
-				matched = true
-				break
-			end
-		end
-		if not matched then
-			return false
-		end
-	end
-	if type(def.when) == "function" and def.when(ctx, item) == false then
-		return false
-	end
-	return true
-end
-
-local function panel_action_defs(item)
-	local mod = state.current.mod
-	local mode_actions = mod and mod.actions
-	if type(mode_actions) == "function" then
-		local actions = mode_actions(action_ctx(item))
-		return type(actions) == "table" and actions or {}
-	elseif type(mode_actions) == "table" then
-		return mode_actions
-	end
-	return {}
-end
-
 local function panel_actions(item)
 	local ctx = action_ctx(item)
 	local item_value = ctx.item
 	local actions = {}
 	local ordered = {}
-	local defs = panel_action_defs(item_value)
+	local defs = {}
+	local mode_actions = state.current.mod and state.current.mod.actions
+	if type(mode_actions) == "function" then
+		defs = mode_actions(ctx) or {}
+	elseif type(mode_actions) == "table" then
+		defs = mode_actions
+	end
 	for _, def in ipairs(defs) do
 		local lhs = type(def) == "table" and def.key or nil
 		local run = type(def) == "table" and (def.action or def.run) or nil
 		if type(lhs) == "string" and lhs ~= "" and type(run) == "function" then
+			local enabled = true
+			local kinds = def["for"]
+			if kinds ~= nil then
+				enabled = false
+				if item_value then
+					for _, kind in ipairs(kinds) do
+						if item_value.kind == kind then
+							enabled = true
+							break
+						end
+					end
+				end
+			end
+			if enabled and type(def.when) == "function" and def.when(ctx, item_value) == false then
+				enabled = false
+			end
+			local label = def.name or def.label
+			if type(label) == "function" then
+				label = label(ctx, item_value)
+			end
 			actions[lhs] = {
 				run = run,
-				label = action_label(def, ctx, item_value),
-				enabled = action_allowed(def, ctx, item_value),
+				label = label,
+				enabled = enabled,
 			}
 			ordered[#ordered + 1] = lhs
 		end
 	end
 	return actions, ordered
-end
-
-local function visible_actions(item)
-	local actions, ordered = panel_actions(item)
-	local runs, labels, enabled = {}, {}, {}
-	for _, lhs in ipairs(ordered) do
-		local entry = actions[lhs]
-		if entry and entry.enabled then
-			runs[lhs] = entry.run
-			labels[lhs] = entry.label
-			enabled[#enabled + 1] = lhs
-		end
-	end
-	return runs, labels, enabled
 end
 
 local function run_in_source(item, opts)
@@ -562,8 +525,14 @@ local function compute_body_layout(items, stats, mod, panels, active_panel)
 	local item = current_item() or stats.first
 	local show_panels = active_panel ~= nil and panel.header_item(panels, active_panel.name or nil) ~= nil
 	local panel_rows = show_panels and 2 or 0
-	local _, _, enabled_actions = visible_actions(item)
-	local action_rows = (#enabled_actions > 0) and 2 or 0
+	local actions, ordered = panel_actions(item)
+	local action_rows = 0
+	for _, lhs in ipairs(ordered) do
+		if actions[lhs] and actions[lhs].enabled then
+			action_rows = 2
+			break
+		end
+	end
 	local total_height = math.max(layout.resolve_max_height(current_box_opts().height) - 2 - panel_rows - action_rows, 1)
 	local item_total = stats.count
 	local list_need = math.max(item_total == 0 and state.list.min_visible or item_total, state.list.min_visible)
@@ -587,7 +556,18 @@ end
 
 local function render_current_view(body, menu, opts)
 	opts = opts or {}
-	local action_runs, action_labels, ordered = visible_actions()
+	local action_runs, action_labels, ordered = {}, {}, {}
+	do
+		local actions, all = panel_actions()
+		for _, lhs in ipairs(all) do
+			local entry = actions[lhs]
+			if entry and entry.enabled then
+				action_runs[lhs] = entry.run
+				action_labels[lhs] = entry.label
+				ordered[#ordered + 1] = lhs
+			end
+		end
+	end
 	state.list:set_max_visible(body.list_height)
 	state.list:set_fill_height(state.fullscreen)
 	state.session.layout:apply(state.list.visible_count, body.context_height, {

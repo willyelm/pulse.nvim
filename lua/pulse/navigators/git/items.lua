@@ -301,21 +301,8 @@ local function history_items(state, query, panel_name)
 	ensure_history_loaded(state, panel_name)
 	local provider = {}
 
-	local function rows()
-		return history_rows(state, query, panel_name)
-	end
-
-	local function maybe_prefetch(index, row_count)
-		if state.history_has_more ~= true then
-			return
-		end
-		if index >= math.max(row_count - HISTORY_PREFETCH, 1) then
-			ensure_history_loaded(state, panel_name)
-		end
-	end
-
 	function provider:count()
-		local row_count = #rows()
+		local row_count = #history_rows(state, query, panel_name)
 		if state.history_has_more or state._history_loading then
 			return row_count + 1
 		end
@@ -327,8 +314,10 @@ local function history_items(state, query, panel_name)
 		if index < 1 then
 			return nil
 		end
-		local current = rows()
-		maybe_prefetch(index, #current)
+		local current = history_rows(state, query, panel_name)
+		if state.history_has_more == true and index >= math.max(#current - HISTORY_PREFETCH, 1) then
+			ensure_history_loaded(state, panel_name)
+		end
 		local item = current[index]
 		if item ~= nil then
 			return item

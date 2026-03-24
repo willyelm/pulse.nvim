@@ -5,32 +5,32 @@ local scope = require("pulse.scope")
 M.name = "diagnostics"
 M.icon = ""
 M.actions = {
-		{
-			key = "<CR>",
-			name = "open",
-			when = function(ctx)
-				return ctx and ctx.item ~= nil
-			end,
-			run = function(ctx)
-				if ctx and ctx.item then
-					ctx.jump(ctx.item)
-					ctx.close()
-					return false
-				end
-			end,
-		},
-		{
-			key = "<Tab>",
-			name = "preview",
-			when = function(ctx)
-				return ctx and ctx.item ~= nil
-			end,
-			run = function(ctx)
-				if ctx and ctx.item then
-					ctx.preview(ctx.item)
-				end
-			end,
-		},
+	{
+		key = "<CR>",
+		name = "open",
+		when = function(ctx)
+			return ctx and ctx.item ~= nil
+		end,
+		run = function(ctx)
+			if ctx and ctx.item then
+				ctx.jump(ctx.item)
+				ctx.close()
+				return false
+			end
+		end,
+	},
+	{
+		key = "<Tab>",
+		name = "preview",
+		when = function(ctx)
+			return ctx and ctx.item ~= nil
+		end,
+		run = function(ctx)
+			if ctx and ctx.item then
+				ctx.preview(ctx.item)
+			end
+		end,
+	},
 }
 M.panels = {
 	{ start = "!", name = "diagnostics", label = "Diagnostics", scopes = { "workspace", "buffer" } },

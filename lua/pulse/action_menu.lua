@@ -1,26 +1,5 @@
 local M = {}
-
-local function set_lines(buf, lines)
-	if not vim.api.nvim_buf_is_valid(buf) then
-		return
-	end
-	vim.bo[buf].modifiable = true
-	local ok, err = pcall(vim.api.nvim_buf_set_lines, buf, 0, -1, false, lines)
-	vim.bo[buf].modifiable = false
-	vim.bo[buf].modified = false
-	if ok or not tostring(err):match("E565") then
-		return
-	end
-	vim.schedule(function()
-		if not vim.api.nvim_buf_is_valid(buf) then
-			return
-		end
-		vim.bo[buf].modifiable = true
-		pcall(vim.api.nvim_buf_set_lines, buf, 0, -1, false, lines)
-		vim.bo[buf].modifiable = false
-		vim.bo[buf].modified = false
-	end)
-end
+local window = require("pulse.ui.window")
 
 local function friendly_key(lhs)
 	lhs = tostring(lhs or "")
@@ -79,9 +58,9 @@ function M.render(target, ns, labels, active_actions, ordered_keys)
 	local offset = math.max(#full_line - inner_width, 0)
 	local line = offset > 0 and full_line:sub(offset + 1) or full_line
 	local left_pad = math.max(inner_width - vim.fn.strdisplaywidth(line), 0)
-	set_lines(target.buf, {
+	window.set_lines(target.buf, {
 		" " .. string.rep(" ", left_pad) .. line .. string.rep(" ", math.max(inner_width - left_pad - #line, 0)) .. " ",
-	})
+	}, { retry = true })
 	vim.api.nvim_buf_clear_namespace(target.buf, ns, 0, -1)
 	for _, span in ipairs(spans) do
 		local start_col = math.max(span.start_col, offset)

@@ -1,11 +1,5 @@
 local M = {}
-
-local function set_lines(buf, lines)
-	vim.bo[buf].modifiable = true
-	vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
-	vim.bo[buf].modifiable = false
-	vim.bo[buf].modified = false
-end
+local window = require("pulse.ui.window")
 
 function M.resolve_max_height(height_cfg)
 	local total = vim.o.lines - vim.o.cmdheight
@@ -30,7 +24,7 @@ function M.new(box)
 	end
 
 	local function draw_divider(buf, width)
-		set_lines(buf, { string.rep("─", width) })
+		window.set_lines(buf, { string.rep("─", width) })
 	end
 
 	function layout:apply(body_height, context_height, refs)

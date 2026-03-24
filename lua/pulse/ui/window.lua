@@ -46,4 +46,21 @@ function M.configure_isolated_buffer(buf, opts)
   pcall(vim.diagnostic.enable, false, { bufnr = buf })
 end
 
+function M.set_lines(buf, lines, opts)
+  if not (buf and vim.api.nvim_buf_is_valid(buf)) then
+    return
+  end
+  opts = opts or {}
+  vim.bo[buf].modifiable = true
+  local ok, err = pcall(vim.api.nvim_buf_set_lines, buf, 0, -1, false, lines)
+  vim.bo[buf].modifiable = false
+  vim.bo[buf].modified = false
+  if ok or opts.retry ~= true or not tostring(err):match("E565") then
+    return
+  end
+  vim.schedule(function()
+    M.set_lines(buf, lines, { retry = false })
+  end)
+end
+
 return M

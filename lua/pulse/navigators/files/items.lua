@@ -63,13 +63,55 @@ local function is_filtered(path, opts)
 	return false
 end
 
-local function has_filtered_segment(path, opts)
-	for segment in tostring(path or ""):gmatch("[^/]+") do
+local function path_has_filtered_segment(path, opts)
+	path = tostring(path or "")
+	for segment in path:gmatch("[^/]+") do
 		if is_filtered(segment, opts) then
 			return true
 		end
 	end
 	return is_filtered(path, opts)
+end
+
+local function search_ignore_names(opts)
+	local out, seen = {}, {}
+	for _, pattern in ipairs((opts and opts.filters) or {}) do
+		if type(pattern) ~= "string" or pattern == "" then
+			goto continue
+		end
+		local inner = pattern:match("^%^(.*)%$$")
+		if not inner or inner == "" then
+			goto continue
+		end
+		local chars, i = {}, 1
+		while i <= #inner do
+			local ch = inner:sub(i, i)
+			if ch == "%" then
+				i = i + 1
+				ch = inner:sub(i, i)
+				if ch == "" then
+					chars = nil
+					break
+				end
+				chars[#chars + 1] = ch
+			elseif ch:match("[%[%]%(%)%+%-%*%?]") then
+				chars = nil
+				break
+			else
+				chars[#chars + 1] = ch
+			end
+			i = i + 1
+		end
+		if chars then
+			local name = table.concat(chars)
+			if name ~= "" and not seen[name] then
+				seen[name] = true
+				out[#out + 1] = name
+			end
+		end
+		::continue::
+	end
+	return out
 end
 
 local function filtered_paths(paths, opts)
@@ -158,14 +200,6 @@ local function folder_scope_prefix(state)
 	return (state.scope and state.scope.kind == "folder") and relative_scope_path(state.root, state.scope) or nil
 end
 
-local function scope_ignored(state, ignored_map)
-	local scoped = folder_scope_prefix(state)
-	if not scoped then
-		return false
-	end
-	return ignored_map[scoped] == true or ignored_map[scoped .. "/"] == true
-end
-
 local function dir_statuses(status_map)
 	local by_dir = {}
 	for path, code in pairs(status_map or {}) do
@@ -246,14 +280,6 @@ local function warm_tree_metadata(state)
 	end)
 end
 
-local function collect_tree_metadata(state)
-	if state.ignored and state.git_status and state.dir_statuses then
-		return state.ignored, state.git_status, state.dir_statuses
-	end
-	warm_tree_metadata(state)
-	return state.ignored or {}, state.git_status or {}, state.dir_statuses or {}
-end
-
 local function expanded_signature(expanded)
 	local keys = {}
 	for path, is_expanded in pairs(expanded or {}) do
@@ -272,7 +298,12 @@ local function scan_dir(state, dir_rel, parent_ignored)
 	if cached then
 		return cached
 	end
-	local ignored_map, git_status, dir_status_map = collect_tree_metadata(state)
+	if not (state.ignored and state.git_status and state.dir_statuses) then
+		warm_tree_metadata(state)
+	end
+	local ignored_map = state.ignored or {}
+	local git_status = state.git_status or {}
+	local dir_status_map = state.dir_statuses or {}
 	local handle = uv.fs_scandir(abs_dir)
 	local children = {}
 	if handle then
@@ -325,20 +356,6 @@ local function collapse_scanned_folder(state, entry)
 	return table.concat(parts, "/"), current.path, current
 end
 
-local function provider_from_rows(rows)
-	local provider = {}
-
-	function provider:count()
-		return #rows
-	end
-
-	function provider:get(index)
-		return rows[index]
-	end
-
-	return provider
-end
-
 local function count_selectable(items)
 	local total = 0
 	local count = type(items) == "table" and type(items.count) == "function" and items:count() or #(items or {})
@@ -359,7 +376,10 @@ local function lazy_tree_rows(state)
 	if state.tree_cache_key == cache_key and state.tree_provider then
 		return state.tree_provider
 	end
-	local ignored_map = collect_tree_metadata(state)
+	if not (state.ignored and state.git_status and state.dir_statuses) then
+		warm_tree_metadata(state)
+	end
+	local ignored_map = state.ignored or {}
 	local scope_prefix = folder_scope_prefix(state) or ""
 	local root_ignored = scope_prefix ~= "" and (ignored_map[scope_prefix] == true or ignored_map[scope_prefix .. "/"] == true) or false
 	local open_map = opened_set(state)
@@ -397,7 +417,14 @@ local function lazy_tree_rows(state)
 
 	walk(scope_prefix, 0, root_ignored)
 	state.tree_cache_key = cache_key
-	state.tree_provider = provider_from_rows(rows)
+	state.tree_provider = {
+		count = function()
+			return #rows
+		end,
+		get = function(_, index)
+			return rows[index]
+		end,
+	}
 	return state.tree_provider
 end
 
@@ -569,7 +596,7 @@ local function append_search_folder(state, rel)
 		state.search_limited = true
 		return
 	end
-	if rel == "" or rel == "." or has_filtered_segment(rel, state.opts) then
+	if rel == "" or rel == "." or path_has_filtered_segment(rel, state.opts) then
 		return
 	end
 	state._search_seen_folders = state._search_seen_folders or {}
@@ -582,7 +609,7 @@ local function append_search_folder(state, rel)
 end
 
 local function append_search_path(state, rel, query)
-	if rel == "" or has_filtered_segment(rel, state.opts) then
+	if rel == "" or path_has_filtered_segment(rel, state.opts) then
 		return
 	end
 	if (#(state.search_paths or {}) + #(state.search_folders or {})) >= RESULT_LIMIT then
@@ -630,16 +657,19 @@ local function warm_search_query(state, query)
 	state._search_seen_paths = {}
 	state._search_seen_folders = {}
 	state.search_results = build_search_items(state, ignored_map)
-	local cmd = {
-		"rg",
-		"--files",
-		"--hidden",
-		"-g",
-		"!.git",
-		"-g",
-		"*" .. glob_escape(query) .. "*",
-		search_root,
-	}
+	local ignored_names = search_ignore_names(state.opts)
+		local cmd = {
+			"rg",
+			"--files",
+			"--hidden",
+			"-g",
+			"*" .. glob_escape(query) .. "*",
+			search_root,
+		}
+	for i = #ignored_names, 1, -1 do
+		table.insert(cmd, #cmd - 1, "!" .. ignored_names[i])
+		table.insert(cmd, #cmd - 1, "-g")
+	end
 	state._search_job = vim.fn.jobstart(cmd, {
 		stdout_buffered = false,
 		stderr_buffered = true,
@@ -679,24 +709,19 @@ local function warm_search_query(state, query)
 			end
 		end,
 	})
-	state._search_folder_job = vim.fn.jobstart({
-		"find",
-		search_root,
-		"(",
-		"-name",
-		".git",
-		"-o",
-		"-name",
-		".git",
-		")",
-		"-prune",
-		"-o",
-		"-type",
-		"d",
-		"-iname",
-		"*" .. query .. "*",
-		"-print",
-	}, {
+	local find_cmd = { "find", search_root }
+	for _, name in ipairs(ignored_names) do
+		find_cmd[#find_cmd + 1] = "-name"
+		find_cmd[#find_cmd + 1] = name
+		find_cmd[#find_cmd + 1] = "-prune"
+		find_cmd[#find_cmd + 1] = "-o"
+	end
+	find_cmd[#find_cmd + 1] = "-type"
+	find_cmd[#find_cmd + 1] = "d"
+	find_cmd[#find_cmd + 1] = "-iname"
+	find_cmd[#find_cmd + 1] = "*" .. query .. "*"
+	find_cmd[#find_cmd + 1] = "-print"
+	state._search_folder_job = vim.fn.jobstart(find_cmd, {
 		stdout_buffered = false,
 		stderr_buffered = true,
 		on_stdout = function(_, data)
@@ -862,7 +887,8 @@ end
 
 build_search_items = function(state, ignored_map)
 	local git_status, open_map = state.git_status or {}, opened_set(state)
-	local scoped = scope_ignored(state, ignored_map)
+	local scoped_prefix = folder_scope_prefix(state)
+	local scoped = scoped_prefix and (ignored_map[scoped_prefix] == true or ignored_map[scoped_prefix .. "/"] == true) or false
 	local has_parent = state.scope and state.scope.kind == "folder"
 	local provider = {}
 

@@ -1,4 +1,5 @@
 local M = {}
+local window = require("pulse.ui.window")
 
 local function list_scopes(value)
 	if type(value) == "string" then
@@ -21,28 +22,6 @@ local function is_visible_in_scope(entry, scope_name)
 		end
 	end
 	return false
-end
-
-local function set_lines(buf, lines)
-	if not vim.api.nvim_buf_is_valid(buf) then
-		return
-	end
-	vim.bo[buf].modifiable = true
-	local ok, err = pcall(vim.api.nvim_buf_set_lines, buf, 0, -1, false, lines)
-	vim.bo[buf].modifiable = false
-	vim.bo[buf].modified = false
-	if ok or not tostring(err):match("E565") then
-		return
-	end
-	vim.schedule(function()
-		if not vim.api.nvim_buf_is_valid(buf) then
-			return
-		end
-		vim.bo[buf].modifiable = true
-		pcall(vim.api.nvim_buf_set_lines, buf, 0, -1, false, lines)
-		vim.bo[buf].modifiable = false
-		vim.bo[buf].modified = false
-	end)
 end
 
 local function clamp(value, min_value, max_value)
@@ -233,7 +212,7 @@ function M.render(target, ns, menu)
 	end
 
 	if not menu then
-		set_lines(target.buf, { "" })
+		window.set_lines(target.buf, { "" }, { retry = true })
 		vim.api.nvim_buf_clear_namespace(target.buf, ns, 0, -1)
 		return
 	end
@@ -245,7 +224,7 @@ function M.render(target, ns, menu)
 	menu.viewport_offset = offset
 	local line = " " .. visible .. string.rep(" ", math.max(width - 2 - #visible, 0)) .. " "
 
-	set_lines(target.buf, { line })
+	window.set_lines(target.buf, { line }, { retry = true })
 	vim.api.nvim_buf_clear_namespace(target.buf, ns, 0, -1)
 	for _, hl in ipairs(menu.panel_highlights or {}) do
 		local start_col = math.max(hl[1], offset)
