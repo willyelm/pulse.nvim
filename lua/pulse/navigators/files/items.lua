@@ -63,6 +63,15 @@ local function is_filtered(path, opts)
 	return false
 end
 
+local function has_filtered_segment(path, opts)
+	for segment in tostring(path or ""):gmatch("[^/]+") do
+		if is_filtered(segment, opts) then
+			return true
+		end
+	end
+	return is_filtered(path, opts)
+end
+
 local function filtered_paths(paths, opts)
 	return vim.tbl_filter(function(path)
 		return not is_filtered(path, opts)
@@ -540,21 +549,44 @@ local function glob_escape(text)
 	return (text or ""):gsub("([%*%?%[%]{}\\])", "\\%1")
 end
 
-stop_search_job = function(state)
-	if type(state._search_job) == "table" and state._search_job.kill then
-		pcall(state._search_job.kill, state._search_job, 15)
-	elseif type(state._search_job) == "number" and state._search_job > 0 then
-		pcall(vim.fn.jobstop, state._search_job)
+local function stop_job(job)
+	if type(job) == "table" and job.kill then
+		pcall(job.kill, job, 15)
+	elseif type(job) == "number" and job > 0 then
+		pcall(vim.fn.jobstop, job)
 	end
-	state._search_job = nil
 end
 
-local function append_search_path(state, rel, query)
+stop_search_job = function(state)
+	stop_job(state._search_job)
+	stop_job(state._search_folder_job)
+	state._search_job = nil
+	state._search_folder_job = nil
+end
+
+local function append_search_folder(state, rel)
 	if (#(state.search_paths or {}) + #(state.search_folders or {})) >= RESULT_LIMIT then
 		state.search_limited = true
 		return
 	end
-	if rel == "" or is_filtered(rel, state.opts) then
+	if rel == "" or rel == "." or has_filtered_segment(rel, state.opts) then
+		return
+	end
+	state._search_seen_folders = state._search_seen_folders or {}
+	if state._search_seen_folders[rel] then
+		return
+	end
+	state._search_seen_folders[rel] = true
+	state.search_folders = state.search_folders or {}
+	state.search_folders[#state.search_folders + 1] = rel
+end
+
+local function append_search_path(state, rel, query)
+	if rel == "" or has_filtered_segment(rel, state.opts) then
+		return
+	end
+	if (#(state.search_paths or {}) + #(state.search_folders or {})) >= RESULT_LIMIT then
+		state.search_limited = true
 		return
 	end
 	state._search_seen_paths = state._search_seen_paths or {}
@@ -569,17 +601,10 @@ local function append_search_path(state, rel, query)
 	if q == "" then
 		return
 	end
-	state._search_seen_folders = state._search_seen_folders or {}
-	state.search_folders = state.search_folders or {}
 	local dir = vim.fn.fnamemodify(rel, ":h")
-		while dir and dir ~= "." and dir ~= "" do
-			if (#(state.search_paths or {}) + #(state.search_folders or {})) >= RESULT_LIMIT then
-				state.search_limited = true
-				return
-			end
-			if not state._search_seen_folders[dir] and dir:lower():find(q, 1, true) then
-				state._search_seen_folders[dir] = true
-				state.search_folders[#state.search_folders + 1] = dir
+	while dir and dir ~= "." and dir ~= "" do
+		if dir:lower():find(q, 1, true) then
+			append_search_folder(state, dir)
 		end
 		local parent = vim.fn.fnamemodify(dir, ":h")
 		if parent == dir then
@@ -654,11 +679,68 @@ local function warm_search_query(state, query)
 			end
 		end,
 	})
+	state._search_folder_job = vim.fn.jobstart({
+		"find",
+		search_root,
+		"(",
+		"-name",
+		".git",
+		"-o",
+		"-name",
+		".git",
+		")",
+		"-prune",
+		"-o",
+		"-type",
+		"d",
+		"-iname",
+		"*" .. query .. "*",
+		"-print",
+	}, {
+		stdout_buffered = false,
+		stderr_buffered = true,
+		on_stdout = function(_, data)
+			if state._search_match_gen ~= gen or not data then
+				return
+			end
+			local changed = false
+			for _, path in ipairs(data) do
+				if path and path ~= "" then
+					local rel = relative_path(state.root, path):gsub("/$", "")
+					local prev_folders = #(state.search_folders or {})
+					append_search_folder(state, rel)
+					if #(state.search_folders or {}) ~= prev_folders then
+						changed = true
+					end
+					if state.search_limited then
+						stop_search_job(state)
+						break
+					end
+				end
+			end
+			if changed and state._on_update then
+				vim.schedule(state._on_update)
+			end
+		end,
+		on_exit = function()
+			if state._search_match_gen ~= gen then
+				return
+			end
+			table.sort(state.search_folders or {}, sort_names)
+			state._search_folder_job = nil
+			if state._on_update then
+				vim.schedule(state._on_update)
+			end
+		end,
+	})
 	if type(state._search_job) ~= "number" or state._search_job <= 0 then
 		state._search_job = nil
 		if state._on_update then
 			vim.schedule(state._on_update)
 		end
+	end
+	if type(state._search_folder_job) ~= "number" or state._search_folder_job <= 0 then
+		state._search_folder_job = nil
 	end
 end
 
