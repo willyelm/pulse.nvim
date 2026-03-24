@@ -373,15 +373,20 @@ function M.invalidate(state)
 	if not state then
 		return
 	end
+	M.invalidate_history(state)
+	M.invalidate_status(state)
+end
+
+function M.invalidate_history(state)
+	if not state then
+		return
+	end
 	state.history_files = {}
 	state.history_all = {}
 	state.history_key = nil
 	state.history_has_more = true
 	state.history_rows_key = nil
 	state.history_rows_cache = nil
-	state.status_all = nil
-	state.status_key = nil
-	state._status_loading = false
 end
 
 function M.invalidate_status(state)

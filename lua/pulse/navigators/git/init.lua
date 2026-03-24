@@ -91,18 +91,25 @@ function M.init(ctx)
 		scope_prefix = (scoped and scoped.kind == "folder" and (vim.fn.fnamemodify(scoped.path, ":.") .. "/")) or nil,
 		_on_update = ctx and ctx.on_update or nil,
 	}
-		sync.register(state, {
-			group = "PulseGitStatusSync",
-			events = { "FocusGained" },
-			invalidate = items.invalidate_status,
-			on_update = state._on_update,
-		})
-		sync.register(state, {
-			group = "PulseGitSync",
-			events = { "ShellCmdPost", "DirChanged", "BufWritePost" },
-			invalidate = items.invalidate,
-			on_update = state._on_update,
-		})
+	sync.register(state, {
+		group = "PulseGitFocusSync",
+		events = { "FocusGained" },
+		invalidate = function(current)
+			local panel = current and current.current_panel
+			if panel == "git_project_history" or panel == "git_file_history" then
+				items.invalidate_history(current)
+				return
+			end
+			items.invalidate_status(current)
+		end,
+		on_update = state._on_update,
+	})
+	sync.register(state, {
+		group = "PulseGitSync",
+		events = { "ShellCmdPost", "DirChanged", "BufWritePost" },
+		invalidate = items.invalidate,
+		on_update = state._on_update,
+	})
 	return state
 end
 
