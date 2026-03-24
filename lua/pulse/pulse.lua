@@ -502,23 +502,41 @@ end
 
 local function prompt_ui(mod, navigator, query, active_panel, found, total_text)
 	local prompt_prefix = " " .. ((mod and mod.icon) or "") .. " "
+	local root_scope = scope.workspace(state.cwd)
 	local scoped = nil
 	if mod and type(mod.input_scope) == "function" then
 		scoped = mod.input_scope(navigator, state.scope)
 	end
+	if scoped and scoped.kind == "workspace" then
+		scoped = nil
+	end
+	local root_text = state.navigator_opts.workspace_label == true and scope.prompt_text(root_scope, { no_icon = true }) or ""
 	local scope_text = scope.prompt_text(scoped)
-	local prompt = prompt_prefix .. scope_text
-	if scope_text ~= "" then
+	local prompt = prompt_prefix .. root_text
+	if root_text ~= "" and scope_text ~= "" then
+		prompt = prompt .. "  "
+	end
+	prompt = prompt .. scope_text
+	if prompt:sub(-1) ~= " " then
 		prompt = prompt .. " "
+	end
+	local prompt_matches = {}
+	if root_text ~= "" then
+		prompt_matches[#prompt_matches + 1] = { #prompt_prefix, #prompt_prefix + #root_text, "Title" }
+	end
+	local scope_start = #prompt_prefix + #root_text + (root_text ~= "" and scope_text ~= "" and 2 or 0)
+	local scope_matches = scope.prompt_matches(scoped, scope_start)
+	if scope_matches then
+		vim.list_extend(prompt_matches, scope_matches)
 	end
 	return {
 		prompt = prompt,
 		addons = {
 			ghost = query == "" and active_panel and active_panel.label or nil,
 			right = { text = string.format("%d/%s", found, total_text), hl = "LineNr" },
-			prompt_matches = scope.prompt_matches(scoped, #prompt_prefix),
+			prompt_matches = prompt_matches,
 		},
-		}
+	}
 end
 
 local function compute_body_layout(items, stats, mod, panels, active_panel)
@@ -953,11 +971,11 @@ local function bind_widgets()
 					scoped = state.current.mod.input_scope(state.current.state, state.scope)
 				end
 				local start = state.current.panel_entry and state.current.panel_entry.start or ""
-					if scoped and start ~= "" and value == start then
+					if scoped and scoped.kind ~= "workspace" and start ~= "" and value == start then
 						clear_prefix()
 						return true
 					end
-					if scoped and value == "" then
+					if scoped and scoped.kind ~= "workspace" and value == "" then
 						apply_scope_change(nil)
 						return true
 					end

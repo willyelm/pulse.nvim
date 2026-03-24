@@ -8,6 +8,7 @@ local defaults = {
 	width = 0.70,
 	height = 0.50,
 	border = true,
+	workspace_label = false,
 }
 
 local session = {

@@ -49,6 +49,7 @@ require("pulse").setup({
   width = 0.70,
   height = 0.90,
   border = "rounded",
+  workspace_label = false, -- Show workspace dir in main input
 })
 ```
 
@@ -149,6 +150,7 @@ vim.g.loaded_netrwPlugin = 1
     position = "top",
     height = 0.9,
     width = 0.7,
+    workspace_label = false,
     navigators = {
       files = {
         open_on_directory = true,

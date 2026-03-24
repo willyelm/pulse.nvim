@@ -5,6 +5,7 @@ local M = {
 		width = 0.50,
 		height = 0.75,
 		border = "rounded",
+		workspace_label = false,
 		navigators = {
 			"files",
 			"commands",

@@ -46,6 +46,20 @@ function M.folder(path)
     path = path,
     label = vim.fn.fnamemodify(path, ":t"),
     icon = "󰉋",
+    icon_hl = "Directory",
+  }
+end
+
+function M.workspace(path)
+  path = normalize_path(path)
+  if not path then
+    return nil
+  end
+  path = path:gsub("/$", "")
+  return {
+    kind = "workspace",
+    path = path,
+    label = vim.fn.fnamemodify(path, ":t"),
   }
 end
 
@@ -80,26 +94,29 @@ local function display_label(scope)
   return label:sub(1, MAX_LABEL_LEN - 3) .. "..."
 end
 
-function M.prompt_text(scope)
+function M.prompt_text(scope, opts)
   local label = display_label(scope)
   if not scope or label == "" then
     return ""
   end
+  if opts and opts.no_icon then
+    return label
+  end
   return " " .. tostring(scope.icon or "") .. " " .. label .. " "
 end
 
-function M.prompt_matches(scope, prompt_prefix_len)
+function M.prompt_matches(scope, prompt_prefix_len, opts)
   local label = display_label(scope)
-  if not scope or label == "" then
+  if not scope or label == "" or (opts and opts.no_icon) then
     return nil
   end
   local start_col = prompt_prefix_len or 0
-  local text = M.prompt_text(scope)
+  local text = M.prompt_text(scope, opts)
   local matches = {
     { start_col, start_col + #text, "PulseNormal" },
   }
-  if scope.kind == "file" and scope.icon_hl then
-    matches[#matches + 1] = { start_col + 1, start_col + 1 + #(scope.icon or ""), scope.icon_hl }
+  if scope.icon_hl then
+    matches[#matches + 1] = { start_col, start_col + #(scope.icon or ""), scope.icon_hl }
   end
   return matches
 end
