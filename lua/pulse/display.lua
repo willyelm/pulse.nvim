@@ -145,9 +145,6 @@ local function display_file(item)
 		matches = (item.icon_color and style and { { #indent, #indent + #icon, style } } or nil) or {}
 	end
 	local left_group = item.ignored and "Comment" or false
-	if item.is_open and not item.ignored then
-		left_group = "Title"
-	end
 	local right_group = item.ignored and "Comment" or "LineNr"
 	if item.ignored then
 		if item.no_icon then
