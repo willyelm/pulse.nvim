@@ -15,6 +15,25 @@
 
 
 
+
+## [0.7.0] - 2026-03-24
+
+### New
+
+- enable showing workspace dir as config
+
+### Changed
+
+- fix: add space between scope and input text
+- fix(git): enable folder toggle on first expand
+- fix: compact single file paths
+- fix: refresh git panels on project status changes
+- fix: remove file name highlight
+- fix: move ui logic to ui module
+- fix: respec filter config on search
+- fix: merge symbols workspace into a single navigator
+- fix: remove flickering preview on panel load
+
 ## [0.6.3] - 2026-03-24
 
 ### Changed
@@ -155,10 +174,4 @@
 ### Changed
 
 - chore: try md markdup for video ref
-
-## [0.1.9] - 2026-02-24
-
-### Changed
-
-- chore: use webm for preview image in readme
 
