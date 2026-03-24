@@ -14,6 +14,13 @@
 
 
 
+
+## [0.6.3] - 2026-03-24
+
+### Changed
+
+- fix: corrected line counter in git panel
+
 ## [0.6.2] - 2026-03-24
 
 ### Changed
@@ -154,10 +161,4 @@
 ### Changed
 
 - chore: use webm for preview image in readme
-
-## [0.1.8] - 2026-02-24
-
-### Changed
-
-- chore: update changelog
 
