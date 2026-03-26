@@ -16,6 +16,13 @@
 
 
 
+
+## [0.7.1] - 2026-03-26
+
+### Changed
+
+- chore: update docs and new demo gif
+
 ## [0.7.0] - 2026-03-24
 
 ### New
@@ -168,10 +175,4 @@
 ### Changed
 
 - chore: use gif for showcase
-
-## [0.1.10] - 2026-02-24
-
-### Changed
-
-- chore: try md markdup for video ref
 
