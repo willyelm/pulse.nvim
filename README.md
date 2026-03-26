@@ -4,7 +4,10 @@
 
 One entry point. Total focus.
 
-![Pulse](./images/pulse-showcase.gif)
+For more on the design motivation, see [Engineering with machines](https://willmedina.com/blog/
+engineering-with-machines).
+
+![Pulse](./images/pulse-demo-v0.7.gif)
 
 ## What is Pulse
 

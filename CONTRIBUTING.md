@@ -2,6 +2,10 @@
 
 This project uses Conventional Commits to drive automatic version tags (`vX.Y.Z`).
 
+## API changes
+
+Keep [`API.md`](./API.md) up to date with changes to expose Pulse features.
+
 ## Commit Format
 
 Scope is optional.
