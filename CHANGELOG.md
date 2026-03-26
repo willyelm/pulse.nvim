@@ -17,6 +17,13 @@
 
 
 
+
+## [0.7.2] - 2026-03-26
+
+### Changed
+
+- chore: fix broken link in readme
+
 ## [0.7.1] - 2026-03-26
 
 ### Changed
@@ -169,10 +176,4 @@
 ### Changed
 
 - chore: add neovim badge
-
-## [0.1.11] - 2026-02-24
-
-### Changed
-
-- chore: use gif for showcase
 
