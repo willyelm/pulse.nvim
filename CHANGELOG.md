@@ -18,6 +18,13 @@
 
 
 
+
+## [0.7.3] - 2026-03-30
+
+### Changed
+
+- chore: move motivation section inside "What" title
+
 ## [0.7.2] - 2026-03-26
 
 ### Changed
@@ -170,10 +177,4 @@
 ### Changed
 
 - fix: improve code_actions hints and enhance overall performance
-
-## [0.1.12] - 2026-02-24
-
-### Changed
-
-- chore: add neovim badge
 
