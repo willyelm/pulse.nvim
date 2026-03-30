@@ -4,8 +4,6 @@
 
 One entry point. Total focus.
 
-For more on the design motivation, see [Engineering with machines](https://willmedina.com/blog/engineering-with-machines).
-
 ![Pulse](./images/pulse-demo-v0.7.gif)
 
 ## What is Pulse
@@ -24,6 +22,11 @@ approach to move quickly between navigator modes:
 | `$`         | live grep                     |
 | `?`         | fuzzy search (current buffer) |
 | `>`         | code actions (current buffer) |
+
+For more on the design motivation, see:
+
+- [Engineering with machines](https://willmedina.com/blog/engineering-with-machines)
+- [A Single Command Palette for Neovim](https://willmedina.com/blog/pulse-neovim)
 
 ## Requirements
 
