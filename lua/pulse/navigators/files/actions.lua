@@ -1,6 +1,6 @@
 local M = {}
 
-local scope = require("pulse.scope")
+local context = require("pulse.context")
 local items = require("pulse.navigators.files.items")
 
 local transfer
@@ -24,8 +24,8 @@ local function target_dir(ctx)
 	if path and ctx.item and ctx.item.kind == "file" then
 		return vim.fn.fnamemodify(path, ":h")
 	end
-	if ctx and ctx.state and ctx.state.scope and ctx.state.scope.kind == "folder" then
-		return ctx.state.scope.path
+	if ctx and ctx.state and ctx.state.context and ctx.state.context.kind == "folder" then
+		return ctx.state.context.path
 	end
 	return ctx and ctx.state and ctx.state.root or nil
 end
@@ -99,10 +99,10 @@ function M.rename(ctx)
 			notify("target already exists", vim.log.levels.ERROR)
 		elseif vim.fn.rename(src, dest) ~= 0 then
 			notify("rename failed", vim.log.levels.ERROR)
-		elseif ctx.scope and ctx.scope.kind == "file" and ctx.scope.path == src then
-			ctx.set_scope(scope.file(dest, vim.fn.bufnr(vim.fn.fnamemodify(dest, ":p"))))
-		elseif ctx.scope and ctx.scope.kind == "folder" and ctx.scope.path == src then
-			ctx.set_scope(scope.folder(dest))
+		elseif ctx.context and ctx.context.kind == "file" and ctx.context.path == src then
+			ctx.set_context(context.file(dest, vim.fn.bufnr(vim.fn.fnamemodify(dest, ":p"))))
+		elseif ctx.context and ctx.context.kind == "folder" and ctx.context.path == src then
+			ctx.set_context(context.folder(dest))
 		end
 		refresh_actions(ctx)
 		ctx.focus()
@@ -121,8 +121,8 @@ function M.delete(ctx)
 		notify("delete failed", vim.log.levels.ERROR)
 		return true
 	end
-	if ctx.scope and ctx.scope.path == src then
-		ctx.clear_scope()
+	if ctx.context and ctx.context.path == src then
+		ctx.clear_context()
 	else
 		refresh_actions(ctx)
 	end
@@ -183,23 +183,23 @@ function M.preview(ctx, toggle_folder)
 		return
 	end
 	if ctx.item.kind == "folder" then
-		ctx.enter_scope(scope.folder(items.absolute_path(ctx.state.root, ctx.item.path)))
+		ctx.enter_context(context.folder(items.absolute_path(ctx.state.root, ctx.item.path)))
 		return
 	end
-	local current_scope = nil
+	local current_context = nil
 	if ctx.item.kind == "file" and ctx.item.path then
 		local path = items.absolute_path(ctx.state.root, ctx.item.path)
 		local bufnr = vim.fn.bufnr(path)
 		if not bufnr or bufnr < 1 then
 			bufnr = vim.fn.bufadd(path)
 		end
-		current_scope = scope.file(path, bufnr)
+		current_context = context.file(path, bufnr)
 	else
-		current_scope = ctx.source_scope and ctx.source_scope() or nil
+		current_context = ctx.source_context and ctx.source_context() or nil
 	end
 	ctx.preview(ctx.item)
-	if current_scope then
-		ctx.enter_scope(current_scope)
+	if current_context then
+		ctx.enter_context(current_context)
 	end
 end
 
@@ -208,17 +208,20 @@ function M.open(ctx, toggle_folder)
 		return
 	end
 	if ctx.item then
-		local next_scope = nil
+		local next_context = nil
 		if ctx.item.kind == "file" and ctx.item.path then
 			local path = items.absolute_path(ctx.state.root, ctx.item.path)
-			next_scope = scope.file(path, vim.fn.bufnr(path))
+			next_context = context.file(path, vim.fn.bufnr(path))
 		else
-			next_scope = ctx.source_scope and ctx.source_scope() or nil
+			next_context = ctx.source_context and ctx.source_context() or nil
 		end
 		ctx.close()
 		ctx.jump(ctx.item)
-		if next_scope then
-			ctx.set_scope(next_scope)
+		if ctx.item.kind == "file" then
+			ctx.set_query("")
+		end
+		if next_context then
+			ctx.set_context(next_context)
 		end
 	end
 end
