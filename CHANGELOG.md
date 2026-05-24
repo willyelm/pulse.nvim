@@ -19,6 +19,14 @@
 
 
 
+
+## [0.7.4] - 2026-05-24
+
+### Changed
+
+- refactor: rename action ctx scope fields to context
+- refactor: rename scope to context and context to panel_view
+
 ## [0.7.3] - 2026-03-30
 
 ### Changed
@@ -167,14 +175,4 @@
 
 - fix: improve workspace_symbols tree and correctness
 - fix: use actual editor buffer for code_actions
-
-## [0.2.0] - 2026-03-17
-
-### New
-
-- add code_actions picker with > prefix
-
-### Changed
-
-- fix: improve code_actions hints and enhance overall performance
 
