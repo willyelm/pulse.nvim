@@ -501,41 +501,30 @@ local function resolve_panel(prompt, mode_name, mod, initial_panel)
 end
 
 local function prompt_ui(mod, navigator, query, active_panel, found, total_text)
-	local prompt_prefix = " " .. ((mod and mod.icon) or "") .. " "
-	local root_context = context.workspace(state.cwd)
-	local scoped = nil
-	if mod and type(mod.input_context) == "function" then
-		scoped = mod.input_context(navigator, state.context)
-	end
-	if scoped and scoped.kind == "workspace" then
-		scoped = nil
-	end
-	local root_text = state.navigator_opts.workspace_label == true and context.prompt_text(root_context, { no_icon = true }) or ""
-	local context_text = context.prompt_text(scoped)
-	local prompt = prompt_prefix .. root_text
-	if root_text ~= "" and context_text ~= "" then
-		prompt = prompt .. "  "
-	end
-	prompt = prompt .. context_text
-	if context_text ~= "" then
-		prompt = prompt .. " "
-	elseif prompt:sub(-1) ~= " " then
-		prompt = prompt .. " "
-	end
+	local icon = (mod and mod.icon) or ""
+	local scoped = mod and type(mod.input_context) == "function" and mod.input_context(navigator, state.context) or nil
+	if scoped and scoped.kind == "workspace" then scoped = nil end
+	local root_text = state.navigator_opts.workspace_label == true
+		and context.prompt_text(context.workspace(state.cwd), { no_icon = true }) or ""
 	local prompt_matches = {}
+	local base
 	if root_text ~= "" then
-		prompt_matches[#prompt_matches + 1] = { #prompt_prefix, #prompt_prefix + #root_text, "Title" }
+		base = " " .. root_text .. " / " .. icon .. " "
+		prompt_matches[#prompt_matches + 1] = { 1, 1 + #root_text, "Title" }
+		prompt_matches[#prompt_matches + 1] = { #root_text + 2, #root_text + 3, "LineNr" }
+	else
+		base = " " .. icon .. " "
 	end
-	local context_start = #prompt_prefix + #root_text + (root_text ~= "" and context_text ~= "" and 2 or 0)
-	local context_matches = context.prompt_matches(scoped, context_start)
-	if context_matches then
-		vim.list_extend(prompt_matches, context_matches)
-	end
+	local ctx_text = context.prompt_text(scoped)
+	local ctx_matches = context.prompt_matches(scoped, #base)
+	if ctx_matches then vim.list_extend(prompt_matches, ctx_matches) end
+	local prompt = base .. ctx_text .. (ctx_text ~= "" and " " or "")
+	if prompt:sub(-1) ~= " " then prompt = prompt .. " " end
 	return {
 		prompt = prompt,
 		addons = {
 			ghost = query == "" and active_panel and active_panel.label or nil,
-			right = { text = string.format("%d/%s", found, total_text), hl = "LineNr" },
+			right = { text = string.format("%d/%s ", found, total_text), hl = "LineNr" },
 			prompt_matches = prompt_matches,
 		},
 	}
