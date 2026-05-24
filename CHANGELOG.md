@@ -21,6 +21,13 @@
 
 
 
+
+## [0.7.6] - 2026-05-24
+
+### Changed
+
+- fix: improve workspace label layout
+
 ## [0.7.5] - 2026-05-24
 
 ### Changed
@@ -170,10 +177,4 @@
 ### Changed
 
 - fix: preserve latest prompt and itemselection
-
-## [0.2.2] - 2026-03-18
-
-### Changed
-
-- fix: use picker drive execute commands
 
