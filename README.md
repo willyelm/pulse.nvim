@@ -35,6 +35,13 @@ For more on the design motivation, see:
 - `git` (for git panels and previews)
 - `nvim-tree/nvim-web-devicons` (optional, recommended)
 
+## Install (vim pack)
+
+```lua
+vim.pack.add("https://github.com/willyelm/pulse.nvim")
+require("pulse").setup({})
+```
+
 ## Install (lazy.nvim)
 
 ```lua
