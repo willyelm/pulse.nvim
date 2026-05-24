@@ -1,148 +1,165 @@
 local M = {}
-M.__index = M
-local window = require("pulse.ui.window")
 
-local function normalise_lines(lines)
-	local out = {}
-	for _, line in ipairs(lines or {}) do
-		for _, part in ipairs(vim.split(tostring(line or ""), "\n", { plain = true, trimempty = false })) do
-			out[#out + 1] = part
-		end
-	end
-	return out
+local ok_devicons, devicons = pcall(require, "nvim-web-devicons")
+local FILE_ICON_FALLBACK = ""
+local MAX_LABEL_LEN = 24
+
+local function normalize_path(path)
+  if not path or path == "" then
+    return nil
+  end
+  return vim.fn.fnamemodify(path, ":p")
 end
 
-local function add_hl(highlights, group, row, start_col, end_col, priority)
-	highlights[#highlights + 1] =
-		{ group = group, row = row, start_col = start_col, end_col = end_col, priority = priority }
+local function file_icon(path)
+  if not ok_devicons then
+    return FILE_ICON_FALLBACK, nil
+  end
+  local icon, hl = devicons.get_icon(vim.fn.fnamemodify(path, ":t"), vim.fn.fnamemodify(path, ":e"), { default = true })
+  return icon or FILE_ICON_FALLBACK, hl
 end
 
-local function add_query_matches(highlights, lines, query)
-	local q = (query or ""):lower()
-	if q == "" then
-		return
-	end
-	for row, text in ipairs(lines) do
-		local lower, from = (text or ""):lower(), 1
-		while true do
-			local idx = lower:find(q, from, true)
-			if not idx then
-				break
-			end
-			add_hl(highlights, "Search", row - 1, idx - 1, idx - 1 + #q)
-			from = idx + 1
-		end
-	end
+function M.file(path, bufnr)
+  path = normalize_path(path)
+  if not path then
+    return nil
+  end
+  local icon, hl = file_icon(path)
+  return {
+    kind = "file",
+    path = path,
+    bufnr = bufnr,
+    label = vim.fn.fnamemodify(path, ":t"),
+    icon = icon,
+    icon_hl = hl,
+  }
 end
 
-local function file_snippet(path, lnum, query, match_cols)
-	local resolved = (path and vim.fn.filereadable(path) == 1) and path or vim.fn.fnamemodify(path or "", ":p")
-	if vim.fn.filereadable(resolved) ~= 1 then
-		return { "File not found: " .. tostring(path) }, "text", {}, nil, 1
-	end
-	local file_lines = vim.fn.readfile(resolved)
-	local line_no = math.max(lnum or 1, 1)
-	local start_l, end_l = math.max(line_no - 6, 1), math.min(#file_lines, line_no + 6)
-	local lines, highlights, numbers = {}, {}, {}
-	for i = start_l, end_l do
-		lines[#lines + 1] = file_lines[i] or ""
-		numbers[#numbers + 1] = i
-	end
-	add_query_matches(highlights, lines, query)
-	if type(match_cols) == "table" then
-		local row = line_no - start_l
-		for _, col in ipairs(match_cols) do
-			if type(col) == "number" and col > 0 then
-				highlights[#highlights + 1] = { group = "Search", row = row, start_col = col - 1, end_col = col }
-			end
-		end
-	end
-	local ft = vim.filetype.match({ filename = resolved or "" })
-	local filetype = (ft and ft ~= "") and ft or (vim.fn.fnamemodify(resolved or "", ":e") ~= "" and vim.fn.fnamemodify(resolved or "", ":e") or "file")
-	return lines, filetype, highlights, numbers, (line_no - start_l + 1)
+function M.folder(path)
+  path = normalize_path(path)
+  if not path then
+    return nil
+  end
+  path = path:gsub("/$", "")
+  return {
+    kind = "folder",
+    path = path,
+    label = vim.fn.fnamemodify(path, ":t"),
+    icon = "󰉋",
+    icon_hl = "Directory",
+  }
 end
 
-M.file_snippet = file_snippet
-
-function M.new(opts)
-	local self = setmetatable({}, M)
-	self.buf = assert(opts.buf, "context requires a buffer")
-	self.win = opts.win
-	self.ns = vim.api.nvim_create_namespace("pulse_ui_context")
-	self.active_filetype = "text"
-	vim.bo[self.buf].buftype, vim.bo[self.buf].bufhidden, vim.bo[self.buf].buflisted, vim.bo[self.buf].swapfile =
-		"nofile", "hide", false, false
-	vim.bo[self.buf].modifiable, vim.bo[self.buf].filetype = false, "text"
-	if self.win and vim.api.nvim_win_is_valid(self.win) then
-		window.configure_content_window(self.win)
-	end
-	return self
+function M.workspace(path)
+  path = normalize_path(path)
+  if not path then
+    return nil
+  end
+  path = path:gsub("/$", "")
+  return {
+    kind = "workspace",
+    path = path,
+    label = vim.fn.fnamemodify(path, ":t"),
+  }
 end
 
-function M:set_target(buf, win)
-	if self.buf == buf and self.win == win then
-		return
-	end
-	self.buf, self.win = buf, win
-	if self.win and vim.api.nvim_win_is_valid(self.win) then
-		window.configure_content_window(self.win)
-	end
+function M.from_buffer(bufnr)
+  bufnr = bufnr or vim.api.nvim_get_current_buf()
+  if not M.valid_bufnr(bufnr) then
+    return nil
+  end
+  local path = vim.api.nvim_buf_get_name(bufnr)
+  if path == "" then
+    return nil
+  end
+  return M.file(path, bufnr)
 end
 
-function M:set(lines, filetype, highlights, line_numbers, focus_row)
-	if not (self.buf and vim.api.nvim_buf_is_valid(self.buf)) then
-		return
-	end
-	vim.bo[self.buf].modifiable = true
-	vim.api.nvim_buf_set_lines(self.buf, 0, -1, false, normalise_lines(lines))
-	vim.bo[self.buf].modifiable = false
-	vim.bo[self.buf].modified = false
+function M.key(scope)
+  if not scope then
+    return ""
+  end
+  return table.concat({
+    tostring(scope.kind or ""),
+    tostring(scope.path or ""),
+    tostring(scope.bufnr or ""),
+  }, ":")
+end
 
-	local ft = filetype or "text"
-	vim.bo[self.buf].filetype = ft
-	vim.api.nvim_buf_clear_namespace(self.buf, self.ns, 0, -1)
-	if ft ~= self.active_filetype then
-		self.active_filetype = ft
-		if ft ~= "" and ft ~= "text" then
-			pcall(vim.treesitter.start, self.buf, ft)
-		end
-	end
+local function display_label(scope)
+  local label = tostring(scope and scope.label or "")
+  if label == "" or #label <= MAX_LABEL_LEN then
+    return label
+  end
+  return label:sub(1, MAX_LABEL_LEN - 3) .. "..."
+end
 
-	if line_numbers and #line_numbers > 0 then
-		local max_line = 0
-		for _, n in ipairs(line_numbers) do
-			if type(n) == "number" and n > max_line then
-				max_line = n
-			end
-		end
-		local w = math.max(#tostring(max_line), 1)
-		for row, n in ipairs(line_numbers) do
-			if type(n) == "number" then
-				vim.api.nvim_buf_set_extmark(self.buf, self.ns, row - 1, 0, {
-					virt_text = { { string.format("%" .. w .. "d ", n), "LineNr" } },
-					virt_text_pos = "inline",
-				})
-			end
-		end
-	end
+function M.prompt_text(scope, opts)
+  local label = display_label(scope)
+  if not scope or label == "" then
+    return ""
+  end
+  if opts and opts.no_icon then
+    return label
+  end
+  return " " .. tostring(scope.icon or "") .. " " .. label .. " "
+end
 
-	for _, hl in ipairs(highlights or {}) do
-		local opts = { hl_group = hl.group, hl_mode = hl.hl_mode or "replace" }
-		if hl.end_col and hl.end_col >= 0 then
-			opts.end_row = hl.row
-			opts.end_col = hl.end_col
-		end
-		if hl.priority then opts.priority = hl.priority end
-		pcall(vim.api.nvim_buf_set_extmark, self.buf, self.ns, hl.row, hl.start_col, opts)
-	end
+function M.prompt_matches(scope, prompt_prefix_len, opts)
+  local label = display_label(scope)
+  if not scope or label == "" or (opts and opts.no_icon) then
+    return nil
+  end
+  local start_col = prompt_prefix_len or 0
+  local text = M.prompt_text(scope, opts)
+  local matches = {
+    { start_col, start_col + #text, "PulseNormal" },
+  }
+  if scope.icon_hl then
+    matches[#matches + 1] = { start_col, start_col + #(scope.icon or ""), scope.icon_hl }
+  end
+  return matches
+end
 
-	if self.win and vim.api.nvim_win_is_valid(self.win) then
-		window.configure_content_window(self.win)
-		pcall(vim.api.nvim_win_set_cursor, self.win, { math.max(focus_row or 1, 1), 0 })
-		pcall(vim.api.nvim_win_call, self.win, function()
-			vim.cmd("normal! zz")
-		end)
-	end
+function M.valid_bufnr(bufnr)
+  return type(bufnr) == "number" and bufnr > 0 and vim.api.nvim_buf_is_valid(bufnr)
+end
+
+function M.resolve_bufnr(ctx)
+  local scoped = ctx and ctx.context or nil
+  local bufnr = nil
+
+  if scoped and scoped.kind == "file" then
+    bufnr = scoped.bufnr
+    if not M.valid_bufnr(bufnr) and scoped.path and scoped.path ~= "" then
+      local existing = vim.fn.bufnr(scoped.path)
+      if type(existing) == "number" and existing > 0 then
+        bufnr = existing
+      else
+        bufnr = vim.fn.bufadd(scoped.path)
+      end
+    end
+  end
+
+  if not M.valid_bufnr(bufnr) then
+    bufnr = ctx and ctx.bufnr or nil
+  end
+  if not M.valid_bufnr(bufnr) then
+    bufnr = vim.api.nvim_get_current_buf()
+  end
+
+  return M.valid_bufnr(bufnr) and bufnr or nil
+end
+
+function M.input_context(ctx, bufnr)
+  local scoped = ctx and ctx.context or nil
+  if scoped and scoped.kind == "file" and scoped.path and bufnr then
+    return M.file(scoped.path, bufnr)
+  end
+  if bufnr then
+    return M.from_buffer(bufnr)
+  end
+  return nil
 end
 
 return M

@@ -1,5 +1,5 @@
 local M = {}
-local scope = require("pulse.scope")
+local context = require("pulse.context")
 
 M.name = "code_action"
 M.icon = "󰌶"
@@ -20,10 +20,10 @@ M.actions = {
 		},
 }
 M.panels = {
-	{ start = ">", name = "code_action", label = "Code Actions", scopes = { "buffer" } },
+	{ start = ">", name = "code_action", label = "Code Actions", contexts = { "buffer" } },
 }
 
-M.context = false
+M.view = false
 
 local function apply_action(action, client, req_ctx)
 	if action.edit then
@@ -70,16 +70,16 @@ local function execute(item)
 end
 
 function M.init(ctx)
-	local bufnr = scope.resolve_bufnr(ctx)
+	local bufnr = context.resolve_bufnr(ctx)
 	pcall(vim.fn.bufload, bufnr)
 	local win = ctx and ctx.win or 0
 	local state = {
 		actions = {},
-		input_scope = scope.input_scope(ctx, bufnr),
+		input_context = context.input_context(ctx, bufnr),
 	}
 
 	local cursor = nil
-	if ctx and ctx.scope and ctx.scope.kind == "file" then
+	if ctx and ctx.context and ctx.context.kind == "file" then
 		local ok, mark = pcall(vim.api.nvim_buf_get_mark, bufnr, '"')
 		if ok and type(mark) == "table" then
 			cursor = { math.max(mark[1], 1), math.max(mark[2], 0) }
@@ -139,8 +139,8 @@ function M.init(ctx)
 	return state
 end
 
-function M.input_scope(state)
-	return state and state.input_scope or nil
+function M.input_context(state)
+	return state and state.input_context or nil
 end
 
 function M.items(state, query)

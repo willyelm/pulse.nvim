@@ -1,6 +1,6 @@
 local M = {}
+local view = require("pulse.panel_view")
 local context = require("pulse.context")
-local scope = require("pulse.scope")
 
 M.name = "fuzzy_search"
 M.icon = "󱉶"
@@ -33,13 +33,13 @@ M.actions = {
 	},
 }
 M.panels = {
-	{ start = "?", name = "fuzzy_search", label = "Fuzzy Search", scopes = { "buffer" } },
+	{ start = "?", name = "fuzzy_search", label = "Fuzzy Search", contexts = { "buffer" } },
 }
 
-M.context = true
+M.view = true
 
-function M.context_item(item)
-	return context.file_snippet(item.path or item.filename, item.lnum, item.query, item.match_cols)
+function M.view_item(item)
+	return view.file_snippet(item.path or item.filename, item.lnum, item.query, item.match_cols)
 end
 
 local MAX_RESULTS = 400
@@ -101,7 +101,7 @@ local function fuzzy_score(haystack, n)
 end
 
 function M.init(ctx)
-	local bufnr = scope.resolve_bufnr(ctx)
+	local bufnr = context.resolve_bufnr(ctx)
 	if not bufnr then
 		return {
 			bufnr = nil,
@@ -109,7 +109,7 @@ function M.init(ctx)
 			lines = {},
 			line_count = 0,
 			tick = -1,
-			input_scope = nil,
+			input_context = nil,
 		}
 	end
 	pcall(vim.fn.bufload, bufnr)
@@ -119,12 +119,12 @@ function M.init(ctx)
 		lines = {},
 		line_count = 0,
 		tick = -1,
-		input_scope = scope.input_scope(ctx, bufnr),
+		input_context = context.input_context(ctx, bufnr),
 	}
 end
 
-function M.input_scope(state)
-	return state and state.input_scope or nil
+function M.input_context(state)
+	return state and state.input_context or nil
 end
 
 function M.items(state, query)

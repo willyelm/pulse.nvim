@@ -1,12 +1,29 @@
 local M = {}
-local scope = require("pulse.scope")
+local context = require("pulse.context")
 local sync = require("pulse.sync")
-local git_context = require("pulse.navigators.git.context")
+local git_view = require("pulse.navigators.git.view")
 local items = require("pulse.navigators.git.items")
 
 M.name = "git"
 M.icon = "󰊢"
 M.actions = {
+		{
+			key = "<C-r>",
+			name = "restore",
+			when = function(ctx)
+				local item = ctx and ctx.item
+				return ctx and ctx.panel and ctx.panel.name == "git_status"
+					and item and item.code ~= "??"
+			end,
+			run = function(ctx)
+				local item = ctx and ctx.item
+				if not item then return end
+				local confirm = vim.fn.confirm("Restore " .. item.path .. "?", "&Yes\n&No", 2)
+				if confirm ~= 1 then return end
+				vim.fn.system({ "git", "restore", "--staged", "--worktree", "--", item.path })
+				ctx.refresh()
+			end,
+		},
 		{
 			key = "<CR>",
 			name = function(ctx)
@@ -68,18 +85,18 @@ M.actions = {
 }
 
 M.panels = {
-	{ start = "~", name = "git_status", label = "Git Status", scopes = { "workspace", "folder" } },
-	{ start = "~", name = "git_project_history", label = "History", scopes = { "workspace", "folder" } },
-	{ start = "~", name = "git_file_history", label = "History", scopes = { "buffer" } },
+	{ start = "~", name = "git_status", label = "Git Status", contexts = { "workspace", "folder" } },
+	{ start = "~", name = "git_project_history", label = "History", contexts = { "workspace", "folder" } },
+	{ start = "~", name = "git_file_history", label = "History", contexts = { "buffer" } },
 }
 
-M.context = function(item)
+M.view = function(item)
 	return item and (item.kind == "git_commit" or item.code == "??" or ((item.added or 0) + (item.removed or 0) > 0))
 end
-M.context_item = git_context.context_item
+M.view_item = git_view.view_item
 
 function M.init(ctx)
-	local scoped = ctx and ctx.scope
+	local scoped = ctx and ctx.context
 	local state = {
 		history_files = {},
 		history_all = {},
@@ -87,7 +104,7 @@ function M.init(ctx)
 		history_key = nil,
 		status_all = {},
 		status_key = nil,
-		scope = (scoped and scoped.kind == "folder" and scope.folder(scoped.path)) or nil,
+		context = (scoped and scoped.kind == "folder" and context.folder(scoped.path)) or nil,
 		scope_prefix = (scoped and scoped.kind == "folder" and (vim.fn.fnamemodify(scoped.path, ":.") .. "/")) or nil,
 		_on_update = ctx and ctx.on_update or nil,
 	}
@@ -106,8 +123,8 @@ function M.init(ctx)
 	return state
 end
 
-function M.input_scope(state)
-	return state and state.scope or nil
+function M.input_context(state)
+	return state and state.context or nil
 end
 
 	function M.items(state, query, panel_name)

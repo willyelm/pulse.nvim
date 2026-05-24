@@ -1,5 +1,5 @@
 local diff_ui = require("pulse.ui.diff")
-local context = require("pulse.context")
+local view = require("pulse.panel_view")
 local util = require("pulse.navigators.git.util")
 
 local M = {}
@@ -47,7 +47,7 @@ local function cached(key, producer)
 	return unpack(value)
 end
 
-function M.context_item(item)
+function M.view_item(item)
 	if item.kind == "git_commit" or item.kind == "git_commit_file" then
 		if item.kind == "git_commit_file" or (item.history_kind == "file" and item.history_path) then
 			local new_path = item.history_path or item.path
@@ -56,7 +56,7 @@ function M.context_item(item)
 				local old_lines = read_commit_file(item.parent or (item.commit .. "^"), old_path)
 				local new_lines = read_commit_file(item.commit, new_path)
 				local lines, highlights, focus_row = diff_ui.from_lines(old_lines, new_lines, { context = 3 })
-				local _, filetype = context.file_snippet(new_path, 1)
+				local _, filetype = view.file_snippet(new_path, 1)
 				return lines, filetype, highlights, nil, focus_row
 			end)
 		end
@@ -96,7 +96,7 @@ function M.context_item(item)
 			return git_patch_for(path), "text", {}, nil, 1
 		end
 		local lines, highlights, focus_row = diff_ui.from_lines(old_lines, new_lines, { context = 3 })
-		local _, filetype = context.file_snippet(path, 1)
+		local _, filetype = view.file_snippet(path, 1)
 		return lines, filetype, highlights, nil, focus_row
 	end)
 end

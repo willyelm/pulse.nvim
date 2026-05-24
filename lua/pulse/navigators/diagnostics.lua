@@ -1,6 +1,6 @@
 local M = {}
+local view = require("pulse.panel_view")
 local context = require("pulse.context")
-local scope = require("pulse.scope")
 
 M.name = "diagnostics"
 M.icon = ""
@@ -33,10 +33,10 @@ M.actions = {
 	},
 }
 M.panels = {
-	{ start = "!", name = "diagnostics", label = "Diagnostics", scopes = { "workspace", "buffer" } },
+	{ start = "!", name = "diagnostics", label = "Diagnostics", contexts = { "workspace", "buffer" } },
 }
 
-M.context = true
+M.view = true
 
 local severity_name = {
 	[vim.diagnostic.severity.ERROR] = "ERROR",
@@ -46,16 +46,16 @@ local severity_name = {
 }
 
 function M.init(ctx)
-	local bufnr = scope.resolve_bufnr(ctx)
+	local bufnr = context.resolve_bufnr(ctx)
 	pcall(vim.fn.bufload, bufnr)
 	return {
 		current_bufnr = bufnr,
-		input_scope = (ctx and ctx.scope and ctx.scope.kind == "file") and scope.input_scope(ctx, bufnr) or nil,
+		input_context = (ctx and ctx.context and ctx.context.kind == "file") and context.input_context(ctx, bufnr) or nil,
 	}
 end
 
-function M.input_scope(state)
-	return state and state.input_scope or nil
+function M.input_context(state)
+	return state and state.input_context or nil
 end
 
 function M.items(state, query)
@@ -63,7 +63,7 @@ function M.items(state, query)
 	local match = pulse.make_matcher(query or "", { ignore_case = true, plain = true })
 	local current_bufnr = state.current_bufnr or vim.api.nvim_get_current_buf()
 	local out = {}
-	local diagnostics = (state.input_scope and vim.diagnostic.get(current_bufnr)) or vim.diagnostic.get(nil)
+	local diagnostics = (state.input_context and vim.diagnostic.get(current_bufnr)) or vim.diagnostic.get(nil)
 	for _, d in ipairs(diagnostics) do
 		local name = severity_name[d.severity] or "INFO"
 		local bufnr = d.bufnr or current_bufnr
@@ -106,7 +106,7 @@ function M.items(state, query)
 	return out
 end
 
-function M.context_item(item)
+function M.view_item(item)
 	local out = {
 		string.format("[%s] %s", item.severity_name or "INFO", item.source or "diagnostic"),
 		string.format("%s:%d:%d", item.filename or "", item.lnum or 1, item.col or 1),
@@ -114,7 +114,7 @@ function M.context_item(item)
 		item.message or "",
 		"",
 	}
-	local snippet, ft = context.file_snippet(item.filename, item.lnum)
+	local snippet, ft = view.file_snippet(item.filename, item.lnum)
 	vim.list_extend(out, snippet)
 	return out, ft, {}, nil, 1
 end

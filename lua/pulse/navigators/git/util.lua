@@ -164,8 +164,8 @@ function M.file_change_right(added, removed)
 end
 
 function M.history_pathspec(state, panel_name)
-	if panel_name == "git_file_history" and state.scope and state.scope.kind == "file" then
-		local rel = vim.fn.fnamemodify(state.scope.path, ":.")
+	if panel_name == "git_file_history" and state.context and state.context.kind == "file" then
+		local rel = vim.fn.fnamemodify(state.context.path, ":.")
 		return (rel ~= "" and rel ~= ".") and rel or nil
 	end
 	if state.scope_prefix then

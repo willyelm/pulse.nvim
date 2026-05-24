@@ -3,11 +3,11 @@ local action = require("pulse.action")
 local action_menu = require("pulse.action_menu")
 local display = require("pulse.display")
 local layout = require("pulse.layout")
-local context_view = require("pulse.context")
+local view = require("pulse.panel_view")
 local config = require("pulse.config")
 local panel = require("pulse.panel_menu")
 local session_mod = require("pulse.session")
-local scope = require("pulse.scope")
+local context = require("pulse.context")
 
 local M = {}
 local sync_panel_action_keymaps
@@ -16,7 +16,7 @@ local state = {
 	session = nil,
 	list = nil,
 	input = nil,
-	context = nil,
+	view = nil,
 	items = {},
 	states = {},
 	active_panels = {},
@@ -28,7 +28,7 @@ local state = {
 	navigator_opts = nil,
 	fullscreen = false,
 	pending_initial_panel = nil,
-	scope = nil,
+	context = nil,
 	current = {
 		mode_name = nil,
 		mod = nil,
@@ -175,29 +175,29 @@ local function apply_box_size()
 	state.session.box:update(current_box_opts())
 end
 
-local function visible_panels(scope_value)
-	return panel.visible_panels(state.modules, panel.scope_type(scope_value or state.scope))
+local function visible_panels(context_value)
+	return panel.visible_panels(state.modules, panel.context_type(context_value or state.context))
 end
 
 local function buffer_only_navigator(navigator)
-	return panel.supports_scope(navigator, "buffer")
-		and not panel.supports_scope(navigator, "workspace")
-		and not panel.supports_scope(navigator, "folder")
+	return panel.supports_context(navigator, "buffer")
+		and not panel.supports_context(navigator, "workspace")
+		and not panel.supports_context(navigator, "folder")
 end
 
-local function apply_scope_change(scope_value)
+local function apply_context_change(context_value)
 	vim.schedule(function()
 		if not is_visible() then
 			return
 		end
-		state.scope = scope_value
-		local target = panel.default_panel(visible_panels(scope_value), nil)
+		state.context = context_value
+		local target = panel.default_panel(visible_panels(context_value), nil)
 		if target then
 			panel.select(state.active_panels, target)
 			set_prompt_mode(target.navigator)
 		end
 		refresh()
-		if scope_value ~= nil then
+		if context_value ~= nil then
 			schedule_focus_input()
 		end
 	end)
@@ -223,16 +223,16 @@ local function current_item()
 	return (item and not is_header(item)) and item or nil
 end
 
-local function selection_key(mode_name, panel_name, scoped)
+local function selection_key(mode_name, panel_name, ctx)
 	return table.concat({
 		tostring(mode_name or ""),
 		tostring(panel_name or ""),
-		scope.key(scoped),
+		context.key(ctx),
 	}, "|")
 end
 
-local function remember_selection(mode_name, panel_name, scoped, item)
-	local key = selection_key(mode_name, panel_name, scoped)
+local function remember_selection(mode_name, panel_name, ctx, item)
+	local key = selection_key(mode_name, panel_name, ctx)
 	local item_id = item_key(item)
 	if item_id then
 		state.selected_items[key] = item_id
@@ -241,8 +241,8 @@ local function remember_selection(mode_name, panel_name, scoped, item)
 	end
 end
 
-local function remembered_selection(mode_name, panel_name, scoped)
-	return state.selected_items[selection_key(mode_name, panel_name, scoped)]
+local function remembered_selection(mode_name, panel_name, ctx)
+	return state.selected_items[selection_key(mode_name, panel_name, ctx)]
 end
 
 local function action_ctx(item)
@@ -252,23 +252,23 @@ local function action_ctx(item)
 		state = state.current.state,
 		query = state.current.query,
 		panel = state.current.panel_entry,
-		scope = state.scope,
+		context = state.context,
 		input = state.input,
-		source_scope = function()
+		source_context = function()
 			if state.source_win and vim.api.nvim_win_is_valid(state.source_win) then
-				return scope.from_buffer(vim.api.nvim_win_get_buf(state.source_win))
+				return context.from_buffer(vim.api.nvim_win_get_buf(state.source_win))
 			end
 			return nil
 		end,
 			refresh = schedule_refresh,
 			focus = schedule_focus_input,
-			set_scope = function(scope_value)
-				state.scope = scope_value
+			set_context = function(context_value)
+				state.context = context_value
 				schedule_refresh()
 			end,
-			enter_scope = apply_scope_change,
-			clear_scope = function()
-				apply_scope_change(nil)
+			enter_context = apply_context_change,
+			clear_context = function()
+				apply_context_change(nil)
 			end,
 		clear_prefix = clear_prefix,
 		close = hide,
@@ -381,17 +381,17 @@ end
 local function navigator_state(mode_name)
 	local current = state.states[mode_name]
 	local mod = state.registry[mode_name]
-	local scoped = mod and (panel.supports_scope(mod, "buffer") or panel.supports_scope(mod, "folder")) or false
-	local current_scope_key = scoped and scope.key(state.scope) or ""
-	if current and (not scoped or current._scope_key == current_scope_key) then
+	local scoped = mod and (panel.supports_context(mod, "buffer") or panel.supports_context(mod, "folder")) or false
+	local current_context_key = scoped and context.key(state.context) or ""
+	if current and (not scoped or current._context_key == current_context_key) then
 		return current
 	end
 
 	local bufnr = state.source_bufnr
-	if state.scope and state.scope.kind == "file" then
-		bufnr = state.scope.bufnr or vim.fn.bufnr(state.scope.path)
+	if state.context and state.context.kind == "file" then
+		bufnr = state.context.bufnr or vim.fn.bufnr(state.context.path)
 		if not bufnr or bufnr < 1 then
-			bufnr = vim.fn.bufadd(state.scope.path)
+			bufnr = vim.fn.bufadd(state.context.path)
 		end
 	end
 
@@ -411,27 +411,27 @@ local function navigator_state(mode_name)
 		win = win,
 		cwd = state.cwd,
 		opts = config.for_navigator(mode_name),
-		scope = state.scope,
+		context = state.context,
 	})
-	current._scope_key = current_scope_key
+	current._context_key = current_context_key
 	state.states[mode_name] = current
 	return current
 end
 
-local function should_show_context(context_cfg, item)
-	return item and ((type(context_cfg) == "function" and context_cfg(item) == true) or context_cfg == true)
+local function should_show_view(view_cfg, item)
+	return item and ((type(view_cfg) == "function" and view_cfg(item) == true) or view_cfg == true)
 end
 
-local function context_spec(item, mod)
-	if not item or not mod or type(mod.context_item) ~= "function" then
+local function view_spec(item, mod)
+	if not item or not mod or type(mod.view_item) ~= "function" then
 		return 0, nil
 	end
-	local lines, ft, highlights, line_numbers, focus_row = mod.context_item(item)
+	local lines, ft, highlights, line_numbers, focus_row = mod.view_item(item)
 	return math.max(#(lines or {}), 1), { lines, ft, highlights, line_numbers, focus_row }
 end
 
-local function split_body_height(total, list_height, context_height)
-	if context_height <= 0 then
+local function split_body_height(total, list_height, view_height)
+	if view_height <= 0 then
 		return math.min(list_height, total), 0
 	end
 
@@ -439,11 +439,11 @@ local function split_body_height(total, list_height, context_height)
 	local half_low = math.floor(available / 2)
 	local half_high = available - half_low
 
-	if list_height > half_high and context_height > half_low then
+	if list_height > half_high and view_height > half_low then
 		return half_high, half_low
 	end
-	if context_height <= half_low then
-		return math.max(available - context_height, 1), context_height
+	if view_height <= half_low then
+		return math.max(available - view_height, 1), view_height
 	end
 	if list_height <= half_high then
 		return list_height, math.max(available - list_height, 1)
@@ -452,29 +452,29 @@ local function split_body_height(total, list_height, context_height)
 	return half_high, half_low
 end
 
-local function reconcile_scope(prompt, mode_name, mod, current_scope)
-	if not (state.scope and mod and not panel.supports_scope(mod, current_scope)) then
-		return mode_name, mod, current_scope, false
+local function reconcile_context(prompt, mode_name, mod, current_context)
+	if not (state.context and mod and not panel.supports_context(mod, current_context)) then
+		return mode_name, mod, current_context, false
 	end
-	if current_scope == "buffer" and config.by_start()[prompt:sub(1, 1)] == nil then
-		local target = panel.default_panel(visible_panels(state.scope), nil)
+	if current_context == "buffer" and config.by_start()[prompt:sub(1, 1)] == nil then
+		local target = panel.default_panel(visible_panels(state.context), nil)
 		if target then
 			panel.select(state.active_panels, target)
 			local next_mod = state.registry[target.navigator]
-			return target.navigator, next_mod, current_scope, false
+			return target.navigator, next_mod, current_context, false
 		end
 	end
 	if buffer_only_navigator(mod) then
-		state.scope = scope.from_buffer(state.source_bufnr)
-	elseif panel.supports_scope(mod, "workspace") then
-		state.scope = nil
+		state.context = context.from_buffer(state.source_bufnr)
+	elseif panel.supports_context(mod, "workspace") then
+		state.context = nil
 	end
-	return mode_name, mod, panel.scope_type(state.scope), false
+	return mode_name, mod, panel.context_type(state.context), false
 end
 
-local function ensure_buffer_scope(mod)
-	if not state.scope and buffer_only_navigator(mod) then
-		state.scope = scope.from_buffer(state.source_bufnr)
+local function ensure_buffer_context(mod)
+	if not state.context and buffer_only_navigator(mod) then
+		state.context = context.from_buffer(state.source_bufnr)
 	end
 end
 
@@ -502,22 +502,22 @@ end
 
 local function prompt_ui(mod, navigator, query, active_panel, found, total_text)
 	local prompt_prefix = " " .. ((mod and mod.icon) or "") .. " "
-	local root_scope = scope.workspace(state.cwd)
+	local root_context = context.workspace(state.cwd)
 	local scoped = nil
-	if mod and type(mod.input_scope) == "function" then
-		scoped = mod.input_scope(navigator, state.scope)
+	if mod and type(mod.input_context) == "function" then
+		scoped = mod.input_context(navigator, state.context)
 	end
 	if scoped and scoped.kind == "workspace" then
 		scoped = nil
 	end
-	local root_text = state.navigator_opts.workspace_label == true and scope.prompt_text(root_scope, { no_icon = true }) or ""
-	local scope_text = scope.prompt_text(scoped)
+	local root_text = state.navigator_opts.workspace_label == true and context.prompt_text(root_context, { no_icon = true }) or ""
+	local context_text = context.prompt_text(scoped)
 	local prompt = prompt_prefix .. root_text
-	if root_text ~= "" and scope_text ~= "" then
+	if root_text ~= "" and context_text ~= "" then
 		prompt = prompt .. "  "
 	end
-	prompt = prompt .. scope_text
-	if scope_text ~= "" then
+	prompt = prompt .. context_text
+	if context_text ~= "" then
 		prompt = prompt .. " "
 	elseif prompt:sub(-1) ~= " " then
 		prompt = prompt .. " "
@@ -526,10 +526,10 @@ local function prompt_ui(mod, navigator, query, active_panel, found, total_text)
 	if root_text ~= "" then
 		prompt_matches[#prompt_matches + 1] = { #prompt_prefix, #prompt_prefix + #root_text, "Title" }
 	end
-	local scope_start = #prompt_prefix + #root_text + (root_text ~= "" and scope_text ~= "" and 2 or 0)
-	local scope_matches = scope.prompt_matches(scoped, scope_start)
-	if scope_matches then
-		vim.list_extend(prompt_matches, scope_matches)
+	local context_start = #prompt_prefix + #root_text + (root_text ~= "" and context_text ~= "" and 2 or 0)
+	local context_matches = context.prompt_matches(scoped, context_start)
+	if context_matches then
+		vim.list_extend(prompt_matches, context_matches)
 	end
 	return {
 		prompt = prompt,
@@ -557,11 +557,11 @@ local function compute_body_layout(items, stats, mod, panels, active_panel)
 	local item_total = stats.count
 	local list_need = math.max(item_total == 0 and state.list.min_visible or item_total, state.list.min_visible)
 	local list_height = state.fullscreen and total_height or math.min(list_need, total_height)
-	local context_height, spec = 0, nil
+	local view_height, spec = 0, nil
 
-	if should_show_context(mod and mod.context, item) then
-		context_height, spec = context_spec(item, mod)
-		list_height, context_height = split_body_height(total_height, list_height, context_height)
+	if should_show_view(mod and mod.view, item) then
+		view_height, spec = view_spec(item, mod)
+		list_height, view_height = split_body_height(total_height, list_height, view_height)
 	elseif state.fullscreen then
 		list_height = total_height
 	end
@@ -569,8 +569,8 @@ local function compute_body_layout(items, stats, mod, panels, active_panel)
 	return {
 		show_panels = show_panels,
 		list_height = list_height,
-		context_height = context_height,
-		context_spec = spec,
+		view_height = view_height,
+		view_spec = spec,
 	}
 end
 
@@ -590,9 +590,9 @@ local function render_current_view(body, menu, opts)
 	end
 	state.list:set_max_visible(body.list_height)
 	state.list:set_fill_height(state.fullscreen)
-	state.session.layout:apply(state.list.visible_count, body.context_height, {
+	state.session.layout:apply(state.list.visible_count, body.view_height, {
 		list = state.list,
-		context = state.context,
+		context = state.view,
 		input = state.input,
 		panels = state.session.panels,
 		actions = state.session.actions,
@@ -607,11 +607,11 @@ local function render_current_view(body, menu, opts)
 		action_runs,
 		ordered
 	)
-	if state.context and state.context.win and vim.api.nvim_win_is_valid(state.context.win) then
-		if body.context_spec then
-			state.context:set(unpack(body.context_spec))
+	if state.view and state.view.win and vim.api.nvim_win_is_valid(state.view.win) then
+		if body.view_spec then
+			state.view:set(unpack(body.view_spec))
 		else
-			state.context:set({}, "text", {}, nil, 1)
+			state.view:set({}, "text", {}, nil, 1)
 		end
 	end
 	if not opts.keep_scroll then
@@ -666,13 +666,13 @@ local function compute_view_model()
 	local prompt = state.input:get_value()
 	local mode_name, query = config.parse_prompt(prompt)
 	local mod = state.registry[mode_name]
-	local current_scope = panel.scope_type(state.scope)
+	local current_context = panel.context_type(state.context)
 
-	mode_name, mod, current_scope, redirected = reconcile_scope(prompt, mode_name, mod, current_scope)
+	mode_name, mod, current_context, redirected = reconcile_context(prompt, mode_name, mod, current_context)
 	if redirected then
 		return nil, true
 	end
-	ensure_buffer_scope(mod)
+	ensure_buffer_context(mod)
 
 	local initial_panel = state.pending_initial_panel
 	local panels, active_panel, redirected_panel = resolve_panel(prompt, mode_name, mod, initial_panel)
@@ -684,7 +684,7 @@ local function compute_view_model()
 	mod = state.registry[mode_name]
 	local active_panel_name = active_panel and active_panel.panel or panel.active_name(state.active_panels, mode_name, mod and mod.panels, initial_panel)
 	local navigator = navigator_state(mode_name)
-	navigator.scope = state.scope
+	navigator.context = state.context
 	local mode_switched = mode_name ~= state.current.mode_name
 	local selected = item_key(current_item())
 	local items = mod.items(navigator, query, active_panel_name)
@@ -767,7 +767,7 @@ refresh = function()
 end
 
 local function switch_panel(direction)
-	remember_selection(state.current.mode_name, state.current.panel, state.scope, current_item())
+	remember_selection(state.current.mode_name, state.current.panel, state.context, current_item())
 	local panels = visible_panels()
 	local active = panel.find_panel(panels, state.current.mode_name, state.current.panel)
 	local idx = panel.active_index(panels, active and active.name or nil)
@@ -783,7 +783,7 @@ local function switch_panel(direction)
 	local target = panels[idx]
 	vim.schedule(function()
 		panel.select(state.active_panels, target)
-		state.pending_selected_key = remembered_selection(target.navigator, target.panel, state.scope)
+		state.pending_selected_key = remembered_selection(target.navigator, target.panel, state.context)
 		if not is_visible() or not state.input then
 			return
 		end
@@ -856,7 +856,7 @@ local function click_tab_action()
 		if name then
 			for _, target in ipairs(visible_panels()) do
 				if target.name == name then
-					state.pending_selected_key = remembered_selection(target.navigator, target.panel, state.scope)
+					state.pending_selected_key = remembered_selection(target.navigator, target.panel, state.context)
 					panel.select(state.active_panels, target)
 					state.input:set_value(config.switch_prompt(state.input:get_value(), target.navigator), { move_cursor_end = true })
 					break
@@ -949,7 +949,7 @@ local function bind_widgets()
 			min_visible = 1,
 			render_item = display.to_display,
 		})
-		state.context = context_view.new({
+		state.view = view.new({
 			buf = (sections.context and sections.context.buf) or vim.api.nvim_create_buf(false, true),
 			win = sections.context and sections.context.win or nil,
 		})
@@ -969,8 +969,8 @@ local function bind_widgets()
 			on_right = function() return move_panel_from_input(1) end,
 			on_backspace = function(value)
 				local scoped = nil
-				if state.current.mod and type(state.current.mod.input_scope) == "function" then
-					scoped = state.current.mod.input_scope(state.current.state, state.scope)
+				if state.current.mod and type(state.current.mod.input_context) == "function" then
+					scoped = state.current.mod.input_context(state.current.state, state.context)
 				end
 				local start = state.current.panel_entry and state.current.panel_entry.start or ""
 					if scoped and scoped.kind ~= "workspace" and start ~= "" and value == start then
@@ -978,7 +978,7 @@ local function bind_widgets()
 						return true
 					end
 					if scoped and scoped.kind ~= "workspace" and value == "" then
-						apply_scope_change(nil)
+						apply_context_change(nil)
 						return true
 					end
 				return false
@@ -990,8 +990,8 @@ local function bind_widgets()
 
 	state.input:set_win(sections.input.win)
 	state.list:set_win(sections.list.win)
-	local context = sections.context
-	state.context:set_target(context and context.buf or nil, context and context.win or nil)
+	local ctx_section = sections.context
+	state.view:set_target(ctx_section and ctx_section.buf or nil, ctx_section and ctx_section.win or nil)
 end
 
 local function show(opts)
@@ -1006,12 +1006,14 @@ local function show(opts)
 	state.source_win = vim.api.nvim_get_current_win()
 	local next_cwd = state.navigator_opts.cwd or vim.fn.getcwd()
 	local preserved_files = (state.cwd == next_cwd) and state.states.files or nil
-	local preserved_scope = (state.cwd == next_cwd) and state.scope or nil
+	local preserved_context = (state.cwd == next_cwd) and state.context or nil
 	state.cwd = next_cwd
-	if state.navigator_opts.scope ~= nil then
-		state.scope = state.navigator_opts.scope
+	if state.navigator_opts.context ~= nil then
+		state.context = state.navigator_opts.context
+	elseif state.navigator_opts.reset_context then
+		state.context = nil
 	else
-		state.scope = preserved_scope
+		state.context = preserved_context
 	end
 	state.states = preserved_files and { files = preserved_files } or {}
 

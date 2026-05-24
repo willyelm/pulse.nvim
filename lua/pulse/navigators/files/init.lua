@@ -101,10 +101,10 @@ M.name = "files"
 M.icon = "󰈔"
 M.actions = file_actions
 
-M.context = false
+M.view = false
 M.panels = {
-	{ start = "", name = "files_all", label = "Files", scopes = { "workspace", "folder" } },
-	{ start = "", name = "files_open", label = "Open", scopes = { "workspace" } },
+	{ start = "", name = "files_all", label = "Files", contexts = { "workspace", "folder" } },
+	{ start = "", name = "files_open", label = "Open", contexts = { "workspace" } },
 }
 
 function M.init(ctx)
@@ -116,7 +116,7 @@ function M.init(ctx)
 			ignored = nil,
 			git_status = nil,
 		expanded = {},
-		scope = ctx and ctx.scope or nil,
+		context = ctx and ctx.context or nil,
 		_on_update = ctx and ctx.on_update or nil,
 		_dirty = false,
 		_opened_dirty = true,
@@ -155,7 +155,7 @@ function M.items(state, query, panel_name)
 	return items.items(state, query, panel_name)
 end
 
-function M.input_scope(_, scoped)
+function M.input_context(_, scoped)
 	return scoped
 end
 
@@ -167,9 +167,9 @@ toggle_folder = function(ctx)
 	if item.scope_parent then
 		local parent = items.parent_scope(ctx.state)
 		if parent then
-			ctx.set_scope(parent)
+			ctx.set_context(parent)
 		else
-			ctx.clear_scope()
+			ctx.clear_context()
 		end
 		return true
 	end

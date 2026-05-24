@@ -25,10 +25,10 @@ M.actions = {
 	},
 }
 
-M.context = false
+M.view = false
 M.allow_empty_selection = true
 M.panels = {
-	{ start = ":", name = "commands", label = "Commands", scopes = { "workspace" } },
+	{ start = ":", name = "commands", label = "Commands", contexts = { "workspace" } },
 }
 
 local function format_cmd_error(err)

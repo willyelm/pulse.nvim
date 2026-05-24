@@ -1,6 +1,6 @@
 local M = {}
+local view = require("pulse.panel_view")
 local context = require("pulse.context")
-local scope = require("pulse.scope")
 
 M.name = "live_grep"
 M.icon = "󰍉"
@@ -33,13 +33,13 @@ M.actions = {
 	},
 }
 M.panels = {
-	{ start = "$", name = "live_grep", label = "Live Grep", scopes = { "workspace", "folder" } },
+	{ start = "$", name = "live_grep", label = "Live Grep", contexts = { "workspace", "folder" } },
 }
 
-M.context = true
+M.view = true
 
-function M.context_item(item)
-	return context.file_snippet(item.path or item.filename, item.lnum, item.query, item.match_cols)
+function M.view_item(item)
+	return view.file_snippet(item.path or item.filename, item.lnum, item.query, item.match_cols)
 end
 
 local DEBOUNCE_MS = 60
@@ -158,7 +158,7 @@ local function start_search(state, query, token)
 end
 
 function M.init(ctx)
-	local scoped = ctx and ctx.scope
+	local scoped = ctx and ctx.context
 	local cwd = (scoped and scoped.kind == "folder" and scoped.path) or (ctx and ctx.cwd) or vim.fn.getcwd()
 	local state = {
 		on_update = ctx and ctx.on_update,
@@ -168,7 +168,7 @@ function M.init(ctx)
 		token = 0,
 		stopped = false,
 		update_scheduled = false,
-		input_scope = (scoped and scoped.kind == "folder" and scope.folder(cwd)) or nil,
+		input_context = (scoped and scoped.kind == "folder" and context.folder(cwd)) or nil,
 	}
 		state.provider = {
 			count = function()
@@ -181,8 +181,8 @@ function M.init(ctx)
 	return state
 end
 
-function M.input_scope(state)
-	return state and state.input_scope or nil
+function M.input_context(state)
+	return state and state.input_context or nil
 end
 
 function M.items(state, query)

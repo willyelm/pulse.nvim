@@ -1,7 +1,7 @@
 local config = require("pulse.config")
 local navigator = require("pulse.pulse")
 local panel = require("pulse.panel_menu")
-local scope = require("pulse.scope")
+local context = require("pulse.context")
 
 local M = {}
 
@@ -74,14 +74,16 @@ local function pulse_command(opts)
 		vim.notify("Pulse: unknown navigator '" .. tostring(name) .. "'", vim.log.levels.ERROR)
 		return
 	end
-	local next_prompt = config.switch_prompt(navigator.get_prompt() or "", mode_name)
+	local next_prompt = config.switch_prompt((opts.bang and "") or navigator.get_prompt() or "", mode_name)
 	local extra_opts = nil
-	if panel.supports_scope(registry()[mode_name], "buffer")
-		and not panel.supports_scope(registry()[mode_name], "workspace")
-		and not panel.supports_scope(registry()[mode_name], "folder") then
-		local current_scope = scope.from_buffer()
-		if current_scope then
-			extra_opts = { scope = current_scope }
+	if opts.bang then
+		extra_opts = { reset_context = true }
+	elseif panel.supports_context(registry()[mode_name], "buffer")
+		and not panel.supports_context(registry()[mode_name], "workspace")
+		and not panel.supports_context(registry()[mode_name], "folder") then
+		local current_context = context.from_buffer()
+		if current_context then
+			extra_opts = { context = current_context }
 		end
 	end
 	open_panel(next_prompt, extra_opts, panel_name)
@@ -104,6 +106,7 @@ function M.setup(opts)
 	pcall(vim.api.nvim_del_user_command, "Pulse")
 	vim.api.nvim_create_user_command("Pulse", pulse_command, {
 		nargs = "?",
+		bang = true,
 		complete = function() return completions end,
 	})
 

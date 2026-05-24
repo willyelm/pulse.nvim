@@ -1,5 +1,5 @@
 local M = {}
-local scope = require("pulse.scope")
+local context = require("pulse.context")
 local pulse = require("pulse")
 local CACHE = {}
 
@@ -34,11 +34,11 @@ M.actions = {
 	},
 }
 M.panels = {
-	{ start = "@", name = "symbols", label = "Symbols", scopes = { "buffer" } },
-	{ start = "#", name = "workspace_symbols", label = "Workspace Symbols", scopes = { "workspace" } },
+	{ start = "@", name = "symbols", label = "Symbols", contexts = { "buffer" } },
+	{ start = "#", name = "workspace_symbols", label = "Workspace Symbols", contexts = { "workspace" } },
 }
 
-M.context = false
+M.view = false
 
 local SymbolKind = vim.lsp.protocol.SymbolKind or {}
 local NODE_KINDS = {
@@ -302,7 +302,7 @@ local function treesitter_workspace_symbols(query)
 end
 
 local function cached_symbols(bufnr)
-	if not scope.valid_bufnr(bufnr) then
+	if not context.valid_bufnr(bufnr) then
 		return nil
 	end
 	local tick = vim.api.nvim_buf_get_changedtick(bufnr)
@@ -314,7 +314,7 @@ local function cached_symbols(bufnr)
 end
 
 local function store_symbols(bufnr, symbols)
-	if not scope.valid_bufnr(bufnr) then
+	if not context.valid_bufnr(bufnr) then
 		return symbols
 	end
 	CACHE[bufnr] = {
@@ -325,11 +325,11 @@ local function store_symbols(bufnr, symbols)
 end
 
 function M.init(ctx)
-	local bufnr = scope.resolve_bufnr(ctx)
+	local bufnr = context.resolve_bufnr(ctx)
 	local state = {
 		bufnr = bufnr,
 		symbols = {},
-		input_scope = nil,
+		input_context = nil,
 		workspace_symbols = {},
 		workspace_query = nil,
 		workspace_request_id = 0,
@@ -341,7 +341,7 @@ function M.init(ctx)
 	end
 
 	pcall(vim.fn.bufload, bufnr)
-	state.input_scope = scope.input_scope(ctx, bufnr)
+	state.input_context = context.input_context(ctx, bufnr)
 	local use_lsp = has_document_symbol_client(bufnr)
 	local cached = cached_symbols(bufnr)
 	state.symbols = cached or {}
@@ -371,11 +371,11 @@ function M.init(ctx)
 	return state
 end
 
-function M.input_scope(state, scoped)
+function M.input_context(state, scoped)
 	if scoped and scoped.kind == "file" then
 		return scoped
 	end
-	return state and state.input_scope or nil
+	return state and state.input_context or nil
 end
 
 local function buffer_items(state, query)

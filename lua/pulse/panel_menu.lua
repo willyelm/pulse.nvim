@@ -1,7 +1,7 @@
 local M = {}
 local window = require("pulse.ui.window")
 
-local function list_scopes(value)
+local function list_contexts(value)
 	if type(value) == "string" then
 		return { value }
 	end
@@ -11,21 +11,17 @@ local function list_scopes(value)
 	return nil
 end
 
-local function panel_scopes(entry)
-	return list_scopes(entry and entry.scopes) or { "workspace" }
+local function panel_contexts(entry)
+	return list_contexts(entry and entry.contexts) or { "workspace" }
 end
 
-local function is_visible_in_scope(entry, scope_name)
-	for _, allowed in ipairs(panel_scopes(entry)) do
-		if allowed == scope_name then
+local function is_visible_in_context(entry, context_name)
+	for _, allowed in ipairs(panel_contexts(entry)) do
+		if allowed == context_name then
 			return true
 		end
 	end
 	return false
-end
-
-local function clamp(value, min_value, max_value)
-	return math.min(math.max(value, min_value), max_value)
 end
 
 local function build_header_layout(panels, active_name)
@@ -78,7 +74,7 @@ local function viewport_for(width, text, blocks, active_name)
 
 	local center = math.floor((active.start_col + active.end_col) / 2)
 	local max_offset = math.max(total - available, 0)
-	local offset = clamp(center - math.floor(available / 2), 0, max_offset)
+	local offset = math.min(math.max(center - math.floor(available / 2), 0), max_offset)
 	return offset, available
 end
 
@@ -91,29 +87,29 @@ function M.block_text(label)
 	return " " .. label .. " "
 end
 
-function M.scope_type(scope)
-	if not scope then
+function M.context_type(ctx)
+	if not ctx then
 		return "workspace"
 	end
-	if scope.kind == "folder" then
+	if ctx.kind == "folder" then
 		return "folder"
 	end
 	return "buffer"
 end
 
-function M.visible_panels(navigators, scope_type)
+function M.visible_panels(navigators, context_type)
 	local visible = {}
 	for _, navigator in ipairs(navigators or {}) do
 		if navigator.panels and #navigator.panels > 0 then
 			for _, entry in ipairs(navigator.panels) do
-				if is_visible_in_scope(entry, scope_type) then
+				if is_visible_in_context(entry, context_type) then
 					visible[#visible + 1] = {
 						name = entry.name,
 						label = entry.label,
 						navigator = navigator.name,
 							panel = entry.name,
 							start = entry.start or "",
-							scopes = panel_scopes(entry),
+							contexts = panel_contexts(entry),
 						}
 					end
 				end
@@ -122,9 +118,9 @@ function M.visible_panels(navigators, scope_type)
 	return visible
 end
 
-function M.supports_scope(navigator, scope_name)
+function M.supports_context(navigator, context_name)
 	for _, entry in ipairs((navigator and navigator.panels) or {}) do
-		if is_visible_in_scope(entry, scope_name) then
+		if is_visible_in_context(entry, context_name) then
 			return true
 		end
 	end
