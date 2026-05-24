@@ -20,6 +20,14 @@
 
 
 
+
+## [0.7.5] - 2026-05-24
+
+### Changed
+
+- fix: reorder restore action in git
+- docs: add vim pack usage
+
 ## [0.7.4] - 2026-05-24
 
 ### Changed
@@ -168,11 +176,4 @@
 ### Changed
 
 - fix: use picker drive execute commands
-
-## [0.2.1] - 2026-03-18
-
-### Changed
-
-- fix: improve workspace_symbols tree and correctness
-- fix: use actual editor buffer for code_actions
 
