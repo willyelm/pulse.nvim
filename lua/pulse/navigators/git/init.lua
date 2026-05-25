@@ -83,6 +83,7 @@ M.actions = {
 				return
 			end
 			vim.fn.system({ "git", "restore", "--staged", "--worktree", "--", item.path })
+			items.invalidate_status(ctx.state)
 			ctx.refresh()
 		end,
 	},
