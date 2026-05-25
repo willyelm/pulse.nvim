@@ -22,6 +22,13 @@
 
 
 
+
+## [0.7.7] - 2026-05-25
+
+### Changed
+
+- fix(git): remove item from list when restore
+
 ## [0.7.6] - 2026-05-24
 
 ### Changed
@@ -167,14 +174,4 @@
 - chore: remove old preview templates
 - fix: remove command preview content
 - fix: retain session state instead of recreate on each toggle
-
-## [0.3.0] - 2026-03-20
-
-### New
-
-- separate picker loader with picker api
-
-### Changed
-
-- fix: preserve latest prompt and itemselection
 
