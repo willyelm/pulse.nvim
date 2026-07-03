@@ -14,6 +14,7 @@ end
 local function panel_contexts(entry)
 	return list_contexts(entry and entry.contexts) or { "workspace" }
 end
+M.panel_contexts = panel_contexts
 
 local function is_visible_in_context(entry, context_name)
 	for _, allowed in ipairs(panel_contexts(entry)) do

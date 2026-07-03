@@ -104,7 +104,7 @@ M.actions = file_actions
 M.view = false
 M.panels = {
 	{ start = "", name = "files_all", label = "Files", contexts = { "workspace", "folder" } },
-	{ start = "", name = "files_open", label = "Open", contexts = { "workspace" } },
+	{ start = "", name = "buffers", label = "Buffers", contexts = { "workspace" } },
 }
 
 function M.init(ctx)

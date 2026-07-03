@@ -5,17 +5,9 @@ local util = require("pulse.navigators.git.util")
 local M = {}
 local CACHE = {}
 
+-- `git show` needs a path relative to the repo root, not an absolute one.
 local function read_head_file(path)
-	local rel = vim.fn.fnamemodify(path or "", ":.")
-	if rel == "" then
-		return {}
-	end
-	return util.git_lines({ "git", "--no-pager", "show", "HEAD:" .. rel }) or {}
-end
-
-local function read_worktree_file(path)
-	local resolved = (path and vim.fn.filereadable(path) == 1) and path or vim.fn.fnamemodify(path or "", ":p")
-	return (vim.fn.filereadable(resolved) == 1) and vim.fn.readfile(resolved) or {}
+	return view.read_git_blob_lines("HEAD", vim.fn.fnamemodify(path or "", ":."))
 end
 
 local function git_patch_for(path)
@@ -30,11 +22,10 @@ local function git_patch_for(path)
 	return { "No git diff for " .. tostring(path) }
 end
 
-local function read_commit_file(commit, path)
-	if not (commit and path and path ~= "") then
-		return {}
-	end
-	return util.git_lines({ "git", "--no-pager", "show", commit .. ":" .. path }) or {}
+-- Shape a set of preview lines (real content or a placeholder) into the
+-- 5-tuple view_item's callers expect.
+local function as_view(lines, highlights, focus_row, filetype)
+	return lines, filetype or "text", highlights or {}, nil, focus_row or 1
 end
 
 local function cached(key, producer)
@@ -53,11 +44,17 @@ function M.view_item(item)
 			local new_path = item.history_path or item.path
 			local old_path = item.old_path or new_path
 			return cached("file:" .. tostring(item.commit) .. ":" .. tostring(old_path) .. ":" .. tostring(new_path), function()
-				local old_lines = read_commit_file(item.parent or (item.commit .. "^"), old_path)
-				local new_lines = read_commit_file(item.commit, new_path)
+				local old_lines, old_ok = view.read_git_blob_lines(item.parent or (item.commit .. "^"), old_path)
+				if not old_ok then
+					return as_view(old_lines)
+				end
+				local new_lines, new_ok = view.read_git_blob_lines(item.commit, new_path)
+				if not new_ok then
+					return as_view(new_lines)
+				end
 				local lines, highlights, focus_row = diff_ui.from_lines(old_lines, new_lines, { context = 3 })
 				local _, filetype = view.file_snippet(new_path, 1)
-				return lines, filetype, highlights, nil, focus_row
+				return as_view(lines, highlights, focus_row, filetype)
 			end)
 		end
 		return cached("commit:" .. tostring(item.commit) .. ":" .. tostring(item.history_path or ""), function()
@@ -91,13 +88,20 @@ function M.view_item(item)
 
 	local path = item.path or item.filename
 	return cached("status:" .. tostring(path) .. ":" .. tostring(item.code or ""), function()
-		local old_lines, new_lines = read_head_file(path), read_worktree_file(path)
+		local old_lines, old_ok = read_head_file(path)
+		if not old_ok then
+			return as_view(old_lines)
+		end
+		local new_lines, new_ok = view.read_file_lines(path)
+		if not new_ok then
+			return as_view(new_lines)
+		end
 		if #old_lines == 0 and #new_lines == 0 then
-			return git_patch_for(path), "text", {}, nil, 1
+			return as_view(git_patch_for(path))
 		end
 		local lines, highlights, focus_row = diff_ui.from_lines(old_lines, new_lines, { context = 3 })
 		local _, filetype = view.file_snippet(path, 1)
-		return lines, filetype, highlights, nil, focus_row
+		return as_view(lines, highlights, focus_row, filetype)
 	end)
 end
 

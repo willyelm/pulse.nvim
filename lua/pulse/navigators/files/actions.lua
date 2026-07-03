@@ -129,6 +129,38 @@ function M.delete(ctx)
 	return true
 end
 
+function M.close_buffer(ctx)
+	local src = selected_path(ctx)
+	if not src then
+		return true
+	end
+	local bufnr = vim.fn.bufnr(src)
+	if bufnr < 1 then
+		notify("no open buffer for " .. vim.fn.fnamemodify(src, ":t"), vim.log.levels.ERROR)
+		return true
+	end
+	if vim.bo[bufnr].modified and vim.fn.confirm("Buffer has unsaved changes. Close anyway?", "&Yes\n&No", 2) ~= 1 then
+		return true
+	end
+	-- Neovim won't reliably swap a buffer out of a background window while a
+	-- floating window (like Pulse's own UI) is current, so nvim_buf_delete
+	-- can silently no-op on it; move those windows off it ourselves first.
+	local alt = vim.fn.bufnr("#")
+	for _, win in ipairs(vim.fn.win_findbuf(bufnr)) do
+		if vim.api.nvim_win_is_valid(win) then
+			local replacement = (alt > 0 and alt ~= bufnr and vim.api.nvim_buf_is_valid(alt)) and alt
+				or vim.api.nvim_create_buf(true, false)
+			pcall(vim.api.nvim_win_set_buf, win, replacement)
+		end
+	end
+	if not pcall(vim.api.nvim_buf_delete, bufnr, { force = true }) then
+		notify("close failed", vim.log.levels.ERROR)
+		return true
+	end
+	refresh_actions(ctx)
+	return true
+end
+
 function M.stage_transfer(ctx, kind)
 	local src = selected_path(ctx)
 	if not src then
@@ -229,6 +261,7 @@ end
 function M.mode_actions(ctx, toggle_folder)
 	local item = ctx and ctx.item
 	local editable = item and (item.kind == "file" or item.kind == "folder") and not item.scope_parent
+	local is_buffers = ctx and ctx.panel and ctx.panel.name == "buffers"
 	local actions = {
 		{
 			key = "<CR>",
@@ -272,8 +305,14 @@ function M.mode_actions(ctx, toggle_folder)
 				return M.preview(next, toggle_folder)
 			end,
 		},
-		{ key = "<C-a>", name = "add", run = M.add },
 	}
+	if is_buffers then
+		if editable then
+			actions[#actions + 1] = { key = "<C-x>", name = "close", run = M.close_buffer }
+		end
+		return actions
+	end
+	actions[#actions + 1] = { key = "<C-a>", name = "add", run = M.add }
 	if editable then
 		actions[#actions + 1] = { key = "<C-d>", name = "delete", run = M.delete }
 		actions[#actions + 1] = { key = "<C-r>", name = "rename", run = M.rename }

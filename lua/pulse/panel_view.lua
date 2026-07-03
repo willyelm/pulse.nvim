@@ -1,6 +1,75 @@
 local M = {}
 M.__index = M
 local window = require("pulse.ui.window")
+local uv = vim.uv or vim.loop
+
+local MAX_PREVIEW_BYTES = 1024 * 1024
+
+local function human_size(bytes)
+	bytes = tonumber(bytes) or 0
+	if bytes < 1024 then
+		return bytes .. "B"
+	elseif bytes < 1024 * 1024 then
+		return string.format("%.1fK", bytes / 1024)
+	end
+	return string.format("%.1fM", bytes / (1024 * 1024))
+end
+
+local function too_large(size)
+	return { "File too large to preview (" .. human_size(size) .. ")" }
+end
+
+local function binary(size)
+	return { "Binary file (" .. human_size(size) .. ") - preview not shown" }
+end
+
+-- Read a file from disk as lines. Returns lines, ok. When ok is false,
+-- `lines` is a placeholder to display as-is rather than real file content.
+function M.read_file_lines(path)
+	local resolved = (path and path ~= "") and vim.fn.fnamemodify(path, ":p") or ""
+	local stat = resolved ~= "" and uv.fs_stat(resolved) or nil
+	if not (stat and stat.type == "file") then
+		return {}, true
+	end
+	if stat.size > MAX_PREVIEW_BYTES then
+		return too_large(stat.size), false
+	end
+	if stat.size > 0 then
+		local fd = uv.fs_open(resolved, "r", 438)
+		local data = fd and (uv.fs_read(fd, stat.size, 0) or "") or ""
+		if fd then
+			uv.fs_close(fd)
+		end
+		if data:find("%z") then
+			return binary(stat.size), false
+		end
+	end
+	return vim.fn.readfile(resolved), true
+end
+
+-- Read a `git show <rev>:<path>` blob as lines, under the same policy.
+-- Returns lines, ok (see M.read_file_lines).
+function M.read_git_blob_lines(rev, path)
+	if not (rev and path and path ~= "") then
+		return {}, true
+	end
+	local target = rev .. ":" .. path
+	local size_out = vim.fn.system({ "git", "-c", "core.fsmonitor=false", "cat-file", "-s", target })
+	if vim.v.shell_error == 0 then
+		local size = tonumber(vim.trim(size_out))
+		if size and size > MAX_PREVIEW_BYTES then
+			return too_large(size), false
+		end
+	end
+	local raw = vim.fn.system({ "git", "-c", "core.fsmonitor=false", "--no-pager", "show", target })
+	if vim.v.shell_error ~= 0 then
+		return {}, true
+	end
+	if raw:find("%z") then
+		return binary(#raw), false
+	end
+	return vim.split(raw, "\n", { plain = true, trimempty = false }), true
+end
 
 local function normalise_lines(lines)
 	local out = {}
@@ -40,7 +109,10 @@ local function file_snippet(path, lnum, query, match_cols)
 	if vim.fn.filereadable(resolved) ~= 1 then
 		return { "File not found: " .. tostring(path) }, "text", {}, nil, 1
 	end
-	local file_lines = vim.fn.readfile(resolved)
+	local file_lines, ok = M.read_file_lines(resolved)
+	if not ok then
+		return file_lines, "text", {}, nil, 1
+	end
 	local line_no = math.max(lnum or 1, 1)
 	local start_l, end_l = math.max(line_no - 6, 1), math.min(#file_lines, line_no + 6)
 	local lines, highlights, numbers = {}, {}, {}

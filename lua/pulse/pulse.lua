@@ -999,7 +999,7 @@ local function show(opts)
 	state.cwd = next_cwd
 	if state.navigator_opts.context ~= nil then
 		state.context = state.navigator_opts.context
-	elseif state.navigator_opts.reset_context then
+	elseif state.navigator_opts.clear_context then
 		state.context = nil
 	else
 		state.context = preserved_context

@@ -70,21 +70,23 @@ local function pulse_command(opts)
 	end
 
 	local mode_name, panel_name = config.find_by_command(name)
-	if not registry()[mode_name] then
+	local mod = registry()[mode_name]
+	if not mod then
 		vim.notify("Pulse: unknown navigator '" .. tostring(name) .. "'", vim.log.levels.ERROR)
 		return
 	end
-	local next_prompt = config.switch_prompt((opts.bang and "") or navigator.get_prompt() or "", mode_name)
-	local extra_opts = nil
-	if opts.bang then
-		extra_opts = { reset_context = true }
-	elseif panel.supports_context(registry()[mode_name], "buffer")
-		and not panel.supports_context(registry()[mode_name], "workspace")
-		and not panel.supports_context(registry()[mode_name], "folder") then
-		local current_context = context.from_buffer()
-		if current_context then
-			extra_opts = { context = current_context }
-		end
+	local next_prompt = config.switch_prompt(navigator.get_prompt() or "", mode_name)
+
+	-- Decide by what the target panel itself needs, not by session visibility:
+	-- a workspace-capable panel needs no scope, so drop any leftover context;
+	-- a panel that only ever runs scoped (e.g. buffer-only) picks up the
+	-- current buffer so it has one to work with.
+	local target_entry = panel.default_panel(mod.panels, panel_name)
+	local extra_opts = {}
+	if vim.tbl_contains(panel.panel_contexts(target_entry), "workspace") then
+		extra_opts.clear_context = true
+	else
+		extra_opts.context = context.from_buffer()
 	end
 	open_panel(next_prompt, extra_opts, panel_name)
 end
@@ -106,7 +108,6 @@ function M.setup(opts)
 	pcall(vim.api.nvim_del_user_command, "Pulse")
 	vim.api.nvim_create_user_command("Pulse", pulse_command, {
 		nargs = "?",
-		bang = true,
 		complete = function() return completions end,
 	})
 
