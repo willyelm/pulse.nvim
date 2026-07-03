@@ -23,6 +23,13 @@
 
 
 
+
+## [0.7.8] - 2026-07-03
+
+### Changed
+
+- fix: rename files_open to buffers and improve file preview for binary/big files
+
 ## [0.7.7] - 2026-05-25
 
 ### Changed
@@ -159,19 +166,4 @@
 - fix: use correct colors for git signs
 - fix: add new files in git status diff view
 - fix: use navigation and context terminology
-
-## [0.4.0] - 2026-03-21
-
-### New
-
-- enable use file picker as file tree directory
-- add file picker panels, all, open and recent using tree for files and folders
-- enable multiple picker panels with arrow based navigation
-
-### Changed
-
-- fix: stop insert on file open
-- chore: remove old preview templates
-- fix: remove command preview content
-- fix: retain session state instead of recreate on each toggle
 
