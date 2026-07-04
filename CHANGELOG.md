@@ -8,6 +8,13 @@
 - add `files.open_on_directory` to open Pulse files for `nvim .`
 
 
+
+## [0.9.0] - 2026-07-04
+
+### New
+
+- improve commit prompt mode
+
 ## [0.8.0] - 2026-07-04
 
 ### New
@@ -135,10 +142,4 @@
 - fix: remove initial_mode config
 - chore: remove old recent state
 - fix: preserve insert mode on quick navigations
-
-## [0.5.1] - 2026-03-21
-
-### Changed
-
-- fix: improved panel switching and input cursor
 
