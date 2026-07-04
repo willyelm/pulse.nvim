@@ -9,6 +9,19 @@
 
 
 
+
+## [0.10.0] - 2026-07-04
+
+### New
+
+- switch to rg --json for regecp match highlights and parsing (#3)
+
+### Changed
+
+- fix: improve internals of prompt mode
+- fix: correct highlight matches and share preview guards
+- refactor(git): improve status highlight, run numstat concurrently and share notify
+
 ## [0.9.0] - 2026-07-04
 
 ### New
@@ -111,35 +124,4 @@
 ### Changed
 
 - fix: improve cold start git status in files navigator
-
-## [0.6.0] - 2026-03-23
-
-### New
-
-- show ignored files in tree and in isolated scope views
-- add actions menu with keys info
-- add actions menu footer
-- support navigating history commit file tree and status
-- add git project and file history
-- support file actions to add, delete, copy, cut and paste
-
-### Changed
-
-- fix: remove old states and flags
-- fix: remove highlight flags in files
-- fix: use jump to open in location
-- fix: remove modes and use navigator panels instead
-- fix: reduce highlight groups in favor of vim defaults
-- fix: improve buffer scope refresh
-- fix: buffer refresh and cache
-- fix: remove special highlight from commands and git items
-- fix: remove custom git diff summaries
-- fix: remove apply effect fn and use scope based methods
-- fix: improve navigators terminology removing surfaces, hooks
-- fix: remove file name from location in fuzzy search
-- chore: reorg git and files with consitent structure
-- chore: reorg git navigator
-- fix: remove initial_mode config
-- chore: remove old recent state
-- fix: preserve insert mode on quick navigations
 
