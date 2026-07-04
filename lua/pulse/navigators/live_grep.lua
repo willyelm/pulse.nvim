@@ -75,28 +75,81 @@ local function reset_results(state)
 	state.stopped = false
 end
 
-local function append_lines(state, lines, query)
-	for _, line in ipairs(lines or {}) do
-		if #(state.items or {}) >= RESULT_LIMIT then
-			state.stopped = true
-			return true
-		end
-		if line and line ~= "" then
-			local path, lnum, col, text = line:match("^(.-):(%d+):(%d+):(.*)$")
-			if path and lnum and col then
-				state.items[#state.items + 1] = {
-					kind = "live_grep",
-					path = path,
-					filename = path,
-					lnum = tonumber(lnum),
-					col = tonumber(col),
-					text = text or "",
-					query = query,
-				}
-			end
+-- rg --json fields are `{text = ...}` for valid UTF-8, or `{bytes = <base64>}` otherwise.
+local function decode_field(field)
+	if type(field) ~= "table" then
+		return ""
+	end
+	if field.text then
+		return field.text
+	end
+	if field.bytes and vim.base64 then
+		local ok, decoded = pcall(vim.base64.decode, field.bytes)
+		return ok and decoded or ""
+	end
+	return ""
+end
+
+-- Parses one rg --json line into a live_grep item; match_cols holds one {start, end} span per submatch.
+local function append_line(state, raw_line, query)
+	-- Skips the JSON decode for begin/end/summary events, which we never use.
+	if not (raw_line and raw_line ~= "" and raw_line:find('"type":"match"', 1, true)) then
+		return
+	end
+	local ok, event = pcall(vim.json.decode, raw_line)
+	if not (ok and type(event) == "table" and event.type == "match") then
+		return
+	end
+	local data = event.data
+	local path = decode_field(data.path)
+	local text = decode_field(data.lines):gsub("\n$", "")
+	local match_cols, first_col = {}, nil
+	for _, submatch in ipairs(data.submatches or {}) do
+		local s, e = submatch.start, submatch["end"]
+		if type(s) == "number" and type(e) == "number" and e > s then
+			first_col = first_col or (s + 1)
+			match_cols[#match_cols + 1] = { s + 1, e }
 		end
 	end
-	return #(state.items or {}) >= RESULT_LIMIT
+	if path ~= "" and data.line_number then
+		state.items[#state.items + 1] = {
+			kind = "live_grep",
+			path = path,
+			filename = path,
+			lnum = data.line_number,
+			col = first_col or 1,
+			text = text,
+			leading = #(text:match("^%s*") or ""),
+			query = query,
+			match_cols = match_cols,
+		}
+	end
+end
+
+-- Parses a stdout batch in slices, yielding between them so a big result burst never blocks typing.
+local CHUNK_SIZE = 200
+local function append_lines_chunked(state, lines, query, token, start_idx)
+	if token ~= state.token then
+		return
+	end
+	local last = math.min(start_idx + CHUNK_SIZE - 1, #lines)
+	for i = start_idx, last do
+		if #(state.items or {}) >= RESULT_LIMIT then
+			state.stopped = true
+			stop_job(state)
+			notify_update(state)
+			return
+		end
+		append_line(state, lines[i], query)
+	end
+	if #state.items > 0 then
+		notify_update(state)
+	end
+	if last < #lines then
+		vim.schedule(function()
+			append_lines_chunked(state, lines, query, token, last + 1)
+		end)
+	end
 end
 
 local function start_search(state, query, token)
@@ -106,14 +159,12 @@ local function start_search(state, query, token)
 
 	local cmd = {
 		"rg",
-		"--vimgrep",
+		"--json",
 		"--hidden",
 		"--glob",
 		"!**/.git/*",
 		"--line-buffered",
 		"--smart-case",
-		"--color",
-		"never",
 		"--max-columns",
 		"300",
 		query,
@@ -122,7 +173,6 @@ local function start_search(state, query, token)
 
 	state.job = vim.fn.jobstart(cmd, {
 		stdout_buffered = false,
-		stderr_buffered = true,
 		on_stdout = function(_, data)
 			if token ~= state.token then
 				return
@@ -130,19 +180,14 @@ local function start_search(state, query, token)
 			if not data or #data == 0 then
 				return
 			end
-				local reached = append_lines(state, data, query)
-				if #state.items > 0 then
-					notify_update(state)
-				end
-				if reached then
-					stop_job(state)
-				end
-			end,
+			append_lines_chunked(state, data, query, token, 1)
+		end,
 		on_exit = function(_, code)
 			if token ~= state.token then
 				return
 			end
 			state.job = nil
+			-- A bad pattern shows empty results, not a notification: typing passes through invalid states constantly.
 			if not (code == 0 or code == 1 or state.stopped) then
 				state.items = {}
 			end
@@ -170,14 +215,14 @@ function M.init(ctx)
 		update_scheduled = false,
 		input_context = (scoped and scoped.kind == "folder" and context.folder(cwd)) or nil,
 	}
-		state.provider = {
-			count = function()
-				return #(state.items or {})
-			end,
-			get = function(_, index)
-				return state.items and state.items[index] or nil
-			end,
-		}
+	state.provider = {
+		count = function()
+			return #(state.items or {})
+		end,
+		get = function(_, index)
+			return state.items and state.items[index] or nil
+		end,
+	}
 	return state
 end
 
