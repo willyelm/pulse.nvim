@@ -37,6 +37,15 @@ local function parse_history_output(text, panel_name, pathspec)
 	return out
 end
 
+-- raw_code is always the trailing token of display_right; precomputes its absolute highlight spans.
+local function set_status_display(item)
+	local raw_start = #item.display_right - #item.raw_code
+	item.status_matches = {}
+	for _, span in ipairs(util.status_spans(item.raw_code)) do
+		item.status_matches[#item.status_matches + 1] = { raw_start + span[1], raw_start + span[2], span[3] }
+	end
+end
+
 local function parse_status_lines(lines, scope_prefix)
 	local items = {}
 	for _, line in ipairs(lines or {}) do
@@ -45,7 +54,7 @@ local function parse_status_lines(lines, scope_prefix)
 		local code = vim.trim(raw_code)
 		local path = util.normalize_status_path(vim.trim(line:sub(4)))
 		if path ~= "" and (not scope_prefix or path:sub(1, #scope_prefix) == scope_prefix) then
-			items[#items + 1] = {
+			local item = {
 				kind = "git_status",
 				code = code,
 				raw_code = raw_code,
@@ -57,6 +66,8 @@ local function parse_status_lines(lines, scope_prefix)
 				-- Seeded so the code+color show immediately, before numstat data decorates it further.
 				display_right = raw_code,
 			}
+			set_status_display(item)
+			items[#items + 1] = item
 		end
 	end
 	return items
@@ -79,6 +90,21 @@ local function decorate_status_items(items, stats)
 			item.removed > 0 and ("-" .. item.removed) or nil,
 			item.raw_code,
 		}), " ")
+		set_status_display(item)
+	end
+end
+
+-- Parses `git diff --numstat` output, merging added/removed onto `into` by path.
+local function merge_numstat(into, text)
+	for _, line in ipairs(vim.split(text or "", "\n", { plain = true, trimempty = true })) do
+		local added, removed, path = util.parse_numstat_line(line)
+		if path and path ~= "" then
+			local key = util.normalize_status_path(path)
+			local row = into[key] or { added = 0, removed = 0 }
+			row.added = row.added + (tonumber(added) or 0)
+			row.removed = row.removed + (tonumber(removed) or 0)
+			into[key] = row
+		end
 	end
 end
 
@@ -95,40 +121,24 @@ local function warm_status_all(state)
 			items = parse_status_lines(vim.split(result.stdout or "", "\n", { plain = true, trimempty = true }), state.scope_prefix)
 		end
 		state.status_all = items
-			state._status_loading = false
+		state._status_loading = false
 		if #items > 0 then
-			vim.system({ "git", "-c", "core.fsmonitor=false", "diff", "--numstat" }, { text = true }, function(diff_result)
-				local stats = {}
+			-- Unstaged and staged numstat are independent; run them concurrently.
+			local pending, stats = 2, {}
+			local function on_numstat_done(diff_result)
 				if diff_result.code == 0 then
-					for _, line in ipairs(vim.split(diff_result.stdout or "", "\n", { plain = true, trimempty = true })) do
-						local added, removed, path = line:match("^(%S+)%s+(%S+)%s+(.+)$")
-						if path and path ~= "" then
-							stats[util.normalize_status_path(path)] = {
-								added = tonumber(added) or 0,
-								removed = tonumber(removed) or 0,
-							}
-						end
-					end
+					merge_numstat(stats, diff_result.stdout)
 				end
-				vim.system({ "git", "-c", "core.fsmonitor=false", "diff", "--cached", "--numstat" }, { text = true }, function(cached_result)
-					if cached_result.code == 0 then
-						for _, line in ipairs(vim.split(cached_result.stdout or "", "\n", { plain = true, trimempty = true })) do
-							local added, removed, path = line:match("^(%S+)%s+(%S+)%s+(.+)$")
-							if path and path ~= "" then
-								local key = util.normalize_status_path(path)
-								local row = stats[key] or { added = 0, removed = 0 }
-								row.added = row.added + (tonumber(added) or 0)
-								row.removed = row.removed + (tonumber(removed) or 0)
-								stats[key] = row
-							end
-						end
-					end
+				pending = pending - 1
+				if pending == 0 then
 					decorate_status_items(items, stats)
 					if state._on_update then
 						vim.schedule(state._on_update)
 					end
-				end)
-			end)
+				end
+			end
+			vim.system({ "git", "-c", "core.fsmonitor=false", "diff", "--numstat" }, { text = true }, on_numstat_done)
+			vim.system({ "git", "-c", "core.fsmonitor=false", "diff", "--cached", "--numstat" }, { text = true }, on_numstat_done)
 		end
 		if state._on_update then
 			vim.schedule(state._on_update)
@@ -147,7 +157,7 @@ local function commit_files(state, commit, pathspec)
 
 		entries = {}
 		for _, line in ipairs(util.git_lines(cmd) or {}) do
-			local added, removed, path = line:match("^(%S+)%s+(%S+)%s+(.+)$")
+			local added, removed, path = util.parse_numstat_line(line)
 			if path and path ~= "" then
 				local parsed = util.parse_numstat_path(path)
 				path = parsed and parsed.path or util.normalize_status_path(path)

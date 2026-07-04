@@ -4,10 +4,7 @@ local sync = require("pulse.sync")
 local git_view = require("pulse.navigators.git.view")
 local items = require("pulse.navigators.git.items")
 local util = require("pulse.navigators.git.util")
-
-local function notify(message, level)
-	vim.notify("Pulse: " .. message, level or vim.log.levels.WARN)
-end
+local notify = require("pulse.navigators.util").notify
 
 local is_staged = util.is_staged
 
@@ -171,6 +168,7 @@ M.actions = {
 				title = "commit",
 				action_label = "commit",
 				value = commit_template(ctx.state),
+				comment_prefix = "#",
 				on_submit = function(text)
 					local message = strip_commit_message(text)
 					if message == "" then

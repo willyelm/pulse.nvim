@@ -7,6 +7,29 @@ function M.is_staged(item)
 	return x ~= nil and x ~= " " and x ~= "?"
 end
 
+-- Parses one `--numstat` line into added, removed, path (all strings, or nil if malformed).
+function M.parse_numstat_line(line)
+	return line:match("^(%S+)%s+(%S+)%s+(.+)$")
+end
+
+-- Highlight spans (relative to a 2-char raw_code) for the staged/unstaged columns.
+function M.status_spans(raw_code)
+	if not raw_code or #raw_code ~= 2 then
+		return {}
+	end
+	if raw_code == "??" then
+		return { { 0, 2, "Added" } }
+	end
+	local spans = {}
+	if raw_code:sub(1, 1) ~= " " then
+		spans[#spans + 1] = { 0, 1, "Added" }
+	end
+	if raw_code:sub(2, 2) ~= " " then
+		spans[#spans + 1] = { 1, 2, "Removed" }
+	end
+	return spans
+end
+
 function M.git_lines(cmd)
 	if cmd and cmd[1] == "git" then
 		local next_cmd = { "git", "-c", "core.fsmonitor=false" }
