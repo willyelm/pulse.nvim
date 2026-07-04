@@ -54,6 +54,8 @@ local function parse_status_lines(lines, scope_prefix)
 				filename = path,
 				added = 0,
 				removed = 0,
+				-- Seeded so the code+color show immediately, before numstat data decorates it further.
+				display_right = raw_code,
 			}
 		end
 	end
@@ -343,15 +345,14 @@ local function grouped_status(items)
 		local bucket = util.is_staged(item) and staged or unstaged
 		bucket[#bucket + 1] = item
 	end
+	if #staged == 0 or #unstaged == 0 then
+		return items
+	end
 	local grouped = {}
-	if #staged > 0 then
-		grouped[#grouped + 1] = { kind = "header", label = "staged" }
-		vim.list_extend(grouped, staged)
-	end
-	if #unstaged > 0 then
-		grouped[#grouped + 1] = { kind = "header", label = "unstaged" }
-		vim.list_extend(grouped, unstaged)
-	end
+	grouped[#grouped + 1] = { kind = "header", label = "staged" }
+	vim.list_extend(grouped, staged)
+	grouped[#grouped + 1] = { kind = "header", label = "unstaged" }
+	vim.list_extend(grouped, unstaged)
 	return grouped
 end
 

@@ -171,7 +171,6 @@ M.actions = {
 				title = "commit",
 				action_label = "commit",
 				value = commit_template(ctx.state),
-				submit_key = "<C-c>",
 				on_submit = function(text)
 					local message = strip_commit_message(text)
 					if message == "" then

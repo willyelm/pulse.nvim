@@ -44,7 +44,6 @@ local state = {
 	pending_selected_key = nil,
 	prompt = nil,
 	prompt_buf = nil,
-	prompt_submit_key = nil,
 }
 
 local refresh
@@ -792,13 +791,26 @@ end
 
 local PROMPT_NS = vim.api.nvim_create_namespace("pulse_view_prompt")
 
+-- Grays out `#`-prefixed comment lines (e.g. a commit template).
+local function highlight_comment_lines(buf)
+	local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
+	for i, line in ipairs(lines) do
+		if line:sub(1, 1) == "#" then
+			pcall(vim.api.nvim_buf_set_extmark, buf, PROMPT_NS, i - 1, 0, { end_col = #line, hl_group = "Comment" })
+		end
+	end
+end
+
 -- Virtual hint line under the buffer's last line, re-applied on every edit.
-local function apply_prompt_decorations(buf, action_label, width, submit_key)
+local function apply_prompt_decorations(buf, action_label, width, multiline)
 	vim.api.nvim_buf_clear_namespace(buf, PROMPT_NS, 0, -1)
-	local text, spans = action_menu.build_line({
-		{ key = "<Esc>", label = "cancel" },
-		{ key = submit_key or "<CR>", label = action_label or "confirm" },
-	})
+	highlight_comment_lines(buf)
+	local entries = { { key = "<Esc>", label = "cancel" } }
+	if multiline then
+		entries[#entries + 1] = { key = "<S-CR>", label = "newline" }
+	end
+	entries[#entries + 1] = { key = "<CR>", label = action_label or "confirm" }
+	local text, spans = action_menu.build_line(entries)
 	local chunks, pos = {}, 0
 	local left_pad = math.max((width or 0) - 2 - #text, 0) + 1
 	chunks[1] = { string.rep(" ", left_pad) }
@@ -843,34 +855,30 @@ local function end_prompt(buf, submit)
 	end
 end
 
--- Generic editable scratch buffer; submit key is rebound per-prompt.
+-- Generic editable scratch buffer. <CR> submits, <S-CR>/<C-CR> insert a literal newline.
 local function ensure_prompt_buf()
 	if state.prompt_buf and vim.api.nvim_buf_is_valid(state.prompt_buf) then
 		return state.prompt_buf
 	end
 	local buf = vim.api.nvim_create_buf(false, true)
 	vim.keymap.set({ "i", "n" }, "<Esc>", function() end_prompt(buf, false) end, { buffer = buf, noremap = true, silent = true })
+	vim.keymap.set({ "i", "n" }, "<CR>", function() end_prompt(buf, true) end, { buffer = buf, noremap = true, silent = true })
+	local function insert_newline()
+		vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("<CR>", true, false, true), "n", false)
+	end
+	vim.keymap.set("i", "<S-CR>", insert_newline, { buffer = buf, noremap = true, silent = true })
+	vim.keymap.set("i", "<C-CR>", insert_newline, { buffer = buf, noremap = true, silent = true })
 	vim.api.nvim_create_autocmd({ "TextChanged", "TextChangedI" }, {
 		buffer = buf,
 		callback = function()
 			local p = state.prompt
 			if p then
-				apply_prompt_decorations(buf, p.action_label, p.width, p.submit_key)
+				apply_prompt_decorations(buf, p.action_label, p.width, p.multiline)
 			end
 		end,
 	})
 	state.prompt_buf = buf
 	return buf
-end
-
-local function bind_prompt_submit(buf, key)
-	if state.prompt_submit_key and state.prompt_submit_key ~= key then
-		pcall(vim.keymap.del, { "i", "n" }, state.prompt_submit_key, { buffer = buf })
-	end
-	if state.prompt_submit_key ~= key then
-		vim.keymap.set({ "i", "n" }, key, function() end_prompt(buf, true) end, { buffer = buf, noremap = true, silent = true })
-		state.prompt_submit_key = key
-	end
 end
 
 -- Sizes list/context for a prompt, reusing compute_body_layout's own split helper.
@@ -1155,23 +1163,23 @@ function M.toggle(opts)
 	end
 end
 
--- Turns the preview pane into a one-off prompt (opts: title, value, action_label, submit_key, on_submit, on_cancel).
+-- Turns the preview pane into a one-off prompt (opts: title, value, action_label, on_submit, on_cancel).
+-- value as a table of lines enables <S-CR>/<C-CR> to insert newlines; a plain string keeps it single-line.
 function M.prompt(opts)
 	if not is_visible() then
 		return
 	end
 	opts = opts or {}
-	local lines = type(opts.value) == "table" and opts.value or { opts.value or "" }
-	local submit_key = opts.submit_key or "<CR>"
+	local multiline = type(opts.value) == "table"
+	local lines = multiline and opts.value or { opts.value or "" }
 	local buf = ensure_prompt_buf()
 	vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
-	bind_prompt_submit(buf, submit_key)
 	state.prompt = {
 		on_submit = opts.on_submit,
 		on_cancel = opts.on_cancel,
 		title = opts.title or "",
 		action_label = opts.action_label,
-		submit_key = submit_key,
+		multiline = multiline,
 	}
 	-- Forces the context window to exist before we take it over.
 	render_prompt(#lines + 1)
@@ -1182,7 +1190,7 @@ function M.prompt(opts)
 	end
 	vim.api.nvim_win_set_buf(state.view.win, buf)
 	state.prompt.width = vim.api.nvim_win_get_width(state.view.win)
-	apply_prompt_decorations(buf, opts.action_label, state.prompt.width, submit_key)
+	apply_prompt_decorations(buf, opts.action_label, state.prompt.width, multiline)
 	-- Queued key input, not :startinsert! -- matches the manual keypress that works.
 	vim.schedule(function()
 		if not (state.prompt and state.view and state.view.win and vim.api.nvim_win_is_valid(state.view.win)) then
