@@ -23,6 +23,17 @@ local function binary(size)
 	return { "Binary file (" .. human_size(size) .. ") - preview not shown" }
 end
 
+-- Shared too-large/binary policy; data may be nil if the caller skipped fetching it on size alone.
+local function classify(size, data)
+	if size and size > MAX_PREVIEW_BYTES then
+		return too_large(size)
+	end
+	if data and data:find("%z") then
+		return binary(size)
+	end
+	return nil
+end
+
 -- Returns lines, ok. When ok is false, lines is a placeholder to display.
 function M.read_file_lines(path)
 	local resolved = (path and path ~= "") and vim.fn.fnamemodify(path, ":p") or ""
@@ -30,18 +41,17 @@ function M.read_file_lines(path)
 	if not (stat and stat.type == "file") then
 		return {}, true
 	end
-	if stat.size > MAX_PREVIEW_BYTES then
-		return too_large(stat.size), false
-	end
-	if stat.size > 0 then
+	local data = nil
+	if stat.size > 0 and stat.size <= MAX_PREVIEW_BYTES then
 		local fd = uv.fs_open(resolved, "r", 438)
-		local data = fd and (uv.fs_read(fd, stat.size, 0) or "") or ""
+		data = fd and (uv.fs_read(fd, stat.size, 0) or "") or ""
 		if fd then
 			uv.fs_close(fd)
 		end
-		if data:find("%z") then
-			return binary(stat.size), false
-		end
+	end
+	local placeholder = classify(stat.size, data)
+	if placeholder then
+		return placeholder, false
 	end
 	return vim.fn.readfile(resolved), true
 end
@@ -53,18 +63,17 @@ function M.read_git_blob_lines(rev, path)
 	end
 	local target = rev .. ":" .. path
 	local size_out = vim.fn.system({ "git", "-c", "core.fsmonitor=false", "cat-file", "-s", target })
-	if vim.v.shell_error == 0 then
-		local size = tonumber(vim.trim(size_out))
-		if size and size > MAX_PREVIEW_BYTES then
-			return too_large(size), false
-		end
+	local size = (vim.v.shell_error == 0) and tonumber(vim.trim(size_out)) or nil
+	if size and size > MAX_PREVIEW_BYTES then
+		return too_large(size), false
 	end
 	local raw = vim.fn.system({ "git", "-c", "core.fsmonitor=false", "--no-pager", "show", target })
 	if vim.v.shell_error ~= 0 then
 		return {}, true
 	end
-	if raw:find("%z") then
-		return binary(#raw), false
+	local placeholder = classify(size, raw)
+	if placeholder then
+		return placeholder, false
 	end
 	return vim.split(raw, "\n", { plain = true, trimempty = false }), true
 end
@@ -121,9 +130,13 @@ local function file_snippet(path, lnum, query, match_cols)
 	add_query_matches(highlights, lines, query)
 	if type(match_cols) == "table" then
 		local row = line_no - start_l
-		for _, col in ipairs(match_cols) do
-			if type(col) == "number" and col > 0 then
-				highlights[#highlights + 1] = { group = "Search", row = row, start_col = col - 1, end_col = col }
+		-- A table entry is a contiguous {start, end} span (live_grep); a plain
+		-- number is a single scattered column (fuzzy_search).
+		for _, entry in ipairs(match_cols) do
+			if type(entry) == "table" then
+				highlights[#highlights + 1] = { group = "Search", row = row, start_col = entry[1] - 1, end_col = entry[2] }
+			elseif type(entry) == "number" and entry > 0 then
+				highlights[#highlights + 1] = { group = "Search", row = row, start_col = entry - 1, end_col = entry }
 			end
 		end
 	end

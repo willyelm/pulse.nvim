@@ -182,7 +182,10 @@ local function display_folder(item)
 end
 
 local function display_grep(item)
-	local line = vim.trim(item.text or "")
+	local raw = item.text or ""
+	-- match_cols is relative to the untrimmed raw text; shift by what vim.trim strips below.
+	local leading = item.leading or #(raw:match("^%s*") or "")
+	local line = vim.trim(raw)
 	if line == "" then
 		line = file_name(item.path or item.filename)
 	end
@@ -200,11 +203,21 @@ local function display_grep(item)
 		end
 	end
 
+	-- A table entry is a {start,end} span (live_grep); a number is one scattered column (fuzzy_search).
 	if type(item.match_cols) == "table" and #item.match_cols > 0 then
 		out.left_matches = out.left_matches or {}
-		for _, col in ipairs(item.match_cols) do
-			if type(col) == "number" and col > 0 then
-				out.left_matches[#out.left_matches + 1] = { col - 1, col }
+		for _, entry in ipairs(item.match_cols) do
+			if type(entry) == "table" then
+				-- entry holds 1-indexed inclusive {first_col, last_col}.
+				local first_col, last_col = entry[1] - leading, entry[2] - leading
+				if last_col > 0 then
+					out.left_matches[#out.left_matches + 1] = { math.max(first_col - 1, 0), last_col }
+				end
+			elseif type(entry) == "number" then
+				local shifted = entry - leading
+				if shifted > 0 then
+					out.left_matches[#out.left_matches + 1] = { shifted - 1, shifted }
+				end
 			end
 		end
 	end
@@ -229,20 +242,9 @@ local function display_git_status(item)
 		if p1 then
 			display.right_matches[#display.right_matches + 1] = { p1 - 1, p2, "Removed" }
 		end
-		-- Trailing raw_code: index column (staged, green) vs worktree column (unstaged, red)
-		local raw = item.raw_code
-		if raw and #raw == 2 and right_str:sub(-2) == raw then
-			local start = #right_str - 2
-			if raw == "??" then
-				display.right_matches[#display.right_matches + 1] = { start, start + 2, "Added" }
-			else
-				if raw:sub(1, 1) ~= " " then
-					display.right_matches[#display.right_matches + 1] = { start, start + 1, "Added" }
-				end
-				if raw:sub(2, 2) ~= " " then
-					display.right_matches[#display.right_matches + 1] = { start + 1, start + 2, "Removed" }
-				end
-			end
+		-- Staged (green) / unstaged (red) columns, precomputed in items.lua alongside display_right.
+		for _, span in ipairs(item.status_matches or {}) do
+			display.right_matches[#display.right_matches + 1] = span
 		end
 	end
 
