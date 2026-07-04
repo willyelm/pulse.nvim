@@ -7,6 +7,14 @@
 - add per-picker config support with initial `files` options
 - add `files.open_on_directory` to open Pulse files for `nvim .`
 
+
+## [0.8.0] - 2026-07-04
+
+### New
+
+- add git stage/unstage and commit actions
+- add prompt mode for panel actions
+
 ## [0.7.8] - 2026-07-03
 
 ### Changed
@@ -134,34 +142,3 @@
 
 - fix: improved panel switching and input cursor
 
-## [0.5.0] - 2026-03-21
-
-### New
-
-- enhanced panel based navigation system
-- add scope based indicator for symbols, fuzzy_search and files
-- support git status in file view
-
-### Changed
-
-- fix: recover files tree state on toggle
-- fix: use file preview on <Tab>
-- fix: correct scroll refresh when updating list
-- fix: use correct colors for git signs
-- fix: add new files in git status diff view
-- fix: use navigation and context terminology
-
-## [0.4.0] - 2026-03-21
-
-### New
-
-- enable use file picker as file tree directory
-- add file picker panels, all, open and recent using tree for files and folders
-- enable multiple picker panels with arrow based navigation
-
-### Changed
-
-- fix: stop insert on file open
-- chore: remove old preview templates
-- fix: remove command preview content
-- fix: retain session state instead of recreate on each toggle
