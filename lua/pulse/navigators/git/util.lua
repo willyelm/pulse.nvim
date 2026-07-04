@@ -1,6 +1,12 @@
 local M = {}
 local uv = vim.uv or vim.loop
 
+-- raw_code[1] is the index/staged column ("M"/"A"/"D"/... vs " "/"?").
+function M.is_staged(item)
+	local x = item and item.raw_code and item.raw_code:sub(1, 1)
+	return x ~= nil and x ~= " " and x ~= "?"
+end
+
 function M.git_lines(cmd)
 	if cmd and cmd[1] == "git" then
 		local next_cmd = { "git", "-c", "core.fsmonitor=false" }

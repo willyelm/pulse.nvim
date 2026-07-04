@@ -22,8 +22,7 @@ local function git_patch_for(path)
 	return { "No git diff for " .. tostring(path) }
 end
 
--- Shape a set of preview lines (real content or a placeholder) into the
--- 5-tuple view_item's callers expect.
+-- Shapes preview lines into the 5-tuple view_item's callers expect.
 local function as_view(lines, highlights, focus_row, filetype)
 	return lines, filetype or "text", highlights or {}, nil, focus_row or 1
 end

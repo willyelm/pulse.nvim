@@ -229,17 +229,20 @@ local function display_git_status(item)
 		if p1 then
 			display.right_matches[#display.right_matches + 1] = { p1 - 1, p2, "Removed" }
 		end
-		p1, p2 = right_str:find("?", 1, true)
-		if p1 then
-			display.right_matches[#display.right_matches + 1] = { p1 - 1, p2, "Added" }
-		end
-		p1, p2 = right_str:find("A", 1, true)
-		if p1 then
-			display.right_matches[#display.right_matches + 1] = { p1 - 1, p2, "Added" }
-		end
-		p1, p2 = right_str:find("D", 1, true)
-		if p1 then
-			display.right_matches[#display.right_matches + 1] = { p1 - 1, p2, "Removed" }
+		-- Trailing raw_code: index column (staged, green) vs worktree column (unstaged, red)
+		local raw = item.raw_code
+		if raw and #raw == 2 and right_str:sub(-2) == raw then
+			local start = #right_str - 2
+			if raw == "??" then
+				display.right_matches[#display.right_matches + 1] = { start, start + 2, "Added" }
+			else
+				if raw:sub(1, 1) ~= " " then
+					display.right_matches[#display.right_matches + 1] = { start, start + 1, "Added" }
+				end
+				if raw:sub(2, 2) ~= " " then
+					display.right_matches[#display.right_matches + 1] = { start + 1, start + 2, "Removed" }
+				end
+			end
 		end
 	end
 

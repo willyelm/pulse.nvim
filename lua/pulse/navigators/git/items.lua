@@ -40,12 +40,15 @@ end
 local function parse_status_lines(lines, scope_prefix)
 	local items = {}
 	for _, line in ipairs(lines or {}) do
-		local code = vim.trim(line:sub(1, 2))
+		-- raw_code keeps the index/worktree columns positional; code (trimmed) can't.
+		local raw_code = line:sub(1, 2)
+		local code = vim.trim(raw_code)
 		local path = util.normalize_status_path(vim.trim(line:sub(4)))
 		if path ~= "" and (not scope_prefix or path:sub(1, #scope_prefix) == scope_prefix) then
 			items[#items + 1] = {
 				kind = "git_status",
 				code = code,
+				raw_code = raw_code,
 				path = path,
 				label = path,
 				filename = path,
@@ -72,16 +75,18 @@ local function decorate_status_items(items, stats)
 		end, {
 			item.added > 0 and ("+" .. item.added) or nil,
 			item.removed > 0 and ("-" .. item.removed) or nil,
-			item.code,
+			item.raw_code,
 		}), " ")
 	end
 end
 
 local function warm_status_all(state)
-	if state._status_loading or state.status_all ~= nil then
+	-- status_dirty (not status_all == nil) triggers a refetch, so selection survives it.
+	if state._status_loading or (state.status_all ~= nil and not state.status_dirty) then
 		return
 	end
 	state._status_loading = true
+	state.status_dirty = false
 	vim.system({ "git", "-c", "core.fsmonitor=false", "status", "--porcelain=v1", "--untracked-files=all" }, { text = true }, function(result)
 		local items = {}
 		if result.code == 0 then
@@ -331,6 +336,25 @@ local function history_items(state, query, panel_name)
 	return provider
 end
 
+-- Groups into "staged"/"unstaged" gray, non-selectable header rows.
+local function grouped_status(items)
+	local staged, unstaged = {}, {}
+	for _, item in ipairs(items) do
+		local bucket = util.is_staged(item) and staged or unstaged
+		bucket[#bucket + 1] = item
+	end
+	local grouped = {}
+	if #staged > 0 then
+		grouped[#grouped + 1] = { kind = "header", label = "staged" }
+		vim.list_extend(grouped, staged)
+	end
+	if #unstaged > 0 then
+		grouped[#grouped + 1] = { kind = "header", label = "unstaged" }
+		vim.list_extend(grouped, unstaged)
+	end
+	return grouped
+end
+
 local function status_items(state, query)
 	local q = vim.trim(query or "")
 	local match = pulse.make_matcher(q, { ignore_case = true, plain = true })
@@ -341,12 +365,13 @@ local function status_items(state, query)
 	end
 	warm_status_all(state)
 
-	local filtered = {}
+	local matched = {}
 	for _, item in ipairs(state.status_all or {}) do
 		if match(item.path .. " " .. item.code) then
-			filtered[#filtered + 1] = item
+			matched[#matched + 1] = item
 		end
 	end
+	local filtered = grouped_status(matched)
 	local provider = {}
 
 	function provider:count()
@@ -393,8 +418,8 @@ function M.invalidate_status(state)
 	if not state then
 		return
 	end
-	state.status_all = nil
-	state.status_key = nil
+	-- Leaves status_all in place (see warm_status_all) so selection survives the refetch.
+	state.status_dirty = true
 	state._status_loading = false
 end
 

@@ -171,7 +171,7 @@ function M.close_buffer(ctx)
 	if vim.bo[bufnr].modified and vim.fn.confirm("Buffer has unsaved changes. Close anyway?", "&Yes\n&No", 2) ~= 1 then
 		return true
 	end
-	-- nvim_buf_delete can silently no-op on a background window while a float is current; move it off first.
+	-- Move background windows off this buffer first, or delete can silently no-op.
 	local alt = vim.fn.bufnr("#")
 	for _, win in ipairs(vim.fn.win_findbuf(bufnr)) do
 		if vim.api.nvim_win_is_valid(win) then

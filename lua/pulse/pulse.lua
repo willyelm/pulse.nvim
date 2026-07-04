@@ -44,6 +44,7 @@ local state = {
 	pending_selected_key = nil,
 	prompt = nil,
 	prompt_buf = nil,
+	prompt_submit_key = nil,
 }
 
 local refresh
@@ -791,12 +792,12 @@ end
 
 local PROMPT_NS = vim.api.nvim_create_namespace("pulse_view_prompt")
 
--- Virtual "esc cancel  enter <action_label>" line, right-aligned like the list's own action bar.
-local function apply_prompt_decorations(buf, action_label, width)
+-- Virtual hint line under the buffer's last line, re-applied on every edit.
+local function apply_prompt_decorations(buf, action_label, width, submit_key)
 	vim.api.nvim_buf_clear_namespace(buf, PROMPT_NS, 0, -1)
 	local text, spans = action_menu.build_line({
 		{ key = "<Esc>", label = "cancel" },
-		{ key = "<CR>", label = action_label or "confirm" },
+		{ key = submit_key or "<CR>", label = action_label or "confirm" },
 	})
 	local chunks, pos = {}, 0
 	local left_pad = math.max((width or 0) - 2 - #text, 0) + 1
@@ -834,7 +835,7 @@ local function end_prompt(buf, submit)
 	if not prompt then
 		return
 	end
-	local value = submit and (vim.api.nvim_buf_get_lines(buf, 0, 1, false)[1] or "") or nil
+	local value = submit and table.concat(vim.api.nvim_buf_get_lines(buf, 0, -1, false), "\n") or nil
 	local on_done = submit and prompt.on_submit or prompt.on_cancel
 	exit_prompt()
 	if on_done then
@@ -842,26 +843,43 @@ local function end_prompt(buf, submit)
 	end
 end
 
--- Generic editable scratch buffer; only Enter/Esc are fixed.
+-- Generic editable scratch buffer; submit key is rebound per-prompt.
 local function ensure_prompt_buf()
 	if state.prompt_buf and vim.api.nvim_buf_is_valid(state.prompt_buf) then
 		return state.prompt_buf
 	end
 	local buf = vim.api.nvim_create_buf(false, true)
-	local map_opts = { buffer = buf, noremap = true, silent = true }
-	vim.keymap.set({ "i", "n" }, "<CR>", function() end_prompt(buf, true) end, map_opts)
-	vim.keymap.set({ "i", "n" }, "<Esc>", function() end_prompt(buf, false) end, map_opts)
+	vim.keymap.set({ "i", "n" }, "<Esc>", function() end_prompt(buf, false) end, { buffer = buf, noremap = true, silent = true })
+	vim.api.nvim_create_autocmd({ "TextChanged", "TextChangedI" }, {
+		buffer = buf,
+		callback = function()
+			local p = state.prompt
+			if p then
+				apply_prompt_decorations(buf, p.action_label, p.width, p.submit_key)
+			end
+		end,
+	})
 	state.prompt_buf = buf
 	return buf
 end
 
+local function bind_prompt_submit(buf, key)
+	if state.prompt_submit_key and state.prompt_submit_key ~= key then
+		pcall(vim.keymap.del, { "i", "n" }, state.prompt_submit_key, { buffer = buf })
+	end
+	if state.prompt_submit_key ~= key then
+		vim.keymap.set({ "i", "n" }, key, function() end_prompt(buf, true) end, { buffer = buf, noremap = true, silent = true })
+		state.prompt_submit_key = key
+	end
+end
+
 -- Sizes list/context for a prompt, reusing compute_body_layout's own split helper.
-local function render_prompt()
+local function render_prompt(content_height)
 	if not state.prompt then
 		return
 	end
 	local total_height = math.max(layout.resolve_max_height(current_box_opts().height) - 2, 1)
-	local list_height, view_height = split_body_height(total_height, total_height, 2)
+	local list_height, view_height = split_body_height(total_height, total_height, math.min(content_height, total_height - 1))
 	render_current_view({
 		show_panels = false,
 		list_height = list_height,
@@ -1044,7 +1062,7 @@ local function bind_widgets()
 			on_change = refresh,
 			on_shift_enter = toggle_fullscreen,
 			on_escape = function()
-				-- If the main input regains focus mid-prompt, cancel it instead of hiding everything.
+				-- Regaining input focus mid-prompt cancels it instead of hiding.
 				if state.prompt then
 					return end_prompt(state.prompt_buf, false)
 				end
@@ -1137,30 +1155,35 @@ function M.toggle(opts)
 	end
 end
 
--- Turns the preview pane into a one-off prompt (opts.title/value/action_label/on_submit/on_cancel).
+-- Turns the preview pane into a one-off prompt (opts: title, value, action_label, submit_key, on_submit, on_cancel).
 function M.prompt(opts)
 	if not is_visible() then
 		return
 	end
 	opts = opts or {}
-	local value = opts.value or ""
+	local lines = type(opts.value) == "table" and opts.value or { opts.value or "" }
+	local submit_key = opts.submit_key or "<CR>"
 	local buf = ensure_prompt_buf()
-	vim.api.nvim_buf_set_lines(buf, 0, -1, false, { value })
+	vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
+	bind_prompt_submit(buf, submit_key)
 	state.prompt = {
 		on_submit = opts.on_submit,
 		on_cancel = opts.on_cancel,
 		title = opts.title or "",
+		action_label = opts.action_label,
+		submit_key = submit_key,
 	}
-	-- Forces the context window to exist (e.g. even if view=false) before we take it over.
-	render_prompt()
+	-- Forces the context window to exist before we take it over.
+	render_prompt(#lines + 1)
 	if not (state.view and state.view.win and vim.api.nvim_win_is_valid(state.view.win)) then
 		vim.notify("Pulse: prompt has no context window to take over", vim.log.levels.ERROR)
 		state.prompt = nil
 		return
 	end
 	vim.api.nvim_win_set_buf(state.view.win, buf)
-	apply_prompt_decorations(buf, opts.action_label, vim.api.nvim_win_get_width(state.view.win))
-	-- Real queued key input ("A": end of line + insert) instead of :startinsert!, matching the manual keypress that already works.
+	state.prompt.width = vim.api.nvim_win_get_width(state.view.win)
+	apply_prompt_decorations(buf, opts.action_label, state.prompt.width, submit_key)
+	-- Queued key input, not :startinsert! -- matches the manual keypress that works.
 	vim.schedule(function()
 		if not (state.prompt and state.view and state.view.win and vim.api.nvim_win_is_valid(state.view.win)) then
 			return

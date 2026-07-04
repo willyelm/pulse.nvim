@@ -3,6 +3,52 @@ local context = require("pulse.context")
 local sync = require("pulse.sync")
 local git_view = require("pulse.navigators.git.view")
 local items = require("pulse.navigators.git.items")
+local util = require("pulse.navigators.git.util")
+
+local function notify(message, level)
+	vim.notify("Pulse: " .. message, level or vim.log.levels.WARN)
+end
+
+local is_staged = util.is_staged
+
+local STATUS_KIND = { A = "new file", M = "modified", D = "deleted", R = "renamed", C = "copied" }
+
+-- Mirrors a real `git commit` template (blank subject + staged file comments).
+local function commit_template(state)
+	local branch = (util.git_lines({ "git", "rev-parse", "--abbrev-ref", "HEAD" }) or {})[1] or "HEAD"
+	local lines = {
+		"",
+		"# Please enter the commit message for your changes. Lines starting",
+		"# with '#' will be ignored, and an empty message aborts the commit.",
+		"#",
+		"# On branch " .. branch,
+		"# Changes to be committed:",
+	}
+	for _, item in ipairs(state.status_all or {}) do
+		if is_staged(item) then
+			lines[#lines + 1] = string.format("#\t%s:   %s", STATUS_KIND[item.raw_code:sub(1, 1)] or "changed", item.path)
+		end
+	end
+	lines[#lines + 1] = "#"
+	return lines
+end
+
+-- Matches git's default commit.cleanup=strip.
+local function strip_commit_message(text)
+	local out = {}
+	for _, line in ipairs(vim.split(text or "", "\n", { plain = true })) do
+		if not line:match("^#") then
+			out[#out + 1] = (line:gsub("%s+$", ""))
+		end
+	end
+	while out[1] == "" do
+		table.remove(out, 1)
+	end
+	while out[#out] == "" do
+		table.remove(out)
+	end
+	return table.concat(out, "\n")
+end
 
 M.name = "git"
 M.icon = "󰊢"
@@ -85,6 +131,63 @@ M.actions = {
 			vim.fn.system({ "git", "restore", "--staged", "--worktree", "--", item.path })
 			items.invalidate_status(ctx.state)
 			ctx.refresh()
+		end,
+	},
+	{
+		key = "<Tab>",
+		name = function(ctx)
+			local item = ctx and ctx.item
+			if not (item and item.kind == "git_status") then
+				return nil
+			end
+			return is_staged(item) and "unstage" or "stage"
+		end,
+		when = function(ctx)
+			local item = ctx and ctx.item
+			return ctx and ctx.panel and ctx.panel.name == "git_status" and item and item.kind == "git_status"
+		end,
+		run = function(ctx)
+			local item = ctx and ctx.item
+			if not item then
+				return
+			end
+			local cmd = is_staged(item) and { "git", "restore", "--staged", "--", item.path }
+				or { "git", "add", "--", item.path }
+			if not util.git_lines(cmd) then
+				notify((is_staged(item) and "unstage" or "stage") .. " failed", vim.log.levels.ERROR)
+			end
+			items.invalidate_status(ctx.state)
+			ctx.refresh()
+		end,
+	},
+	{
+		key = "<C-c>",
+		name = "commit",
+		when = function(ctx)
+			return ctx and ctx.panel and ctx.panel.name == "git_status"
+		end,
+		run = function(ctx)
+			require("pulse.pulse").prompt({
+				title = "commit",
+				action_label = "commit",
+				value = commit_template(ctx.state),
+				submit_key = "<C-c>",
+				on_submit = function(text)
+					local message = strip_commit_message(text)
+					if message == "" then
+						notify("empty commit message, aborting", vim.log.levels.WARN)
+						return
+					end
+					local out = vim.fn.system({ "git", "-c", "core.fsmonitor=false", "commit", "-F", "-" }, message)
+					if vim.v.shell_error ~= 0 then
+						notify("commit failed: " .. vim.trim(out or ""), vim.log.levels.ERROR)
+						return
+					end
+					items.invalidate_status(ctx.state)
+					ctx.refresh()
+				end,
+			})
+			return false
 		end,
 	},
 }

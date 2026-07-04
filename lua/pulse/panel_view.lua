@@ -23,8 +23,7 @@ local function binary(size)
 	return { "Binary file (" .. human_size(size) .. ") - preview not shown" }
 end
 
--- Read a file from disk as lines. Returns lines, ok. When ok is false,
--- `lines` is a placeholder to display as-is rather than real file content.
+-- Returns lines, ok. When ok is false, lines is a placeholder to display.
 function M.read_file_lines(path)
 	local resolved = (path and path ~= "") and vim.fn.fnamemodify(path, ":p") or ""
 	local stat = resolved ~= "" and uv.fs_stat(resolved) or nil
@@ -47,8 +46,7 @@ function M.read_file_lines(path)
 	return vim.fn.readfile(resolved), true
 end
 
--- Read a `git show <rev>:<path>` blob as lines, under the same policy.
--- Returns lines, ok (see M.read_file_lines).
+-- Same policy as M.read_file_lines, for a `git show <rev>:<path>` blob.
 function M.read_git_blob_lines(rev, path)
 	if not (rev and path and path ~= "") then
 		return {}, true

@@ -77,10 +77,7 @@ local function pulse_command(opts)
 	end
 	local next_prompt = config.switch_prompt(navigator.get_prompt() or "", mode_name)
 
-	-- Decide by what the target panel itself needs, not by session visibility:
-	-- a workspace-capable panel needs no scope, so drop any leftover context;
-	-- a panel that only ever runs scoped (e.g. buffer-only) picks up the
-	-- current buffer so it has one to work with.
+	-- Decide by what the target panel needs, not session visibility.
 	local target_entry = panel.default_panel(mod.panels, panel_name)
 	local extra_opts = {}
 	if vim.tbl_contains(panel.panel_contexts(target_entry), "workspace") then
