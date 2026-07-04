@@ -52,8 +52,8 @@ local function refresh_actions(ctx)
 	end
 end
 
-local function action_input(prompt, default, cb)
-	vim.ui.input({ prompt = prompt, default = default }, cb)
+local function prompt(opts)
+	require("pulse.pulse").prompt(opts)
 	return false
 end
 
@@ -62,51 +62,65 @@ function M.add(ctx)
 	if not dest_dir or dest_dir == "" then
 		return true
 	end
-	return action_input("Add: ", nil, function(value)
-		value = vim.trim(value or "")
-		if value == "" then
-			return ctx.focus()
-		end
-		local dest = dest_dir .. "/" .. value
-		local ok
-		if value:sub(-1) == "/" then
-			vim.fn.mkdir(dest, "p")
-			ok = vim.fn.isdirectory(dest) == 1
-		else
-			ensure_parent(dest)
-			ok = not path_taken(dest) and vim.fn.writefile({}, dest) == 0
-		end
-		if not ok then
-			notify("create failed or target already exists", vim.log.levels.ERROR)
-		end
-		refresh_actions(ctx)
-		ctx.focus()
-	end)
+	return prompt({
+		title = "add",
+		action_label = "add",
+		on_submit = function(value)
+			value = vim.trim(value or "")
+			if value == "" then
+				return
+			end
+			local dest = dest_dir .. "/" .. value
+			local ok
+			if value:sub(-1) == "/" then
+				vim.fn.mkdir(dest, "p")
+				ok = vim.fn.isdirectory(dest) == 1
+			else
+				ensure_parent(dest)
+				ok = not path_taken(dest) and vim.fn.writefile({}, dest) == 0
+			end
+			if not ok then
+				notify("create failed or target already exists", vim.log.levels.ERROR)
+			end
+			refresh_actions(ctx)
+		end,
+	})
 end
 
+-- Prefills the workspace-relative path so editing the directory moves it too.
 function M.rename(ctx)
 	local src = selected_path(ctx)
 	if not src then
 		return true
 	end
-	local current = vim.fn.fnamemodify(src, ":t")
-	return action_input("Rename: ", current, function(value)
-		if not value or value == "" or value == current then
-			return ctx.focus()
-		end
-		local dest = vim.fn.fnamemodify(src, ":h") .. "/" .. value
-		if path_taken(dest) then
-			notify("target already exists", vim.log.levels.ERROR)
-		elseif vim.fn.rename(src, dest) ~= 0 then
-			notify("rename failed", vim.log.levels.ERROR)
-		elseif ctx.context and ctx.context.kind == "file" and ctx.context.path == src then
-			ctx.set_context(context.file(dest, vim.fn.bufnr(vim.fn.fnamemodify(dest, ":p"))))
-		elseif ctx.context and ctx.context.kind == "folder" and ctx.context.path == src then
-			ctx.set_context(context.folder(dest))
-		end
-		refresh_actions(ctx)
-		ctx.focus()
-	end)
+	local root = ctx.state and ctx.state.root
+	local current = (ctx.item and ctx.item.path) or vim.fn.fnamemodify(src, ":t")
+	return prompt({
+		title = "rename",
+		action_label = "rename",
+		value = current,
+		on_submit = function(value)
+			value = vim.trim(value or "")
+			if value == "" or value == current then
+				return
+			end
+			local dest = (root and items.absolute_path(root, value) or (vim.fn.fnamemodify(src, ":h") .. "/" .. value))
+			dest = vim.fn.fnamemodify(dest, ":p"):gsub("/$", "")
+			if path_taken(dest) then
+				notify("target already exists", vim.log.levels.ERROR)
+			else
+				ensure_parent(dest)
+				if vim.fn.rename(src, dest) ~= 0 then
+					notify("rename failed", vim.log.levels.ERROR)
+				elseif ctx.context and ctx.context.kind == "file" and ctx.context.path == src then
+					ctx.set_context(context.file(dest, vim.fn.bufnr(vim.fn.fnamemodify(dest, ":p"))))
+				elseif ctx.context and ctx.context.kind == "folder" and ctx.context.path == src then
+					ctx.set_context(context.folder(dest))
+				end
+			end
+			refresh_actions(ctx)
+		end,
+	})
 end
 
 function M.delete(ctx)
@@ -114,19 +128,34 @@ function M.delete(ctx)
 	if not src then
 		return true
 	end
-	if vim.fn.confirm("Delete " .. vim.fn.fnamemodify(src, ":t") .. "?", "&Yes\n&No", 2) ~= 1 then
-		return true
-	end
-	if vim.fn.delete(src, "rf") ~= 0 then
-		notify("delete failed", vim.log.levels.ERROR)
-		return true
-	end
-	if ctx.context and ctx.context.path == src then
-		ctx.clear_context()
-	else
-		refresh_actions(ctx)
-	end
-	return true
+	local root = ctx.state and ctx.state.root
+	-- Editable path lets a folder-delete be redirected to one entry inside it.
+	local current = (ctx.item and ctx.item.path) or vim.fn.fnamemodify(src, ":t")
+	return prompt({
+		title = "delete",
+		action_label = "delete",
+		value = current,
+		on_submit = function(value)
+			value = vim.trim(value or "")
+			if value == "" then
+				return
+			end
+			local target = root and items.absolute_path(root, value) or src
+			if not path_taken(target) then
+				notify("not found: " .. value, vim.log.levels.ERROR)
+				return
+			end
+			if vim.fn.delete(target, "rf") ~= 0 then
+				notify("delete failed", vim.log.levels.ERROR)
+				return
+			end
+			if ctx.context and ctx.context.path == target then
+				ctx.clear_context()
+			else
+				refresh_actions(ctx)
+			end
+		end,
+	})
 end
 
 function M.close_buffer(ctx)
@@ -142,9 +171,7 @@ function M.close_buffer(ctx)
 	if vim.bo[bufnr].modified and vim.fn.confirm("Buffer has unsaved changes. Close anyway?", "&Yes\n&No", 2) ~= 1 then
 		return true
 	end
-	-- Neovim won't reliably swap a buffer out of a background window while a
-	-- floating window (like Pulse's own UI) is current, so nvim_buf_delete
-	-- can silently no-op on it; move those windows off it ourselves first.
+	-- nvim_buf_delete can silently no-op on a background window while a float is current; move it off first.
 	local alt = vim.fn.bufnr("#")
 	for _, win in ipairs(vim.fn.win_findbuf(bufnr)) do
 		if vim.api.nvim_win_is_valid(win) then

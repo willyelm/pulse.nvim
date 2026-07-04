@@ -22,36 +22,40 @@ local function friendly_key(lhs)
 	return lhs:gsub("[<>]", ""):lower()
 end
 
+-- Builds "key label  key label" text plus label highlight spans from {key, label} entries.
+function M.build_line(entries)
+	local chunks, spans, text_width = {}, {}, 0
+	for _, entry in ipairs(entries or {}) do
+		if #chunks > 0 then
+			chunks[#chunks + 1] = " "
+			text_width = text_width + 1
+		end
+		local key_text = friendly_key(entry.key)
+		local label_text = " " .. string.lower(tostring(entry.label or ""))
+		local text = key_text .. label_text
+		chunks[#chunks + 1] = text
+		spans[#spans + 1] = { hl = "LineNr", start_col = text_width + #key_text, end_col = text_width + #text }
+		text_width = text_width + #text
+	end
+	return table.concat(chunks), spans
+end
+
 function M.render(target, ns, labels, active_actions, ordered_keys)
 	if not (target and target.buf and vim.api.nvim_buf_is_valid(target.buf)) then
 		return
 	end
 
-	local chunks = {}
-	local spans = {}
-	local text_width = 0
-
+	local entries = {}
 	for i = #(ordered_keys or {}), 1, -1 do
 		local lhs = ordered_keys[i]
 		local run = active_actions and active_actions[lhs]
 		local label = labels and labels[lhs]
 		if type(run) == "function" and type(label) == "string" and label ~= "" then
-			label = string.lower(label)
-			if #chunks > 0 then
-				chunks[#chunks + 1] = " "
-				text_width = text_width + 1
-			end
-			local key_text = friendly_key(lhs)
-			local label_text = " " .. label
-			local text = key_text .. label_text
-			chunks[#chunks + 1] = text
-			spans[#spans + 1] =
-				{ hl = "LineNr", start_col = text_width + #key_text, end_col = text_width + #text }
-			text_width = text_width + #text
+			entries[#entries + 1] = { key = lhs, label = label }
 		end
 	end
+	local full_line, spans = M.build_line(entries)
 
-	local full_line = table.concat(chunks)
 	local width = (target.win and vim.api.nvim_win_is_valid(target.win)) and vim.api.nvim_win_get_width(target.win)
 		or #full_line
 	local inner_width = math.max(width - 2, 0)
@@ -67,10 +71,10 @@ function M.render(target, ns, labels, active_actions, ordered_keys)
 		local end_col = math.min(span.end_col, offset + #line)
 		if start_col < end_col then
 			pcall(vim.api.nvim_buf_set_extmark, target.buf, ns, 0, 1 + left_pad + (start_col - offset), {
-			end_row = 0,
+				end_row = 0,
 				end_col = 1 + left_pad + (end_col - offset),
-			hl_group = span.hl,
-		})
+				hl_group = span.hl,
+			})
 		end
 	end
 end

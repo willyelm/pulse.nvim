@@ -8,8 +8,8 @@ One entry point. Total focus.
 
 ## What is Pulse
 
-A fast command palette for Neovim. Pulse uses a prefix
-approach to move quickly between navigator modes:
+A fast command palette for Neovim. Pulse uses a prefix approach to move quickly
+between navigator modes:
 
 | Prefix      | Mode                          |
 | ----------- | ----------------------------- |
@@ -67,11 +67,10 @@ require("pulse").setup({
 
 ## Navigators
 
-Navigators are the different modes you can enter in Pulse.
-Each navigator has its own data source, display, and actions.
+Navigators are the different modes you can enter in Pulse. Each navigator has
+its own data source, display, and actions.
 
-You can configure which navigators to
-load and their config options.
+You can configure which navigators to load and their config options.
 
 **Default navigators** (all loaded if not specified):
 
@@ -126,9 +125,9 @@ a file explorer and replace netrw.
 
 ### Setup as Default Tree
 
-To open Pulse files instead of netrw for directory buffers like `nvim .`,
-set the netrw globals before setup and enable `open_on_directory` on
-the files navigator:
+To open Pulse files instead of netrw for directory buffers like `nvim .`, set
+the netrw globals before setup and enable `open_on_directory` on the files
+navigator:
 
 ```lua
 -- Set in your vim config

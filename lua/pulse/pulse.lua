@@ -42,6 +42,8 @@ local state = {
 	bound_action_keys = {},
 	selected_items = {},
 	pending_selected_key = nil,
+	prompt = nil,
+	prompt_buf = nil,
 }
 
 local refresh
@@ -566,7 +568,8 @@ end
 local function render_current_view(body, menu, opts)
 	opts = opts or {}
 	local action_runs, action_labels, ordered = {}, {}, {}
-	do
+	-- Hide the list's action bar while prompting (frozen selection).
+	if not state.prompt then
 		local actions, all = panel_actions()
 		for _, lhs in ipairs(all) do
 			local entry = actions[lhs]
@@ -587,6 +590,7 @@ local function render_current_view(body, menu, opts)
 		actions = state.session.actions,
 		show_panels = body.show_panels,
 		show_actions = #ordered > 0,
+		divider_title = state.prompt and state.prompt.title or nil,
 	})
 	panel.render(state.session.panels, state.session.panels_ns, menu)
 	action_menu.render(
@@ -747,6 +751,9 @@ local function apply_view_model(vm)
 end
 
 refresh = function()
+	if state.prompt then
+		return
+	end
 	local vm, redirected = compute_view_model()
 	if redirected or not vm then
 		return
@@ -782,7 +789,92 @@ local function switch_panel(direction)
 	return true
 end
 
+local PROMPT_NS = vim.api.nvim_create_namespace("pulse_view_prompt")
+
+-- Virtual "esc cancel  enter <action_label>" line, right-aligned like the list's own action bar.
+local function apply_prompt_decorations(buf, action_label, width)
+	vim.api.nvim_buf_clear_namespace(buf, PROMPT_NS, 0, -1)
+	local text, spans = action_menu.build_line({
+		{ key = "<Esc>", label = "cancel" },
+		{ key = "<CR>", label = action_label or "confirm" },
+	})
+	local chunks, pos = {}, 0
+	local left_pad = math.max((width or 0) - 2 - #text, 0) + 1
+	chunks[1] = { string.rep(" ", left_pad) }
+	for _, s in ipairs(spans) do
+		if s.start_col > pos then
+			chunks[#chunks + 1] = { text:sub(pos + 1, s.start_col) }
+		end
+		chunks[#chunks + 1] = { text:sub(s.start_col + 1, s.end_col), s.hl }
+		pos = s.end_col
+	end
+	if pos < #text then
+		chunks[#chunks + 1] = { text:sub(pos + 1) }
+	end
+	local last = vim.api.nvim_buf_line_count(buf) - 1
+	vim.api.nvim_buf_set_extmark(buf, PROMPT_NS, last, 0, { virt_lines = { chunks } })
+end
+
+local function exit_prompt()
+	local prompt = state.prompt
+	if not prompt then
+		return nil
+	end
+	state.prompt = nil
+	if state.view and state.view.win and vim.api.nvim_win_is_valid(state.view.win) and state.view.buf then
+		pcall(vim.api.nvim_win_set_buf, state.view.win, state.view.buf)
+	end
+	refresh()
+	schedule_focus_input()
+	return prompt
+end
+
+local function end_prompt(buf, submit)
+	local prompt = state.prompt
+	if not prompt then
+		return
+	end
+	local value = submit and (vim.api.nvim_buf_get_lines(buf, 0, 1, false)[1] or "") or nil
+	local on_done = submit and prompt.on_submit or prompt.on_cancel
+	exit_prompt()
+	if on_done then
+		on_done(value)
+	end
+end
+
+-- Generic editable scratch buffer; only Enter/Esc are fixed.
+local function ensure_prompt_buf()
+	if state.prompt_buf and vim.api.nvim_buf_is_valid(state.prompt_buf) then
+		return state.prompt_buf
+	end
+	local buf = vim.api.nvim_create_buf(false, true)
+	local map_opts = { buffer = buf, noremap = true, silent = true }
+	vim.keymap.set({ "i", "n" }, "<CR>", function() end_prompt(buf, true) end, map_opts)
+	vim.keymap.set({ "i", "n" }, "<Esc>", function() end_prompt(buf, false) end, map_opts)
+	state.prompt_buf = buf
+	return buf
+end
+
+-- Sizes list/context for a prompt, reusing compute_body_layout's own split helper.
+local function render_prompt()
+	if not state.prompt then
+		return
+	end
+	local total_height = math.max(layout.resolve_max_height(current_box_opts().height) - 2, 1)
+	local list_height, view_height = split_body_height(total_height, total_height, 2)
+	render_current_view({
+		show_panels = false,
+		list_height = list_height,
+		view_height = view_height,
+		view_spec = nil,
+	}, nil, { keep_scroll = true })
+end
+
 local function run_panel_action(lhs)
+	if state.prompt then
+		-- Prompt buffer owns <CR>/<Esc>; swallow anything else here.
+		return true
+	end
 	local entry = (panel_actions())[lhs]
 	if entry and entry.enabled and type(entry.run) == "function" then
 		if entry.run(action_ctx()) ~= false then
@@ -951,7 +1043,13 @@ local function bind_widgets()
 			debounce_ms = 50,
 			on_change = refresh,
 			on_shift_enter = toggle_fullscreen,
-			on_escape = hide,
+			on_escape = function()
+				-- If the main input regains focus mid-prompt, cancel it instead of hiding everything.
+				if state.prompt then
+					return end_prompt(state.prompt_buf, false)
+				end
+				hide()
+			end,
 			on_down = function() move_selection(1) end,
 			on_up = function() move_selection(-1) end,
 			on_left = function() return move_panel_from_input(-1) end,
@@ -1037,6 +1135,39 @@ function M.toggle(opts)
 	else
 		show(opts)
 	end
+end
+
+-- Turns the preview pane into a one-off prompt (opts.title/value/action_label/on_submit/on_cancel).
+function M.prompt(opts)
+	if not is_visible() then
+		return
+	end
+	opts = opts or {}
+	local value = opts.value or ""
+	local buf = ensure_prompt_buf()
+	vim.api.nvim_buf_set_lines(buf, 0, -1, false, { value })
+	state.prompt = {
+		on_submit = opts.on_submit,
+		on_cancel = opts.on_cancel,
+		title = opts.title or "",
+	}
+	-- Forces the context window to exist (e.g. even if view=false) before we take it over.
+	render_prompt()
+	if not (state.view and state.view.win and vim.api.nvim_win_is_valid(state.view.win)) then
+		vim.notify("Pulse: prompt has no context window to take over", vim.log.levels.ERROR)
+		state.prompt = nil
+		return
+	end
+	vim.api.nvim_win_set_buf(state.view.win, buf)
+	apply_prompt_decorations(buf, opts.action_label, vim.api.nvim_win_get_width(state.view.win))
+	-- Real queued key input ("A": end of line + insert) instead of :startinsert!, matching the manual keypress that already works.
+	vim.schedule(function()
+		if not (state.prompt and state.view and state.view.win and vim.api.nvim_win_is_valid(state.view.win)) then
+			return
+		end
+		vim.api.nvim_set_current_win(state.view.win)
+		vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("A", true, false, true), "n", false)
+	end)
 end
 
 function M.get_prompt()

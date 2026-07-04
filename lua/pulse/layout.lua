@@ -23,8 +23,17 @@ function M.new(box)
 		return layout.sections[name]
 	end
 
-	local function draw_divider(buf, width)
-		window.set_lines(buf, { string.rep("─", width) })
+	-- Plain rule, or "──── title ────" when `title` is given.
+	local function draw_divider(buf, width, title)
+		if not (title and title ~= "") then
+			window.set_lines(buf, { string.rep("─", width) })
+			return
+		end
+		local label = " " .. title .. " "
+		local dashes = math.max(width - #label, 0)
+		local left = string.rep("─", math.floor(dashes / 2))
+		local right = string.rep("─", dashes - math.floor(dashes / 2))
+		window.set_lines(buf, { left .. label .. right })
 	end
 
 	function layout:apply(body_height, context_height, refs)
@@ -32,6 +41,7 @@ function M.new(box)
 		local show_context = context_height > 0
 		local show_panels = refs and refs.show_panels == true
 		local show_actions = refs and refs.show_actions == true
+		local divider_title = refs and refs.divider_title or nil
 		local function sync_refs()
 			if refs.list then
 				refs.list.win = self.sections.list and self.sections.list.win or nil
@@ -65,6 +75,7 @@ function M.new(box)
 			and self.last_dims.width == width
 			and self.last_dims.panels == show_panels
 			and self.last_dims.actions == show_actions
+			and self.last_dims.divider_title == divider_title
 		then
 			sync_refs()
 			return
@@ -108,7 +119,15 @@ function M.new(box)
 		end
 
 		if show_context then
-			specs[#specs + 1] = { name = "body_divider", row = after_list_row, height = 1, focusable = false, winhl = "Normal:FloatBorder", divider = true }
+			specs[#specs + 1] = {
+				name = "body_divider",
+				row = after_list_row,
+				height = 1,
+				focusable = false,
+				winhl = "Normal:FloatBorder",
+				divider = true,
+				title = divider_title,
+			}
 			specs[#specs + 1] = { name = "context", row = after_list_row + 1, height = context_height, focusable = true, winhl = "Normal:NormalFloat" }
 		else
 			box:close_section("body_divider")
@@ -126,13 +145,20 @@ function M.new(box)
 				winhl = s.winhl,
 			})
 			if s.divider then
-				draw_divider(section.buf, width)
+				draw_divider(section.buf, width, s.title)
 			end
 		end
 
 		sync_refs()
 
-		self.last_dims = { body = body_height, context = context_height, width = width, panels = show_panels, actions = show_actions }
+		self.last_dims = {
+			body = body_height,
+			context = context_height,
+			width = width,
+			panels = show_panels,
+			actions = show_actions,
+			divider_title = divider_title,
+		}
 	end
 
 	return layout

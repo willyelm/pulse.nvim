@@ -7,22 +7,6 @@
 - add per-picker config support with initial `files` options
 - add `files.open_on_directory` to open Pulse files for `nvim .`
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 ## [0.7.7] - 2026-05-25
 
 ### Changed
@@ -174,4 +158,3 @@
 - chore: remove old preview templates
 - fix: remove command preview content
 - fix: retain session state instead of recreate on each toggle
-
