@@ -2,6 +2,7 @@ local M = {}
 
 local context = require("pulse.context")
 local items = require("pulse.navigators.files.items")
+local notify = require("pulse.navigators.util").notify
 
 local transfer
 
@@ -30,10 +31,6 @@ local function target_dir(ctx)
 	return ctx and ctx.state and ctx.state.root or nil
 end
 
-local function notify(message, level)
-	vim.notify("Pulse: " .. message, level or vim.log.levels.WARN)
-end
-
 local function ensure_parent(path)
 	local parent = vim.fn.fnamemodify(path, ":h")
 	if parent ~= "" then
@@ -55,6 +52,11 @@ end
 local function prompt(opts)
 	require("pulse.pulse").prompt(opts)
 	return false
+end
+
+-- Root plus the workspace-relative path to prefill for a rename/delete prompt.
+local function relpath_defaults(ctx, src)
+	return ctx.state and ctx.state.root, (ctx.item and ctx.item.path) or vim.fn.fnamemodify(src, ":t")
 end
 
 function M.add(ctx)
@@ -93,8 +95,7 @@ function M.rename(ctx)
 	if not src then
 		return true
 	end
-	local root = ctx.state and ctx.state.root
-	local current = (ctx.item and ctx.item.path) or vim.fn.fnamemodify(src, ":t")
+	local root, current = relpath_defaults(ctx, src)
 	return prompt({
 		title = "rename",
 		action_label = "rename",
@@ -128,9 +129,8 @@ function M.delete(ctx)
 	if not src then
 		return true
 	end
-	local root = ctx.state and ctx.state.root
 	-- Editable path lets a folder-delete be redirected to one entry inside it.
-	local current = (ctx.item and ctx.item.path) or vim.fn.fnamemodify(src, ":t")
+	local root, current = relpath_defaults(ctx, src)
 	return prompt({
 		title = "delete",
 		action_label = "delete",

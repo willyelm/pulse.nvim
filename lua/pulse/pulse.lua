@@ -791,12 +791,18 @@ end
 
 local PROMPT_NS = vim.api.nvim_create_namespace("pulse_view_prompt")
 
--- Grays out `#`-prefixed comment lines (e.g. a commit template).
-local function highlight_comment_lines(buf)
+local COMMENT_NS = vim.api.nvim_create_namespace("pulse_view_prompt_comment")
+
+-- Grays out `prefix`-led comment lines; called once, extmarks track them as the buffer is edited.
+local function highlight_comment_lines(buf, prefix)
+	vim.api.nvim_buf_clear_namespace(buf, COMMENT_NS, 0, -1)
+	if not prefix or prefix == "" then
+		return
+	end
 	local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
 	for i, line in ipairs(lines) do
-		if line:sub(1, 1) == "#" then
-			pcall(vim.api.nvim_buf_set_extmark, buf, PROMPT_NS, i - 1, 0, { end_col = #line, hl_group = "Comment" })
+		if line:sub(1, #prefix) == prefix then
+			pcall(vim.api.nvim_buf_set_extmark, buf, COMMENT_NS, i - 1, 0, { end_col = #line, hl_group = "Comment" })
 		end
 	end
 end
@@ -804,7 +810,6 @@ end
 -- Virtual hint line under the buffer's last line, re-applied on every edit.
 local function apply_prompt_decorations(buf, action_label, width, multiline)
 	vim.api.nvim_buf_clear_namespace(buf, PROMPT_NS, 0, -1)
-	highlight_comment_lines(buf)
 	local entries = { { key = "<Esc>", label = "cancel" } }
 	if multiline then
 		entries[#entries + 1] = { key = "<S-CR>", label = "newline" }
@@ -828,20 +833,6 @@ local function apply_prompt_decorations(buf, action_label, width, multiline)
 	vim.api.nvim_buf_set_extmark(buf, PROMPT_NS, last, 0, { virt_lines = { chunks } })
 end
 
-local function exit_prompt()
-	local prompt = state.prompt
-	if not prompt then
-		return nil
-	end
-	state.prompt = nil
-	if state.view and state.view.win and vim.api.nvim_win_is_valid(state.view.win) and state.view.buf then
-		pcall(vim.api.nvim_win_set_buf, state.view.win, state.view.buf)
-	end
-	refresh()
-	schedule_focus_input()
-	return prompt
-end
-
 local function end_prompt(buf, submit)
 	local prompt = state.prompt
 	if not prompt then
@@ -849,7 +840,12 @@ local function end_prompt(buf, submit)
 	end
 	local value = submit and table.concat(vim.api.nvim_buf_get_lines(buf, 0, -1, false), "\n") or nil
 	local on_done = submit and prompt.on_submit or prompt.on_cancel
-	exit_prompt()
+	state.prompt = nil
+	if state.view and state.view.win and vim.api.nvim_win_is_valid(state.view.win) and state.view.buf then
+		pcall(vim.api.nvim_win_set_buf, state.view.win, state.view.buf)
+	end
+	refresh()
+	schedule_focus_input()
 	if on_done then
 		on_done(value)
 	end
@@ -1163,8 +1159,7 @@ function M.toggle(opts)
 	end
 end
 
--- Turns the preview pane into a one-off prompt (opts: title, value, action_label, on_submit, on_cancel).
--- value as a table of lines enables <S-CR>/<C-CR> to insert newlines; a plain string keeps it single-line.
+-- Turns the preview pane into a one-off prompt; value as a table of lines enables multi-line editing.
 function M.prompt(opts)
 	if not is_visible() then
 		return
@@ -1174,6 +1169,7 @@ function M.prompt(opts)
 	local lines = multiline and opts.value or { opts.value or "" }
 	local buf = ensure_prompt_buf()
 	vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
+	highlight_comment_lines(buf, opts.comment_prefix)
 	state.prompt = {
 		on_submit = opts.on_submit,
 		on_cancel = opts.on_cancel,

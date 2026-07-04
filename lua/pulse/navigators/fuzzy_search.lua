@@ -146,6 +146,7 @@ function M.items(state, query)
 				lnum = i,
 				col = col,
 				text = line,
+				leading = #(line:match("^%s*") or ""),
 				query = q,
 				score = score,
 				match_cols = match_cols,
