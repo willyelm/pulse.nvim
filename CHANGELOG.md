@@ -10,6 +10,13 @@
 
 
 
+
+## [0.10.1] - 2026-07-04
+
+### Changed
+
+- fix(files): match file paths when searching and add tree_view flag
+
 ## [0.10.0] - 2026-07-04
 
 ### New
@@ -118,10 +125,4 @@
 - fix: improve performance and add virtualized items
 - fix: improve ignored path scanning
 - fix: delete input on command execution
-
-## [0.6.1] - 2026-03-23
-
-### Changed
-
-- fix: improve cold start git status in files navigator
 
