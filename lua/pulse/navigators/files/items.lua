@@ -563,10 +563,6 @@ local function ensure_dir(node, name, path, ignored)
 	return child
 end
 
-local function glob_escape(text)
-	return (text or ""):gsub("([%*%?%[%]{}\\])", "\\%1")
-end
-
 local function stop_job(job)
 	if type(job) == "table" and job.kill then
 		pcall(job.kill, job, 15)
@@ -577,9 +573,7 @@ end
 
 local function stop_search_job(state)
 	stop_job(state._search_job)
-	stop_job(state._search_folder_job)
 	state._search_job = nil
-	state._search_folder_job = nil
 end
 
 local function append_search_folder(state, rel)
@@ -615,6 +609,10 @@ local function append_search_path(state, rel, query)
 	state.search_paths = state.search_paths or {}
 	state.search_paths[#state.search_paths + 1] = rel
 
+	-- tree_view = false has no folder concept at all, so no ancestor-folder suggestions either.
+	if state.opts.tree_view == false then
+		return
+	end
 	local q = (query or ""):lower()
 	if q == "" then
 		return
@@ -636,7 +634,7 @@ local function build_search_items(state, ignored_map)
 	local git_status, open_map = state.git_status or {}, opened_set(state)
 	local scoped_prefix = folder_scope_prefix(state)
 	local scoped = scoped_prefix and (ignored_map[scoped_prefix] == true or ignored_map[scoped_prefix .. "/"] == true) or false
-	local has_parent = state.context and state.context.kind == "folder"
+	local has_parent = state.opts.tree_view ~= false and state.context and state.context.kind == "folder"
 	local provider = {}
 
 	function provider:count()
@@ -699,18 +697,15 @@ local function warm_search_query(state, query)
 	state._search_seen_folders = {}
 	state.search_results = build_search_items(state, ignored_map)
 	local ignored_names = search_ignore_names(state.opts)
-		local cmd = {
-			"rg",
-			"--files",
-			"--hidden",
-			"-g",
-			"*" .. glob_escape(query) .. "*",
-			search_root,
-		}
-	for i = #ignored_names, 1, -1 do
-		table.insert(cmd, #cmd - 1, "!" .. ignored_names[i])
-		table.insert(cmd, #cmd - 1, "-g")
+	-- Matched against the full relative path, not just the basename, so "b" finds a/b/c.txt too.
+	local match_path = pulse.make_matcher(query, { ignore_case = true, plain = true })
+	-- rg already respects .gitignore on its own; .git itself isn't, so --hidden needs it excluded explicitly.
+	local cmd = { "rg", "--files", "--hidden", "-g", "!.git" }
+	for _, name in ipairs(ignored_names) do
+		cmd[#cmd + 1] = "-g"
+		cmd[#cmd + 1] = "!" .. name
 	end
+	cmd[#cmd + 1] = search_root
 	state._search_job = vim.fn.jobstart(cmd, {
 		stdout_buffered = false,
 		stderr_buffered = true,
@@ -722,15 +717,17 @@ local function warm_search_query(state, query)
 			for _, path in ipairs(data) do
 				if path and path ~= "" then
 					local rel = relative_path(state.root, path)
-					local prev_paths = #(state.search_paths or {})
-					local prev_folders = #(state.search_folders or {})
-					append_search_path(state, rel, query)
-					if #(state.search_paths or {}) ~= prev_paths or #(state.search_folders or {}) ~= prev_folders then
-						changed = true
-					end
-					if state.search_limited then
-						stop_search_job(state)
-						break
+					if match_path(rel) then
+						local prev_paths = #(state.search_paths or {})
+						local prev_folders = #(state.search_folders or {})
+						append_search_path(state, rel, query)
+						if #(state.search_paths or {}) ~= prev_paths or #(state.search_folders or {}) ~= prev_folders then
+							changed = true
+						end
+						if state.search_limited then
+							stop_search_job(state)
+							break
+						end
 					end
 				end
 			end
@@ -750,63 +747,11 @@ local function warm_search_query(state, query)
 			end
 		end,
 	})
-	local find_cmd = { "find", search_root }
-	for _, name in ipairs(ignored_names) do
-		find_cmd[#find_cmd + 1] = "-name"
-		find_cmd[#find_cmd + 1] = name
-		find_cmd[#find_cmd + 1] = "-prune"
-		find_cmd[#find_cmd + 1] = "-o"
-	end
-	find_cmd[#find_cmd + 1] = "-type"
-	find_cmd[#find_cmd + 1] = "d"
-	find_cmd[#find_cmd + 1] = "-iname"
-	find_cmd[#find_cmd + 1] = "*" .. query .. "*"
-	find_cmd[#find_cmd + 1] = "-print"
-	state._search_folder_job = vim.fn.jobstart(find_cmd, {
-		stdout_buffered = false,
-		stderr_buffered = true,
-		on_stdout = function(_, data)
-			if state._search_match_gen ~= gen or not data then
-				return
-			end
-			local changed = false
-			for _, path in ipairs(data) do
-				if path and path ~= "" then
-					local rel = relative_path(state.root, path):gsub("/$", "")
-					local prev_folders = #(state.search_folders or {})
-					append_search_folder(state, rel)
-					if #(state.search_folders or {}) ~= prev_folders then
-						changed = true
-					end
-					if state.search_limited then
-						stop_search_job(state)
-						break
-					end
-				end
-			end
-			if changed and state._on_update then
-				vim.schedule(state._on_update)
-			end
-		end,
-		on_exit = function()
-			if state._search_match_gen ~= gen then
-				return
-			end
-			table.sort(state.search_folders or {}, sort_names)
-			state._search_folder_job = nil
-			if state._on_update then
-				vim.schedule(state._on_update)
-			end
-		end,
-	})
 	if type(state._search_job) ~= "number" or state._search_job <= 0 then
 		state._search_job = nil
 		if state._on_update then
 			vim.schedule(state._on_update)
 		end
-	end
-	if type(state._search_folder_job) ~= "number" or state._search_folder_job <= 0 then
-		state._search_folder_job = nil
 	end
 end
 
@@ -978,7 +923,10 @@ function M.items(state, query, panel_name)
 	if state.context and state.context.kind == "file" then
 		return {}
 	end
-	if not query or query == "" then
+	-- tree_view = false always runs the flat search pipeline, even with an empty query,
+	-- since it has no browsing/tree mode to fall back to (an empty query just matches everything).
+	local always_flat = panel_name == "files_all" and state.opts.tree_view == false
+	if not always_flat and (not query or query == "") then
 			state.search_query = nil
 			state.search_results = nil
 			state.search_paths = nil
@@ -1006,7 +954,7 @@ function M.items(state, query, panel_name)
 			end
 			return items
 	end
-	warm_search_query(state, query)
+	warm_search_query(state, vim.trim(query or ""))
 	return state.search_results or {}
 end
 
@@ -1014,7 +962,7 @@ function M.total_count(state, panel_name)
 	if state.context and state.context.kind == "file" then
 		return 0
 	end
-	if panel_name == "files_all" and state.search_query and state.search_query ~= "" then
+	if panel_name == "files_all" and (state.opts.tree_view == false or (state.search_query and state.search_query ~= "")) then
 		local count = count_selectable(state.search_results or {})
 		return { count = count, plus = state.search_limited == true }
 	end

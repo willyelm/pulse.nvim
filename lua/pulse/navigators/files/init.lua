@@ -12,6 +12,7 @@ local DEFAULT_OPTS = {
 	icon_color = false,
 	compact_dirs = false,
 	open_on_directory = false,
+	tree_view = true,
 	filters = {},
 	git = {
 		enable = false,

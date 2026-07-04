@@ -117,6 +117,7 @@ Current `files` options:
 - `git.enable`
 - `git.ignore`
 - `open_on_directory`
+- `tree_view` (default `true`; set `false` for a flat, Telescope-style file list with no folder browsing)
 
 ## Files Navigator
 
