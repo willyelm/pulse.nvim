@@ -7,6 +7,13 @@
 - add per-picker config support with initial `files` options
 - add `files.open_on_directory` to open Pulse files for `nvim .`
 
+## [0.7.8] - 2026-07-03
+
+### Changed
+
+- fix: rename files_open to buffers and improve file preview for binary/big
+  files
+
 ## [0.7.7] - 2026-05-25
 
 ### Changed
