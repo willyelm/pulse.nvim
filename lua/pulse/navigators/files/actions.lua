@@ -305,6 +305,22 @@ function M.open(ctx, toggle_folder)
 	end
 end
 
+-- <CR>/<Tab> label: a scope-parent row closes the scope; folders and files each get their own verb
+-- (`folder` may be a function of the item).
+local function item_label(ctx, folder, file)
+	local item = ctx and ctx.item
+	if not item then
+		return nil
+	end
+	if item.scope_parent then
+		return "close"
+	end
+	if item.kind == "folder" then
+		return type(folder) == "function" and folder(item) or folder
+	end
+	return file
+end
+
 function M.mode_actions(ctx, toggle_folder)
 	local item = ctx and ctx.item
 	local editable = item and (item.kind == "file" or item.kind == "folder") and not item.scope_parent
@@ -313,17 +329,7 @@ function M.mode_actions(ctx, toggle_folder)
 		{
 			key = "<CR>",
 			name = function(next)
-				local next_item = next and next.item
-				if not next_item then
-					return nil
-				end
-				if next_item.scope_parent then
-					return "close"
-				end
-				if next_item.kind == "folder" then
-					return next_item.expanded and "close" or "open"
-				end
-				return "open"
+				return item_label(next, function(item) return item.expanded and "close" or "open" end, "open")
 			end,
 			when = function(next)
 				return next and next.item ~= nil
@@ -333,17 +339,7 @@ function M.mode_actions(ctx, toggle_folder)
 		{
 			key = "<Tab>",
 			name = function(next)
-				local next_item = next and next.item
-				if not next_item then
-					return nil
-				end
-				if next_item.scope_parent then
-					return "close"
-				end
-				if next_item.kind == "folder" then
-					return "view"
-				end
-				return "preview"
+				return item_label(next, "view", "preview")
 			end,
 			when = function(next)
 				return next and next.item ~= nil
