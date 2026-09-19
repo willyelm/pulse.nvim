@@ -1,40 +1,41 @@
 -- The one place git gets invoked: every call runs against the repo root, so the root-relative paths git
 -- reports (status, numstat, log) and expects (pathspecs, `rev:path`) stay valid wherever nvim's cwd is.
+-- Functions that resolve a repo take an optional `dir` to use instead of nvim's cwd.
 local M = {}
 local uv = vim.uv or vim.loop
 
 local REPOS = {}
 
--- Repo layout for nvim's cwd ({ root, git_dir }), or nil outside a repo. Cached per cwd once found; once
--- warmed from the main thread it is also safe to call from fast (libuv) callbacks, which can't run the
--- lookup themselves.
-local function repo()
-	local cwd = uv.cwd()
-	local found = REPOS[cwd]
+-- Repo layout for `dir` (default nvim's cwd) as { root, git_dir }, or nil outside a repo. Cached per dir
+-- once found; once warmed from the main thread it is also safe to call from fast (libuv) callbacks, which
+-- can't run the lookup themselves.
+local function repo(dir)
+	dir = dir or uv.cwd()
+	local found = REPOS[dir]
 	if found == nil and not vim.in_fast_event() then
-		local out = vim.fn.systemlist({ "git", "--no-optional-locks", "rev-parse", "--show-toplevel", "--absolute-git-dir" })
+		local out = vim.fn.systemlist({ "git", "--no-optional-locks", "-C", dir, "rev-parse", "--show-toplevel", "--absolute-git-dir" })
 		if vim.v.shell_error == 0 and out[1] and out[2] then
 			found = { root = out[1], git_dir = out[2] }
-			REPOS[cwd] = found
+			REPOS[dir] = found
 		end
 	end
 	return found
 end
 
-function M.root()
-	local found = repo()
+function M.root(dir)
+	local found = repo(dir)
 	return found and found.root
 end
 
 -- The real git dir (not `root/.git`, which is a file in worktrees and submodules).
-function M.git_dir()
-	local found = repo()
+function M.git_dir(dir)
+	local found = repo(dir)
 	return found and found.git_dir
 end
 
 -- Path relative to the repo root (the form git pathspecs use), or nil when it lies outside the repo.
-function M.relative(path)
-	local root = M.root()
+function M.relative(path, dir)
+	local root = M.root(dir)
 	local abs = path and path ~= "" and (uv.fs_realpath(path) or vim.fn.fnamemodify(path, ":p")) or nil
 	if root and abs and abs:sub(1, #root + 1) == root .. "/" then
 		return abs:sub(#root + 2)
@@ -44,9 +45,9 @@ end
 
 -- Read-only flags for every call: no fsmonitor daemon, and no optional index.lock so the panel never
 -- blocks a `git add`/`git commit` running in the user's terminal.
-function M.argv(args)
+function M.argv(args, dir)
 	local argv = { "git", "--no-optional-locks", "-c", "core.fsmonitor=false" }
-	local root = M.root()
+	local root = M.root(dir)
 	if root then
 		vim.list_extend(argv, { "-C", root })
 	end
@@ -69,8 +70,8 @@ function M.lines(args)
 end
 
 -- Non-blocking; a missing `git` binary is reported like a failed exit instead of throwing.
-function M.spawn(args, on_exit)
-	if not pcall(vim.system, M.argv(args), { text = true }, on_exit) then
+function M.spawn(args, on_exit, dir)
+	if not pcall(vim.system, M.argv(args, dir), { text = true }, on_exit) then
 		on_exit({ code = 127, stdout = "" })
 	end
 end

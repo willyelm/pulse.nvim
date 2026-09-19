@@ -1,5 +1,6 @@
 local pulse = require("pulse")
 local context = require("pulse.context")
+local git = require("pulse.navigators.git.cmd")
 local git_util = require("pulse.navigators.git.util")
 local uv = vim.uv or vim.loop
 
@@ -209,11 +210,16 @@ local function dir_statuses(status_map)
 	return by_dir
 end
 
-local function parse_git_status_output(text)
+-- `prefix` is the workspace root's path inside the repo ("" when they coincide): git reports repo-root
+-- relative paths, the tree is keyed relative to the workspace root, so entries are filtered and re-keyed.
+local function parse_git_status_output(text, prefix)
 	local status_map, ignored, seen_ignored = {}, {}, {}
-	for _, line in ipairs(vim.split(text or "", "\n", { plain = true, trimempty = true })) do
-		local code = vim.trim(line:sub(1, 2))
-		local path = git_util.normalize_status_path(vim.trim(line:sub(4)))
+	for _, entry in ipairs(git_util.parse_status_z(text)) do
+		local code = vim.trim(entry.raw_code)
+		local path = entry.path
+		if prefix ~= "" then
+			path = path:sub(1, #prefix) == prefix and path:sub(#prefix + 1) or ""
+		end
 		if path ~= "" then
 			if code == "!!" then
 				if not seen_ignored[path] then
@@ -254,19 +260,21 @@ local function warm_tree_metadata(state)
 	if state._metadata_loading or state.ignored or state.git_status or state.dir_statuses then
 		return
 	end
-	if not (state.opts.git and state.opts.git.enable) or vim.fn.isdirectory(state.root .. "/.git") ~= 1 then
+	if not (state.opts.git and state.opts.git.enable) or not git.root(state.root) then
 		state.ignored, state.git_status, state.dir_statuses = {}, {}, {}
 		return
 	end
 	state._metadata_loading = true
-	local cmd = { "git", "-c", "core.fsmonitor=false", "-C", state.root, "status", "--porcelain=v1", "--untracked-files=all" }
+	local cmd = { "git", "status", "--porcelain=v1", "-z", "--untracked-files=all" }
 	if state.opts.git.ignore then
 		cmd[#cmd + 1] = "--ignored=matching"
 	end
-	vim.system(cmd, { text = true }, function(result)
+	local inside = git.relative(state.root, state.root)
+	local prefix = inside and (inside .. "/") or ""
+	git.spawn(cmd, function(result)
 		local status_map, ignored_list = {}, {}
 		if result.code == 0 then
-			status_map, ignored_list = parse_git_status_output(result.stdout)
+			status_map, ignored_list = parse_git_status_output(result.stdout, prefix)
 		end
 		local ignored = {}
 		for _, path in ipairs(ignored_list or {}) do
@@ -289,7 +297,7 @@ local function warm_tree_metadata(state)
 		if state._on_update then
 			vim.schedule(state._on_update)
 		end
-	end)
+	end, state.root)
 end
 
 local function expanded_signature(expanded)

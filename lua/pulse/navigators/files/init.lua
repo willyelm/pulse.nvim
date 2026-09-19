@@ -2,6 +2,7 @@ local M = {}
 local actions = require("pulse.navigators.files.actions")
 local items = require("pulse.navigators.files.items")
 local sync = require("pulse.sync")
+local git = require("pulse.navigators.git.cmd")
 local uv = vim.uv or vim.loop
 
 local WATCHERS = {}
@@ -90,7 +91,7 @@ local function ensure_watcher(root)
 	end
 
 	start_watch(root)
-	start_watch(root .. "/.git")
+	start_watch(git.git_dir(root))
 	return watcher
 end
 

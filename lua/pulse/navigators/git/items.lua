@@ -52,23 +52,17 @@ local function now_ms()
 	return uv.hrtime() / 1e6
 end
 
--- Parses `git status --porcelain=v1 -z`: "XY path\0" entries (unquoted, unlike the line format), where
--- renames/copies carry an extra "orig\0" field that is skipped.
 local function parse_status_z(text, scope_prefix)
 	local items = {}
 	local root = git.root()
-	local fields = vim.split(text or "", "\0", { plain = true, trimempty = true })
-	local i = 1
-	while i <= #fields do
-		-- raw_code keeps the index/worktree columns positional; code (trimmed) can't.
-		local raw_code = fields[i]:sub(1, 2)
-		local path = util.normalize_status_path(fields[i]:sub(4))
-		i = i + (raw_code:find("[RC]") and 2 or 1)
-		if path ~= "" and (not scope_prefix or path:sub(1, #scope_prefix) == scope_prefix) then
+	for _, entry in ipairs(util.parse_status_z(text)) do
+		local path = entry.path
+		if not scope_prefix or path:sub(1, #scope_prefix) == scope_prefix then
 			items[#items + 1] = {
 				kind = "git_status",
-				code = vim.trim(raw_code),
-				raw_code = raw_code,
+				-- raw_code keeps the index/worktree columns positional; code (trimmed) can't.
+				code = vim.trim(entry.raw_code),
+				raw_code = entry.raw_code,
 				path = path,
 				label = path,
 				-- path is root-relative (git's identity for it); filename is what the filesystem and jump need.
