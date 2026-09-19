@@ -1,10 +1,19 @@
 -- The one place git gets invoked: every call runs against the repo root, so the root-relative paths git
 -- reports (status, numstat, log) and expects (pathspecs, `rev:path`) stay valid wherever nvim's cwd is.
--- Functions that resolve a repo take an optional `dir` to use instead of nvim's cwd.
+-- Functions that resolve a repo take an optional `dir`; without one they use the panel's project directory
+-- (see set_dir), falling back to nvim's cwd.
 local M = {}
 local uv = vim.uv or vim.loop
 
+local project_dir
+
 local REPOS = {}
+
+-- Points every call that doesn't name a `dir` at the directory the panel was opened for (which differs from
+-- nvim's cwd when opening e.g. `nvim ../other-project`). Nil goes back to nvim's cwd.
+function M.set_dir(dir)
+	project_dir = (dir and dir ~= "") and (vim.fn.fnamemodify(dir, ":p"):gsub("/$", "")) or nil
+end
 
 -- Blocking calls give up after this long instead of freezing the editor on a stuck git.
 local ROOT_TIMEOUT_MS, SYNC_TIMEOUT_MS = 5000, 15000
@@ -24,11 +33,11 @@ local function run(argv, opts)
 	return res.stdout or "", res.code == 0, stderr
 end
 
--- Repo layout for `dir` (default nvim's cwd) as { root, git_dir }, or nil outside a repo. Cached per dir
+-- Repo layout for `dir` (default the project directory) as { root, git_dir }, or nil outside a repo. Cached per dir
 -- once found; once warmed from the main thread it is also safe to call from fast (libuv) callbacks, which
 -- can't run the lookup themselves.
 local function repo(dir)
-	dir = dir or uv.cwd()
+	dir = dir or project_dir or uv.cwd()
 	local found = REPOS[dir]
 	if found == nil and not vim.in_fast_event() then
 		local out, ok = run(
@@ -71,10 +80,10 @@ end
 -- blocks a `git add`/`git commit` running in the user's terminal.
 function M.argv(args, dir)
 	local argv = { "git", "--no-optional-locks", "-c", "core.fsmonitor=false" }
-	local root = M.root(dir)
-	if root then
-		vim.list_extend(argv, { "-C", root })
-	end
+	dir = dir or project_dir or uv.cwd()
+	-- Never fall back to the process cwd: outside a repo, git must fail here (and say so), not answer
+	-- for whatever repo nvim happened to be started in.
+	vim.list_extend(argv, { "-C", M.root(dir) or dir })
 	for i = 2, #args do
 		argv[#argv + 1] = args[i]
 	end

@@ -227,6 +227,8 @@ end
 M.view_item = git_view.view_item
 
 function M.init(ctx)
+	-- The panel may be opened for another project than nvim's cwd (`nvim ../other`); follow it.
+	git.set_dir(ctx and ctx.cwd)
 	local scoped = ctx and ctx.context
 	-- Root-relative like git's own paths; nil for the repo root itself or a folder outside the repo.
 	local scope_dir = scoped and scoped.kind == "folder" and git.relative(scoped.path) or nil
