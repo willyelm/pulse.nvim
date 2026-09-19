@@ -94,8 +94,7 @@ function M.view_item(item)
 					return as_view(new_lines)
 				end
 				local lines, highlights, focus_row = diff_ui.from_lines(old_lines, new_lines, { context = 3 })
-				local _, filetype = view.file_snippet(new_path, 1)
-				return as_view(lines, highlights, focus_row, filetype)
+				return as_view(lines, highlights, focus_row, filetype_for(new_path))
 			end)
 		end
 		return cached("commit:" .. tostring(item.commit) .. ":" .. tostring(item.history_path or ""), function()
