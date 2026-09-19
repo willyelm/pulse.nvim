@@ -77,63 +77,48 @@ local function revert_args(item, kind)
 	return args
 end
 
+-- What <CR> does on the highlighted row: unfold a commit's files or a folder in that tree (project history
+-- only), or open a changed file. Nil disables it (headers, file-history commits, loading rows).
+local function enter_kind(ctx)
+	local item = ctx and ctx.item
+	if not item then
+		return nil
+	end
+	if ctx.panel and ctx.panel.name == "git_project_history" then
+		if item.kind == "git_commit" then
+			return "commit"
+		end
+		if item.kind == "folder" then
+			return "folder"
+		end
+	end
+	return item.kind == "git_status" and "open" or nil
+end
+
 M.name = "git"
 M.icon = "󰊢"
 M.actions = {
 	{
 		key = "<CR>",
 		name = function(ctx)
-			local item = ctx and ctx.item
-			local panel_name = ctx and ctx.panel and ctx.panel.name
-			if not item then
-				return nil
+			local kind = enter_kind(ctx)
+			if kind == "commit" then
+				return ctx.state.expanded[ctx.item.commit] and "hide files" or "show files"
 			end
-			if panel_name == "git_project_history" and item.kind == "git_commit" then
-				return (ctx.state and ctx.state.expanded and ctx.state.expanded[item.commit]) and "hide files"
-					or "show files"
-			end
-			if panel_name == "git_project_history" and item.kind == "folder" then
-				return "toggle"
-			end
-			if item.kind == "git_status" then
-				return "open"
-			end
-			return nil
+			return kind and (kind == "folder" and "toggle" or "open") or nil
 		end,
 		when = function(ctx)
-			local item = ctx and ctx.item
-			local panel_name = ctx and ctx.panel and ctx.panel.name
-			if not item then
-				return false
-			end
-			if panel_name == "git_project_history" and item.kind == "git_commit" then
-				return true
-			end
-			if panel_name == "git_project_history" and item.kind == "folder" then
-				return true
-			end
-			if item.kind == "git_commit" then
-				return false
-			end
-			return item.kind == "git_status"
+			return enter_kind(ctx) ~= nil
 		end,
 		run = function(ctx)
-			local item = ctx and ctx.item
-			local panel_name = ctx and ctx.panel and ctx.panel.name
-			if panel_name == "git_project_history" and item and item.kind == "git_commit" then
+			local kind, item = enter_kind(ctx), ctx.item
+			if kind == "commit" then
 				ctx.state.expanded[item.commit] = not ctx.state.expanded[item.commit]
 				ctx.refresh()
-				return
-			end
-			if panel_name == "git_project_history" and item and item.kind == "folder" and item.tree_key then
+			elseif kind == "folder" and item.tree_key then
 				ctx.state.expanded[item.tree_key] = not item.expanded
 				ctx.refresh()
-				return
-			end
-			if item and item.kind == "git_commit" then
-				return
-			end
-			if item then
+			else
 				ctx.jump(item)
 				ctx.close()
 			end
