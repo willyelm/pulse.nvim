@@ -48,6 +48,11 @@ local function set_status_display(item)
 	end
 end
 
+-- First line of git's error text (or its exit code), shown in place of a list that failed to load.
+local function failure_text(result)
+	return vim.trim(result.stderr or ""):match("[^\n]+") or ("git exited " .. tostring(result.code))
+end
+
 local function now_ms()
 	return uv.hrtime() / 1e6
 end
@@ -189,14 +194,16 @@ local function warm_status_all(state, quiet)
 			-- Not a repo / git failed with nothing to show yet; a failure later keeps the last good list.
 			state.status_all, changed = {}, true
 		end
-		if changed and state._on_update then
+		if (changed or state.status_error ~= state.status_error_shown) and state._on_update then
 			state._on_update()
 		end
+		state.status_error_shown = state.status_error
 	end
 
 	if quiet then
 		git.spawn(STATUS_ARGS, function(result)
 			local text = result.code == 0 and (result.stdout or "") or nil
+			state.status_error = not text and failure_text(result) or nil
 			vim.schedule(function()
 				if state._status_gen ~= gen then
 					return
@@ -230,6 +237,7 @@ local function warm_status_all(state, quiet)
 	end
 	git.spawn(STATUS_ARGS, function(result)
 		status_text = result.code == 0 and (result.stdout or "") or nil
+		state.status_error = not status_text and failure_text(result) or nil
 		part_done()
 	end)
 	fetch_numstat(function(text)
@@ -292,6 +300,7 @@ local function ensure_history_loaded(state, panel_name)
 		state.history_all = {}
 		state.history_has_more = true
 		state._history_loading = false
+		state.history_error = nil
 		state._history_gen = (state._history_gen or 0) + 1
 	end
 	if state._history_loading or state.history_has_more == false then
@@ -326,6 +335,7 @@ local function ensure_history_loaded(state, panel_name)
 		if result.code == 0 then
 			out = parse_history_output(result.stdout, panel_name, pathspec)
 		end
+		state.history_error = result.code ~= 0 and failure_text(result) or nil
 		local remaining = HISTORY_LIMIT - #(state.history_all or {})
 		if #out > remaining then
 			out = vim.list_slice(out, 1, math.max(remaining, 0))
@@ -403,7 +413,7 @@ local function history_items(state, query, panel_name)
 
 	function provider:count()
 		local row_count = #history_rows(state, query, panel_name)
-		if state.history_has_more or state._history_loading then
+		if state.history_has_more or state._history_loading or state.history_error then
 			return row_count + 1
 		end
 		return row_count
@@ -421,6 +431,9 @@ local function history_items(state, query, panel_name)
 		local item = current[index]
 		if item ~= nil then
 			return item
+		end
+		if state.history_error then
+			return { kind = "loading", label = "git log failed: " .. state.history_error }
 		end
 		if state.history_has_more or state._history_loading then
 			return { kind = "loading", label = "Loading..." }
@@ -466,6 +479,9 @@ local function status_items(state, query)
 		end
 	end
 	local filtered = grouped_status(matched)
+	if #filtered == 0 and state.status_error then
+		filtered = { { kind = "loading", label = "git status failed: " .. state.status_error } }
+	end
 	local provider = {}
 
 	function provider:count()
@@ -502,6 +518,7 @@ function M.invalidate_history(state)
 	end
 	state._history_gen = (state._history_gen or 0) + 1
 	state._history_loading = false
+	state.history_error = nil
 	state.history_head = nil
 	state.history_files = {}
 	state.history_all = {}

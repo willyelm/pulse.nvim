@@ -175,8 +175,9 @@ M.actions = {
 			end
 			local args = is_staged(item) and { "git", "restore", "--staged", "--", item.path }
 				or { "git", "add", "--", item.path }
-			if not git.lines(args) then
-				notify((is_staged(item) and "unstage" or "stage") .. " failed", vim.log.levels.ERROR)
+			local out, ok = git.system(args)
+			if not ok then
+				notify((is_staged(item) and "unstage" or "stage") .. " failed: " .. out, vim.log.levels.ERROR)
 			end
 			items.invalidate_status(ctx.state)
 			ctx.refresh()

@@ -116,7 +116,7 @@ function M.view_item(item)
 			local out, ok = git.system(args)
 			local head, stat = out:match("^(.-)\30(.*)$")
 			if not (ok and head) then
-				return { "No git history for " .. tostring(item.commit or "") }, "git", {}, nil, 1
+				return { "No git history for " .. tostring(item.commit or "") .. (ok and "" or (": " .. out)) }, "git", {}, nil, 1
 			end
 			-- Header (3 lines) and a blank, then the full message indented like `git log`, trailers included.
 			local lines = vim.split(head, "\n", { plain = true })
