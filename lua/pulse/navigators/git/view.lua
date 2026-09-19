@@ -4,6 +4,9 @@ local util = require("pulse.navigators.git.util")
 
 local M = {}
 local CACHE = {}
+-- Status diffs depend on the worktree, so they live apart from the immutable commit-keyed entries.
+local STATUS_CACHE = {}
+local STATUS_CACHE_MAX = 200
 
 -- `git show` needs a path relative to the repo root, not an absolute one.
 local function read_head_file(path)
@@ -86,22 +89,43 @@ function M.view_item(item)
 	end
 
 	local path = item.path or item.filename
-	return cached("status:" .. tostring(path) .. ":" .. tostring(item.code or ""), function()
-		local old_lines, old_ok = read_head_file(path)
-		if not old_ok then
-			return as_view(old_lines)
-		end
+	-- Every input of the HEAD-vs-worktree diff: status, HEAD-relative counts, and the file's own content stamp.
+	local key = table.concat({
+		tostring(path),
+		tostring(item.raw_code or item.code or ""),
+		tostring(item.added or 0),
+		tostring(item.removed or 0),
+		util.file_stamp(path),
+	}, "\0")
+	local hit = STATUS_CACHE[key]
+	if hit then
+		return unpack(hit)
+	end
+	-- Untracked files have no HEAD blob; skip the two git calls that would only confirm that.
+	local old_lines, old_ok = {}, true
+	if item.raw_code ~= "??" then
+		old_lines, old_ok = read_head_file(path)
+	end
+	local result
+	if not old_ok then
+		result = { as_view(old_lines) }
+	else
 		local new_lines, new_ok = view.read_file_lines(path)
 		if not new_ok then
-			return as_view(new_lines)
+			result = { as_view(new_lines) }
+		elseif #old_lines == 0 and #new_lines == 0 then
+			result = { as_view(git_patch_for(path)) }
+		else
+			local lines, highlights, focus_row = diff_ui.from_lines(old_lines, new_lines, { context = 3 })
+			local _, filetype = view.file_snippet(path, 1)
+			result = { as_view(lines, highlights, focus_row, filetype) }
 		end
-		if #old_lines == 0 and #new_lines == 0 then
-			return as_view(git_patch_for(path))
-		end
-		local lines, highlights, focus_row = diff_ui.from_lines(old_lines, new_lines, { context = 3 })
-		local _, filetype = view.file_snippet(path, 1)
-		return as_view(lines, highlights, focus_row, filetype)
-	end)
+	end
+	if vim.tbl_count(STATUS_CACHE) >= STATUS_CACHE_MAX then
+		STATUS_CACHE = {}
+	end
+	STATUS_CACHE[key] = result
+	return unpack(result)
 end
 
 return M

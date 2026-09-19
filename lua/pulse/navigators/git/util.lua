@@ -1,6 +1,9 @@
 local M = {}
 local uv = vim.uv or vim.loop
 
+-- Untracked files larger than this skip the +N line count instead of being read synchronously.
+local MAX_COUNT_BYTES = 1024 * 1024
+
 -- raw_code[1] is the index/staged column ("M"/"A"/"D"/... vs " "/"?").
 function M.is_staged(item)
 	local x = item and item.raw_code and item.raw_code:sub(1, 1)
@@ -30,22 +33,40 @@ function M.status_spans(raw_code)
 	return spans
 end
 
+-- Read-only flags for every git call: no fsmonitor daemon, and no optional index.lock so the panel
+-- never blocks a `git add`/`git commit` running in the user's terminal.
+function M.git_argv(cmd)
+	local argv = { "git", "--no-optional-locks", "-c", "core.fsmonitor=false" }
+	for i = 2, #cmd do
+		argv[#argv + 1] = cmd[i]
+	end
+	return argv
+end
+
 function M.git_lines(cmd)
 	if cmd and cmd[1] == "git" then
-		local next_cmd = { "git", "-c", "core.fsmonitor=false" }
-		for i = 2, #cmd do
-			next_cmd[#next_cmd + 1] = cmd[i]
-		end
-		cmd = next_cmd
+		cmd = M.git_argv(cmd)
 	end
 	local lines = vim.fn.systemlist(cmd)
 	return (vim.v.shell_error == 0) and lines or nil
+end
+
+-- Cheap identity of a file's current content (size + mtime); changes on any edit.
+function M.file_stamp(path)
+	local stat = path and uv.fs_stat(vim.fn.fnamemodify(path, ":p")) or nil
+	if not stat then
+		return "missing"
+	end
+	return table.concat({ stat.size, stat.mtime.sec, stat.mtime.nsec }, ":")
 end
 
 function M.line_count(path)
 	local resolved = vim.fn.fnamemodify(path or "", ":p")
 	local stat = resolved ~= "" and uv.fs_stat(resolved) or nil
 	if not (stat and stat.type == "file") then
+		return 0
+	end
+	if (stat.size or 0) > MAX_COUNT_BYTES then
 		return 0
 	end
 	local fd = uv.fs_open(resolved, "r", 438)
@@ -67,10 +88,6 @@ end
 function M.normalize_status_path(path)
 	if not path or path == "" then
 		return ""
-	end
-	if path:find(" -> ", 1, true) then
-		local _, newp = path:match("^(.-) %-%> (.+)$")
-		return newp or path
 	end
 	if path:sub(-1) == "/" then
 		return path:sub(1, -2)

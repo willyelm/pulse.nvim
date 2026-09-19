@@ -64,7 +64,11 @@ function M.read_git_blob_lines(rev, path)
 	local target = rev .. ":" .. path
 	local size_out = vim.fn.system({ "git", "-c", "core.fsmonitor=false", "cat-file", "-s", target })
 	local size = (vim.v.shell_error == 0) and tonumber(vim.trim(size_out)) or nil
-	if size and size > MAX_PREVIEW_BYTES then
+	if not size then
+		-- No such blob at that rev (new/untracked file); skip the `git show` that would only fail too.
+		return {}, true
+	end
+	if size > MAX_PREVIEW_BYTES then
 		return too_large(size), false
 	end
 	local raw = vim.fn.system({ "git", "-c", "core.fsmonitor=false", "--no-pager", "show", target })
@@ -75,7 +79,12 @@ function M.read_git_blob_lines(rev, path)
 	if placeholder then
 		return placeholder, false
 	end
-	return vim.split(raw, "\n", { plain = true, trimempty = false }), true
+	local lines = vim.split(raw, "\n", { plain = true, trimempty = false })
+	-- readfile() has no phantom line after the final newline; match it so HEAD-vs-worktree diffs don't flag the last line.
+	if lines[#lines] == "" then
+		lines[#lines] = nil
+	end
+	return lines, true
 end
 
 local function normalise_lines(lines)
