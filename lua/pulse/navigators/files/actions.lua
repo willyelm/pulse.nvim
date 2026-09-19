@@ -54,25 +54,45 @@ local function prompt(opts)
 	return false
 end
 
--- Root plus the workspace-relative path to prefill for a rename/delete prompt.
-local function relpath_defaults(ctx, src)
-	return ctx.state and ctx.state.root, (ctx.item and ctx.item.path) or vim.fn.fnamemodify(src, ":t")
+-- Path as shown in prompts: relative to the workspace root, absolute when outside it, "" for the root itself.
+local function display_path(root, path)
+	if not (root and root ~= "") then
+		return path
+	end
+	if path == root then
+		return ""
+	end
+	if path:sub(1, #root + 1) == root .. "/" then
+		return path:sub(#root + 2)
+	end
+	return path
 end
 
+-- Root plus the workspace-relative path to prefill for a rename/delete prompt.
+local function relpath_defaults(ctx, src)
+	local root = ctx.state and ctx.state.root
+	return root, display_path(root, src)
+end
+
+-- Prefills the target folder's workspace-relative path so the destination is visible and editable in place.
 function M.add(ctx)
 	local dest_dir = target_dir(ctx)
 	if not dest_dir or dest_dir == "" then
 		return true
 	end
+	local root = ctx.state and ctx.state.root
+	local dir = display_path(root, dest_dir)
+	local current = (dir ~= "") and (dir:gsub("/$", "") .. "/") or ""
 	return prompt({
 		title = "add",
 		action_label = "add",
+		value = current,
 		on_submit = function(value)
 			value = vim.trim(value or "")
-			if value == "" then
+			if value == "" or value == current then
 				return
 			end
-			local dest = dest_dir .. "/" .. value
+			local dest = root and items.absolute_path(root, value) or (dest_dir .. "/" .. value)
 			local ok
 			if value:sub(-1) == "/" then
 				vim.fn.mkdir(dest, "p")
