@@ -2,7 +2,6 @@ local M = {}
 M.__index = M
 local window = require("pulse.ui.window")
 local uv = vim.uv or vim.loop
-local git = require("pulse.navigators.git.cmd")
 
 local MAX_PREVIEW_BYTES = 1024 * 1024
 
@@ -35,6 +34,8 @@ local function classify(size, data)
 	return nil
 end
 
+M.classify = classify
+
 -- Returns lines, ok. When ok is false, lines is a placeholder to display.
 function M.read_file_lines(path)
 	local resolved = (path and path ~= "") and vim.fn.fnamemodify(path, ":p") or ""
@@ -55,37 +56,6 @@ function M.read_file_lines(path)
 		return placeholder, false
 	end
 	return vim.fn.readfile(resolved), true
-end
-
--- Same policy as M.read_file_lines, for a `git show <rev>:<path>` blob.
-function M.read_git_blob_lines(rev, path)
-	if not (rev and path and path ~= "") then
-		return {}, true
-	end
-	local target = rev .. ":" .. path
-	local size_out, found = git.system({ "git", "cat-file", "-s", target })
-	local size = found and tonumber(vim.trim(size_out)) or nil
-	if not size then
-		-- No such blob at that rev (new/untracked file); skip the `git show` that would only fail too.
-		return {}, true
-	end
-	if size > MAX_PREVIEW_BYTES then
-		return too_large(size), false
-	end
-	local raw, ok = git.system({ "git", "--no-pager", "show", target })
-	if not ok then
-		return {}, true
-	end
-	local placeholder = classify(size, raw)
-	if placeholder then
-		return placeholder, false
-	end
-	local lines = vim.split(raw, "\n", { plain = true, trimempty = false })
-	-- readfile() has no phantom line after the final newline; match it so HEAD-vs-worktree diffs don't flag the last line.
-	if lines[#lines] == "" then
-		lines[#lines] = nil
-	end
-	return lines, true
 end
 
 local function normalise_lines(lines)

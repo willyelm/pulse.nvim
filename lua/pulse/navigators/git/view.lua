@@ -9,9 +9,37 @@ local CACHE = {}
 local STATUS_CACHE = {}
 local STATUS_CACHE_MAX = 200
 
--- `git show` needs a path relative to the repo root, not an absolute one.
-local function read_head_file(path)
-	return view.read_git_blob_lines("HEAD", vim.fn.fnamemodify(path or "", ":."))
+-- Lines of `<rev>:<path>` (path relative to the repo root) under the same too-large/binary policy as
+-- worktree files. Returns lines, ok; when ok is false, lines is a placeholder to display.
+local function read_blob_lines(rev, path)
+	if not (rev and path and path ~= "") then
+		return {}, true
+	end
+	local target = rev .. ":" .. path
+	local size_out, found = git.system({ "git", "cat-file", "-s", target })
+	local size = found and tonumber(vim.trim(size_out)) or nil
+	if not size then
+		-- No such blob at that rev (new/untracked file); skip the `git show` that would only fail too.
+		return {}, true
+	end
+	local placeholder = view.classify(size)
+	if placeholder then
+		return placeholder, false
+	end
+	local raw, ok = git.system({ "git", "--no-pager", "show", target })
+	if not ok then
+		return {}, true
+	end
+	placeholder = view.classify(size, raw)
+	if placeholder then
+		return placeholder, false
+	end
+	local lines = vim.split(raw, "\n", { plain = true, trimempty = false })
+	-- readfile() has no phantom line after the final newline; match it so HEAD-vs-worktree diffs don't flag the last line.
+	if lines[#lines] == "" then
+		lines[#lines] = nil
+	end
+	return lines, true
 end
 
 local function git_patch_for(path)
@@ -47,11 +75,11 @@ function M.view_item(item)
 			local new_path = item.history_path or item.path
 			local old_path = item.old_path or new_path
 			return cached("file:" .. tostring(item.commit) .. ":" .. tostring(old_path) .. ":" .. tostring(new_path), function()
-				local old_lines, old_ok = view.read_git_blob_lines(item.parent or (item.commit .. "^"), old_path)
+				local old_lines, old_ok = read_blob_lines(item.parent or (item.commit .. "^"), old_path)
 				if not old_ok then
 					return as_view(old_lines)
 				end
-				local new_lines, new_ok = view.read_git_blob_lines(item.commit, new_path)
+				local new_lines, new_ok = read_blob_lines(item.commit, new_path)
 				if not new_ok then
 					return as_view(new_lines)
 				end
@@ -106,7 +134,7 @@ function M.view_item(item)
 	-- Untracked files have no HEAD blob; skip the two git calls that would only confirm that.
 	local old_lines, old_ok = {}, true
 	if item.raw_code ~= "??" then
-		old_lines, old_ok = read_head_file(path)
+		old_lines, old_ok = read_blob_lines("HEAD", path)
 	end
 	local result
 	if not old_ok then
