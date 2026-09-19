@@ -1,37 +1,11 @@
 local M = {}
+local nav = require("pulse.navigators.util")
 local view = require("pulse.panel_view")
 local context = require("pulse.context")
 
 M.name = "live_grep"
 M.icon = "󰍉"
-M.actions = {
-	{
-		key = "<CR>",
-		name = "jump",
-		when = function(ctx)
-			return ctx and ctx.item ~= nil
-		end,
-		run = function(ctx)
-			if ctx and ctx.item then
-				ctx.jump(ctx.item)
-				ctx.close()
-				return false
-			end
-		end,
-	},
-	{
-		key = "<Tab>",
-		name = "preview",
-		when = function(ctx)
-			return ctx and ctx.item ~= nil
-		end,
-		run = function(ctx)
-			if ctx and ctx.item then
-				ctx.preview(ctx.item)
-			end
-		end,
-	},
-}
+M.actions = nav.jump_actions()
 M.panels = {
 	{ start = "$", name = "live_grep", label = "Live Grep", contexts = { "workspace", "folder" } },
 }
