@@ -1,6 +1,7 @@
 # Pulse Navigator API
 
-A navigator is a self-contained module that defines a data source, its panels, and how Pulse interacts with it.
+A navigator is a self-contained module that defines a data source, its panels,
+and how Pulse interacts with it.
 
 ## Navigator Module Interface
 
@@ -8,7 +9,7 @@ A navigator is a self-contained module that defines a data source, its panels, a
 local M = {}
 
 M.mode = {
-  name = "my_navigator",     -- unique identifier (required)
+  name = "my_navigator",     -- identifier (required)
   icon = "󰊲",
 }
 
