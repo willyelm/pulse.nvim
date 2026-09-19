@@ -36,7 +36,7 @@ end
 
 -- Cheap identity of a file's current content (size + mtime); changes on any edit.
 function M.file_stamp(path)
-	local stat = path and uv.fs_stat(vim.fn.fnamemodify(path, ":p")) or nil
+	local stat = path and uv.fs_stat(path:sub(1, 1) == "/" and path or vim.fn.fnamemodify(path, ":p")) or nil
 	if not stat then
 		return "missing"
 	end
