@@ -224,30 +224,28 @@ local function display_grep(item)
 	return out
 end
 
+-- Highlight spans for the "+N" additions and "-N" deletions inside a right-hand column.
+local function change_matches(right)
+	local matches = {}
+	local p1, p2 = right:find("%+%d+")
+	if p1 then
+		matches[#matches + 1] = { p1 - 1, p2, "Added" }
+	end
+	p1, p2 = right:find("%-%d+")
+	if p1 then
+		matches[#matches + 1] = { p1 - 1, p2, "Removed" }
+	end
+	return matches
+end
+
 local function display_git_status(item)
 	local icon, style = icon_for_item("file", item.path)
 	local display = format_icon_item(icon, item.label or item.path or file_name(item.path), item.display_right or "", style)
-
-	-- Add highlighting for additions and deletions in right column
-	local right_str = item.display_right or ""
-	if right_str ~= "" then
-		display.right_matches = {}
-		-- Highlight additions (+N)
-		local p1, p2 = right_str:find("%+%d+")
-		if p1 then
-			display.right_matches[#display.right_matches + 1] = { p1 - 1, p2, "Added" }
-		end
-		-- Highlight deletions (-N)
-		p1, p2 = right_str:find("%-%d+")
-		if p1 then
-			display.right_matches[#display.right_matches + 1] = { p1 - 1, p2, "Removed" }
-		end
-		-- Staged (green) / unstaged (red) columns, precomputed in items.lua alongside display_right.
-		for _, span in ipairs(item.status_matches or {}) do
-			display.right_matches[#display.right_matches + 1] = span
-		end
+	local right = item.display_right or ""
+	if right ~= "" then
+		-- Staged (green) / unstaged (red) columns are precomputed in items.lua alongside display_right.
+		display.right_matches = vim.list_extend(change_matches(right), item.status_matches or {})
 	end
-
 	return display
 end
 
@@ -267,15 +265,7 @@ local function display_git_commit_file(item)
 		is_open = false,
 	}, item))
 	if item.display_right ~= "" then
-		out.right_matches = out.right_matches or {}
-		local p1, p2 = item.display_right:find("%+%d+")
-		if p1 then
-			out.right_matches[#out.right_matches + 1] = { p1 - 1, p2, "Added" }
-		end
-		p1, p2 = item.display_right:find("%-%d+")
-		if p1 then
-			out.right_matches[#out.right_matches + 1] = { p1 - 1, p2, "Removed" }
-		end
+		out.right_matches = vim.list_extend(out.right_matches or {}, change_matches(item.display_right))
 	end
 	return out
 end
