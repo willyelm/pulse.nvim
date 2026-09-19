@@ -36,6 +36,10 @@ local function rows_from_hunks(old_l, new_l, hunks, old_start, new_start)
   end
   for _, h in ipairs(hunks) do
     local sa, ca, sb, cb = h[1], h[2], h[3], h[4]
+    -- A side with no lines is reported as the line *before* the change; make it the first line after, so the
+    -- unchanged rows in front of a pure insertion or deletion are kept and numbered correctly.
+    if ca == 0 then sa = sa + 1 end
+    if cb == 0 then sb = sb + 1 end
     flush_equal(sa, sb)
     for i = sa, sa + ca - 1 do push(old_start + i - 1, nil, "-", old_l[i] or "") end
     for i = sb, sb + cb - 1 do push(nil, new_start + i - 1, "+", new_l[i] or "") end
@@ -72,7 +76,12 @@ function M.from_lines(old_lines, new_lines, opts)
   opts = opts or {}
   local old_l = norm(vim.deepcopy(old_lines))
   local new_l = norm(vim.deepcopy(new_lines))
-  local ok, hunks = pcall(vim.diff, table.concat(old_l, "\n"), table.concat(new_l, "\n"), {
+  -- Every line ends in a newline, the last one included: xdiff sees "b" and "b\n" as different lines, so an
+  -- unterminated last line would show up as removed-and-re-added whenever lines are appended after it.
+  local function joined(lines)
+    return #lines > 0 and (table.concat(lines, "\n") .. "\n") or ""
+  end
+  local ok, hunks = pcall(vim.diff, joined(old_l), joined(new_l), {
     result_type = "indices",
     algorithm = opts.algorithm or "myers",
   })
