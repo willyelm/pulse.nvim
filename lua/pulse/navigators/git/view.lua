@@ -65,6 +65,10 @@ local function as_view(lines, highlights, focus_row, filetype)
 	return lines, filetype or "text", highlights or {}, nil, focus_row or 1
 end
 
+-- 12-hour local time to the second, e.g. "2026-09-18 12:00:00 PM".
+local COMMIT_DATE_FORMAT = "%Y-%m-%d %I:%M:%S %p"
+local COMMIT_FORMAT = table.concat({ "Commit: %h", "Date:   %ad", "Author: %an <%ae>", "", "%B" }, "%n")
+
 local function cached(key, producer)
 	local value = CACHE[key]
 	if value then
@@ -90,33 +94,44 @@ function M.view_item(item)
 					return as_view(new_lines)
 				end
 				local lines, highlights, focus_row = diff_ui.from_lines(old_lines, new_lines, { context = 3 })
-				return as_view(lines, highlights, focus_row, filetype_for(new_path))
+				local _, filetype = view.file_snippet(new_path, 1)
+				return as_view(lines, highlights, focus_row, filetype)
 			end)
 		end
 		return cached("commit:" .. tostring(item.commit) .. ":" .. tostring(item.history_path or ""), function()
-			local info = git.lines({
+			-- The record separator ends the header/message so the stat output that follows can't be confused with it.
+			local args = {
 				"git",
 				"--no-pager",
 				"show",
 				"--stat",
-				"--format=format:Commit: %h%nDate: %as%nAuthor: %an <%ae>",
+				"--date=format-local:" .. COMMIT_DATE_FORMAT,
+				"--format=format:" .. COMMIT_FORMAT .. "%x1e",
 				item.commit,
-				"--",
-				item.history_path or ".",
-			}) or {}
-			local lines = {}
-			for _, line in ipairs(info) do
-				if line:match("files? changed") then
-					lines[#lines + 1] = ""
-					lines[#lines + 1] = line
-					break
-				end
-				if line ~= "" and not line:find(" | ", 1, true) then
-					lines[#lines + 1] = line
+			}
+			-- A pathspec makes git skip commits that don't touch it (e.g. empty ones), so only add one to limit by.
+			if item.history_path then
+				vim.list_extend(args, { "--", item.history_path })
+			end
+			local out, ok = git.system(args)
+			local head, stat = out:match("^(.-)\30(.*)$")
+			if not (ok and head) then
+				return { "No git history for " .. tostring(item.commit or "") }, "git", {}, nil, 1
+			end
+			-- Header (3 lines) and a blank, then the full message indented like `git log`, trailers included.
+			local lines = vim.split(head, "\n", { plain = true })
+			for i = 5, #lines do
+				if lines[i] ~= "" then
+					lines[i] = "    " .. lines[i]
 				end
 			end
-			if #lines == 0 then
-				lines = { "No git history for " .. tostring(item.commit or "") }
+			while lines[#lines] == "" do
+				lines[#lines] = nil
+			end
+			local summary = stat:match("[^\n]*files? changed[^\n]*")
+			if summary then
+				lines[#lines + 1] = ""
+				lines[#lines + 1] = summary
 			end
 			return lines, "git", {}, nil, 1
 		end)
