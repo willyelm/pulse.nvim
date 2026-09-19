@@ -3,19 +3,33 @@
 local M = {}
 local uv = vim.uv or vim.loop
 
-local ROOTS = {}
+local REPOS = {}
 
--- Repo root for nvim's cwd, or nil outside a repo. Cached per cwd once found; once warmed from the main
--- thread it is also safe to call from fast (libuv) callbacks, which can't run the lookup themselves.
-function M.root()
+-- Repo layout for nvim's cwd ({ root, git_dir }), or nil outside a repo. Cached per cwd once found; once
+-- warmed from the main thread it is also safe to call from fast (libuv) callbacks, which can't run the
+-- lookup themselves.
+local function repo()
 	local cwd = uv.cwd()
-	local root = ROOTS[cwd]
-	if root == nil and not vim.in_fast_event() then
-		local out = vim.fn.systemlist({ "git", "--no-optional-locks", "rev-parse", "--show-toplevel" })
-		root = vim.v.shell_error == 0 and out[1] or nil
-		ROOTS[cwd] = root
+	local found = REPOS[cwd]
+	if found == nil and not vim.in_fast_event() then
+		local out = vim.fn.systemlist({ "git", "--no-optional-locks", "rev-parse", "--show-toplevel", "--absolute-git-dir" })
+		if vim.v.shell_error == 0 and out[1] and out[2] then
+			found = { root = out[1], git_dir = out[2] }
+			REPOS[cwd] = found
+		end
 	end
-	return root
+	return found
+end
+
+function M.root()
+	local found = repo()
+	return found and found.root
+end
+
+-- The real git dir (not `root/.git`, which is a file in worktrees and submodules).
+function M.git_dir()
+	local found = repo()
+	return found and found.git_dir
 end
 
 -- Path relative to the repo root (the form git pathspecs use), or nil when it lies outside the repo.

@@ -138,25 +138,50 @@ local function status_signature(items)
 	return table.concat(parts, "\n")
 end
 
-local function warm_status_all(state)
-	-- status_dirty (not status_all == nil) triggers a refetch, so selection survives it.
-	if state._status_loading or (state.status_all ~= nil and not state.status_dirty) then
+-- Cheap fingerprint of what the counts derive from besides status text: the index (staging, commits) and
+-- every listed file's size/mtime.
+local function worktree_stamps(items)
+	local git_dir = git.git_dir()
+	local parts = { util.file_stamp(git_dir and (git_dir .. "/index") or nil) }
+	for i, item in ipairs(items) do
+		parts[i + 1] = util.file_stamp(item.filename)
+	end
+	return table.concat(parts, "\n")
+end
+
+local STATUS_ARGS = { "git", "status", "--porcelain=v1", "-z", "--untracked-files=all" }
+
+-- Refetches status and per-file counts. Normally both git calls run concurrently (fastest refresh). With
+-- `quiet` (background polling) status runs alone first, and the numstat is skipped when neither the status
+-- nor the fingerprint above changed, so an idle poll costs one process instead of two.
+local function warm_status_all(state, quiet)
+	if state._status_loading then
 		return
 	end
+	-- status_dirty (not status_all == nil) triggers a refetch, so selection survives it.
+	if state.status_all ~= nil and not state.status_dirty and not quiet then
+		return
+	end
+	quiet = quiet and state.status_all ~= nil and not state.status_dirty
 	state._status_loading = true
 	state.status_dirty = false
 	-- invalidate_status bumps the generation, so a fetch overtaken by newer state never publishes.
 	local gen = (state._status_gen or 0) + 1
 	state._status_gen = gen
 	local started = now_ms()
-	local pending, status_text, numstat_text = 2, nil, ""
 
-	local function publish()
+	local function finish()
+		state._status_loading = false
+		state._status_ms = now_ms() - started
+	end
+
+	-- `stamps` is only recorded when taken before the numstat ran, so an edit during it forces a refetch.
+	local function publish(status_text, numstat_text, stamps)
 		if state._status_gen ~= gen then
 			return
 		end
-		state._status_loading = false
-		state._status_ms = now_ms() - started
+		finish()
+		state.status_text, state.status_stamps = status_text, stamps
 		local changed = false
 		if status_text then
 			local items = parse_status_z(status_text, state.scope_prefix)
@@ -173,15 +198,42 @@ local function warm_status_all(state)
 			state._on_update()
 		end
 	end
-	local function part_done()
-		pending = pending - 1
-		if pending == 0 then
-			vim.schedule(publish)
-		end
+
+	if quiet then
+		git.spawn(STATUS_ARGS, function(result)
+			local text = result.code == 0 and (result.stdout or "") or nil
+			vim.schedule(function()
+				if state._status_gen ~= gen then
+					return
+				end
+				if text and text == state.status_text and state.status_stamps == worktree_stamps(state.status_all) then
+					return finish()
+				end
+				if not text then
+					return publish(nil, "", nil)
+				end
+				local stamps = worktree_stamps(parse_status_z(text, state.scope_prefix))
+				fetch_numstat(function(numstat_text)
+					vim.schedule(function()
+						publish(text, numstat_text, stamps)
+					end)
+				end)
+			end)
+		end)
+		return
 	end
 
 	-- Independent, so run concurrently: latency is the slower one, not the sum.
-	git.spawn({ "git", "status", "--porcelain=v1", "-z", "--untracked-files=all" }, function(result)
+	local pending, status_text, numstat_text = 2, nil, ""
+	local function part_done()
+		pending = pending - 1
+		if pending == 0 then
+			vim.schedule(function()
+				publish(status_text, numstat_text, nil)
+			end)
+		end
+	end
+	git.spawn(STATUS_ARGS, function(result)
 		status_text = result.code == 0 and (result.stdout or "") or nil
 		part_done()
 	end)
@@ -530,10 +582,7 @@ function M.watch(state, alive, active)
 			return
 		end
 		if state.current_panel == "git_status" then
-			if not state._status_loading then
-				state.status_dirty = true
-				warm_status_all(state)
-			end
+			warm_status_all(state, true)
 		else
 			check_head(state)
 		end
