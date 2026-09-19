@@ -126,7 +126,10 @@ M.actions = {
 			if confirm ~= 1 then
 				return
 			end
-			git.system({ "git", "restore", "--staged", "--worktree", "--", item.path })
+			local out, ok = git.system({ "git", "restore", "--staged", "--worktree", "--", item.path })
+			if not ok then
+				notify("restore failed: " .. vim.trim(out or ""), vim.log.levels.ERROR)
+			end
 			items.invalidate_status(ctx.state)
 			ctx.refresh()
 		end,
