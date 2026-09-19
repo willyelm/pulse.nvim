@@ -213,18 +213,25 @@ function M.init(ctx)
 		scope_prefix = (scoped and scoped.kind == "folder" and (vim.fn.fnamemodify(scoped.path, ":.") .. "/")) or nil,
 		_on_update = ctx and ctx.on_update or nil,
 	}
+	-- A different directory can mean a different repo; everything else only dirties status (history is
+	-- invalidated by items.watch when HEAD moves), so a save or focus change never refetches the log.
 	sync.register(state, {
-		group = "PulseGitFocusSync",
-		events = { "FocusGained" },
+		group = "PulseGitDirSync",
+		events = { "DirChanged" },
 		invalidate = items.invalidate,
 		on_update = state._on_update,
+		exclusive = true,
 	})
 	sync.register(state, {
 		group = "PulseGitSync",
-		events = { "ShellCmdPost", "DirChanged", "BufWritePost" },
-		invalidate = items.invalidate,
+		events = { "FocusGained", "ShellCmdPost", "BufWritePost" },
+		invalidate = items.invalidate_status,
 		on_update = state._on_update,
+		exclusive = true,
 	})
+	if ctx and ctx.is_alive and ctx.is_active then
+		items.watch(state, ctx.is_alive, ctx.is_active)
+	end
 	return state
 end
 

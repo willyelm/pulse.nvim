@@ -409,6 +409,13 @@ local function navigator_state(mode_name)
 			end
 			schedule_refresh()
 		end,
+		-- Lets a navigator poll only while its state is current and its panel is the one on screen.
+		is_alive = function()
+			return is_visible() and state.states[mode_name] == current
+		end,
+		is_active = function()
+			return state.current.state == current
+		end,
 		bufnr = bufnr,
 		win = win,
 		cwd = state.cwd,

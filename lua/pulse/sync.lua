@@ -45,7 +45,12 @@ function M.register(state, opts)
 	end
 	local group = assert(opts.group, "sync.register requires group")
 	local events = assert(opts.events, "sync.register requires events")
-	bucket(group, events).states[state] = opts
+	local entry = bucket(group, events)
+	if opts.exclusive then
+		-- Navigators rebuilt on every open would otherwise pile up dead states until GC, all reacting to each event.
+		entry.states = setmetatable({}, { __mode = "k" })
+	end
+	entry.states[state] = opts
 end
 
 return M

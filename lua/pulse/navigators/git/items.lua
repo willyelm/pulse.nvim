@@ -3,6 +3,7 @@ local file_items = require("pulse.navigators.files.items")
 local util = require("pulse.navigators.git.util")
 
 local M = {}
+local uv = vim.uv or vim.loop
 local HISTORY_PAGE_SIZE = 100
 local HISTORY_PREFETCH = 30
 local HISTORY_LIMIT = 5000
@@ -46,66 +47,99 @@ local function set_status_display(item)
 	end
 end
 
-local function parse_status_lines(lines, scope_prefix)
+-- Runs a read-only git command; a missing `git` binary is reported like a failed exit instead of throwing.
+local function spawn(cmd, on_exit)
+	if not pcall(vim.system, util.git_argv(cmd), { text = true }, on_exit) then
+		on_exit({ code = 127, stdout = "" })
+	end
+end
+
+local function now_ms()
+	return uv.hrtime() / 1e6
+end
+
+-- Parses `git status --porcelain=v1 -z`: "XY path\0" entries (unquoted, unlike the line format), where
+-- renames/copies carry an extra "orig\0" field that is skipped.
+local function parse_status_z(text, scope_prefix)
 	local items = {}
-	for _, line in ipairs(lines or {}) do
+	local fields = vim.split(text or "", "\0", { plain = true, trimempty = true })
+	local i = 1
+	while i <= #fields do
 		-- raw_code keeps the index/worktree columns positional; code (trimmed) can't.
-		local raw_code = line:sub(1, 2)
-		local code = vim.trim(raw_code)
-		local path = util.normalize_status_path(vim.trim(line:sub(4)))
+		local raw_code = fields[i]:sub(1, 2)
+		local path = util.normalize_status_path(fields[i]:sub(4))
+		i = i + (raw_code:find("[RC]") and 2 or 1)
 		if path ~= "" and (not scope_prefix or path:sub(1, #scope_prefix) == scope_prefix) then
-			local item = {
+			items[#items + 1] = {
 				kind = "git_status",
-				code = code,
+				code = vim.trim(raw_code),
 				raw_code = raw_code,
 				path = path,
 				label = path,
 				filename = path,
-				added = 0,
-				removed = 0,
-				-- Seeded so the code+color show immediately, before numstat data decorates it further.
-				display_right = raw_code,
 			}
-			set_status_display(item)
-			items[#items + 1] = item
 		end
 	end
 	return items
 end
 
+-- Line-counting untracked files reads them synchronously, so bound how many get counted per refresh.
+local UNTRACKED_COUNT_LIMIT = 200
+
 local function decorate_status_items(items, stats)
-	local zero = { added = 0, removed = 0 }
-	for _, item in ipairs(items or {}) do
-		local stat = (stats or {})[item.path] or zero
-		local added = stat.added
-		if item.code == "??" and added == 0 then
+	local budget = UNTRACKED_COUNT_LIMIT
+	for _, item in ipairs(items) do
+		local stat = stats[item.path]
+		local added, removed = stat and stat.added or 0, stat and stat.removed or 0
+		if item.code == "??" and added == 0 and budget > 0 then
+			budget = budget - 1
 			added = util.line_count(item.path)
 		end
-		item.added = added
-		item.removed = stat.removed
+		item.added, item.removed = added, removed
 		item.display_right = table.concat(vim.tbl_filter(function(v)
 			return v ~= nil and v ~= ""
 		end, {
-			item.added > 0 and ("+" .. item.added) or nil,
-			item.removed > 0 and ("-" .. item.removed) or nil,
+			added > 0 and ("+" .. added) or nil,
+			removed > 0 and ("-" .. removed) or nil,
 			item.raw_code,
 		}), " ")
 		set_status_display(item)
 	end
 end
 
--- Parses `git diff --numstat` output, merging added/removed onto `into` by path.
-local function merge_numstat(into, text)
-	for _, line in ipairs(vim.split(text or "", "\n", { plain = true, trimempty = true })) do
-		local added, removed, path = util.parse_numstat_line(line)
+-- Parses `git diff --numstat -z` output into { [path] = { added, removed } }.
+local function parse_numstat_z(text)
+	local stats = {}
+	for _, record in ipairs(vim.split(text or "", "\0", { plain = true, trimempty = true })) do
+		local added, removed, path = util.parse_numstat_line(record)
 		if path and path ~= "" then
-			local key = util.normalize_status_path(path)
-			local row = into[key] or { added = 0, removed = 0 }
-			row.added = row.added + (tonumber(added) or 0)
-			row.removed = row.removed + (tonumber(removed) or 0)
-			into[key] = row
+			stats[util.normalize_status_path(path)] = { added = tonumber(added) or 0, removed = tonumber(removed) or 0 }
 		end
 	end
+	return stats
+end
+
+-- HEAD-vs-worktree counts: the same comparison the preview shows, in one process (--no-renames keeps
+-- every record a plain "added removed path").
+local function fetch_numstat(on_done)
+	spawn({ "git", "diff", "HEAD", "--numstat", "--no-renames", "-z" }, function(result)
+		if result.code == 0 then
+			return on_done(result.stdout)
+		end
+		-- No HEAD yet (fresh repo): the index is the only side with content.
+		spawn({ "git", "diff", "--cached", "--numstat", "--no-renames", "-z" }, function(fallback)
+			on_done(fallback.code == 0 and fallback.stdout or "")
+		end)
+	end)
+end
+
+-- Everything a row displays or previews from; equal signatures mean nothing needs re-rendering.
+local function status_signature(items)
+	local parts = {}
+	for i, item in ipairs(items) do
+		parts[i] = table.concat({ item.raw_code, item.path, item.added, item.removed, util.file_stamp(item.path) }, "\t")
+	end
+	return table.concat(parts, "\n")
 end
 
 local function warm_status_all(state)
@@ -115,34 +149,49 @@ local function warm_status_all(state)
 	end
 	state._status_loading = true
 	state.status_dirty = false
-	vim.system({ "git", "-c", "core.fsmonitor=false", "status", "--porcelain=v1", "--untracked-files=all" }, { text = true }, function(result)
-		local items = {}
-		if result.code == 0 then
-			items = parse_status_lines(vim.split(result.stdout or "", "\n", { plain = true, trimempty = true }), state.scope_prefix)
+	-- invalidate_status bumps the generation, so a fetch overtaken by newer state never publishes.
+	local gen = (state._status_gen or 0) + 1
+	state._status_gen = gen
+	local started = now_ms()
+	local pending, status_text, numstat_text = 2, nil, ""
+
+	local function publish()
+		if state._status_gen ~= gen then
+			return
 		end
-		state.status_all = items
 		state._status_loading = false
-		if #items > 0 then
-			-- Unstaged and staged numstat are independent; run them concurrently.
-			local pending, stats = 2, {}
-			local function on_numstat_done(diff_result)
-				if diff_result.code == 0 then
-					merge_numstat(stats, diff_result.stdout)
-				end
-				pending = pending - 1
-				if pending == 0 then
-					decorate_status_items(items, stats)
-					if state._on_update then
-						vim.schedule(state._on_update)
-					end
-				end
+		state._status_ms = now_ms() - started
+		local changed = false
+		if status_text then
+			local items = parse_status_z(status_text, state.scope_prefix)
+			decorate_status_items(items, parse_numstat_z(numstat_text))
+			local signature = status_signature(items)
+			if state.status_all == nil or signature ~= state.status_signature then
+				state.status_all, state.status_signature, changed = items, signature, true
 			end
-			vim.system({ "git", "-c", "core.fsmonitor=false", "diff", "--numstat" }, { text = true }, on_numstat_done)
-			vim.system({ "git", "-c", "core.fsmonitor=false", "diff", "--cached", "--numstat" }, { text = true }, on_numstat_done)
+		elseif state.status_all == nil then
+			-- Not a repo / git failed with nothing to show yet; a failure later keeps the last good list.
+			state.status_all, changed = {}, true
 		end
-		if state._on_update then
-			vim.schedule(state._on_update)
+		if changed and state._on_update then
+			state._on_update()
 		end
+	end
+	local function part_done()
+		pending = pending - 1
+		if pending == 0 then
+			vim.schedule(publish)
+		end
+	end
+
+	-- Independent, so run concurrently: latency is the slower one, not the sum.
+	spawn({ "git", "status", "--porcelain=v1", "-z", "--untracked-files=all" }, function(result)
+		status_text = result.code == 0 and (result.stdout or "") or nil
+		part_done()
+	end)
+	fetch_numstat(function(text)
+		numstat_text = text
+		part_done()
 	end)
 end
 
@@ -200,6 +249,7 @@ local function ensure_history_loaded(state, panel_name)
 		state.history_all = {}
 		state.history_has_more = true
 		state._history_loading = false
+		state._history_gen = (state._history_gen or 0) + 1
 	end
 	if state._history_loading or state.history_has_more == false then
 		return
@@ -209,39 +259,36 @@ local function ensure_history_loaded(state, panel_name)
 		return
 	end
 	state._history_loading = true
-	local skip = #(state.history_all or {})
+	-- Bumped by every invalidation/re-key, so a page requested before one can't be appended after it.
+	local gen = state._history_gen or 0
 	local cmd = {
 		"git",
-		"-c",
-		"core.fsmonitor=false",
 		"--no-pager",
 		"log",
 		"--pretty=format:%h%x09%at%x09%an%x09%ae%x09%s",
 		"-n",
 		tostring(HISTORY_PAGE_SIZE),
 		"--skip",
-		tostring(skip),
+		tostring(#(state.history_all or {})),
 	}
 	if pathspec then
 		cmd[#cmd + 1] = "--"
 		cmd[#cmd + 1] = pathspec
 	end
-	vim.system(cmd, { text = true }, function(result)
+	spawn(cmd, function(result)
+		if state._history_gen ~= gen then
+			return
+		end
 		local out = {}
 		if result.code == 0 then
 			out = parse_history_output(result.stdout, panel_name, pathspec)
 		end
-		if state.history_key ~= cache_key then
-			return
-		end
-		if #out > 0 then
-			local remaining = HISTORY_LIMIT - #(state.history_all or {})
-			if remaining > 0 and #out > remaining then
-				out = vim.list_slice(out, 1, remaining)
-			end
+		local remaining = HISTORY_LIMIT - #(state.history_all or {})
+		if #out > remaining then
+			out = vim.list_slice(out, 1, math.max(remaining, 0))
 		end
 		state.history_all = vim.list_extend(state.history_all or {}, out)
-		state.history_has_more = #out >= HISTORY_PAGE_SIZE and #(state.history_all or {}) < HISTORY_LIMIT
+		state.history_has_more = #out >= HISTORY_PAGE_SIZE and #state.history_all < HISTORY_LIMIT
 		state._history_loading = false
 		if state._on_update then
 			vim.schedule(state._on_update)
@@ -417,6 +464,9 @@ function M.invalidate_history(state)
 	if not state then
 		return
 	end
+	state._history_gen = (state._history_gen or 0) + 1
+	state._history_loading = false
+	state.history_head = nil
 	state.history_files = {}
 	state.history_all = {}
 	state.history_key = nil
@@ -432,6 +482,67 @@ function M.invalidate_status(state)
 	-- Leaves status_all in place (see warm_status_all) so selection survives the refetch.
 	state.status_dirty = true
 	state._status_loading = false
+	state._status_gen = (state._status_gen or 0) + 1
+end
+
+-- Notices commits/checkouts/amends made elsewhere: history only changes when HEAD does.
+local function check_head(state)
+	if state._head_checking then
+		return
+	end
+	state._head_checking = true
+	spawn({ "git", "rev-parse", "HEAD" }, function(result)
+		vim.schedule(function()
+			state._head_checking = false
+			local head = result.code == 0 and vim.trim(result.stdout or "") or ""
+			local previous = state.history_head
+			if previous ~= nil and previous ~= head then
+				M.invalidate_history(state)
+				if state._on_update then
+					state._on_update()
+				end
+			end
+			state.history_head = head
+		end)
+	end)
+end
+
+local POLL_MIN_MS, POLL_MAX_MS = 1500, 15000
+
+-- Keeps the visible git panel current with changes made outside nvim (a terminal split, another tool).
+-- Costs one one-shot timer; a tick re-renders only when the fetched state actually differs, and the
+-- interval stretches to 10x the last fetch time so a slow repo is never hammered.
+function M.watch(state, alive, active)
+	local timer = uv.new_timer()
+	local tick
+	local function stop()
+		if timer then
+			timer:stop()
+			timer:close()
+			timer = nil
+		end
+	end
+	tick = function()
+		if not timer then
+			return
+		end
+		if not alive() then
+			return stop()
+		end
+		timer:start(math.min(math.max((state._status_ms or 0) * 10, POLL_MIN_MS), POLL_MAX_MS), 0, vim.schedule_wrap(tick))
+		if not active() then
+			return
+		end
+		if state.current_panel == "git_status" then
+			if not state._status_loading then
+				state.status_dirty = true
+				warm_status_all(state)
+			end
+		else
+			check_head(state)
+		end
+	end
+	timer:start(POLL_MIN_MS, 0, vim.schedule_wrap(tick))
 end
 
 return M
