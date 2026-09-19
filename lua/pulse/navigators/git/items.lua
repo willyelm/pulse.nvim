@@ -1,5 +1,6 @@
 local pulse = require("pulse")
 local file_items = require("pulse.navigators.files.items")
+local git = require("pulse.navigators.git.cmd")
 local util = require("pulse.navigators.git.util")
 
 local M = {}
@@ -44,13 +45,6 @@ local function set_status_display(item)
 	item.status_matches = {}
 	for _, span in ipairs(util.status_spans(item.raw_code)) do
 		item.status_matches[#item.status_matches + 1] = { raw_start + span[1], raw_start + span[2], span[3] }
-	end
-end
-
--- Runs a read-only git command; a missing `git` binary is reported like a failed exit instead of throwing.
-local function spawn(cmd, on_exit)
-	if not pcall(vim.system, util.git_argv(cmd), { text = true }, on_exit) then
-		on_exit({ code = 127, stdout = "" })
 	end
 end
 
@@ -122,12 +116,12 @@ end
 -- HEAD-vs-worktree counts: the same comparison the preview shows, in one process (--no-renames keeps
 -- every record a plain "added removed path").
 local function fetch_numstat(on_done)
-	spawn({ "git", "diff", "HEAD", "--numstat", "--no-renames", "-z" }, function(result)
+	git.spawn({ "git", "diff", "HEAD", "--numstat", "--no-renames", "-z" }, function(result)
 		if result.code == 0 then
 			return on_done(result.stdout)
 		end
 		-- No HEAD yet (fresh repo): the index is the only side with content.
-		spawn({ "git", "diff", "--cached", "--numstat", "--no-renames", "-z" }, function(fallback)
+		git.spawn({ "git", "diff", "--cached", "--numstat", "--no-renames", "-z" }, function(fallback)
 			on_done(fallback.code == 0 and fallback.stdout or "")
 		end)
 	end)
@@ -185,7 +179,7 @@ local function warm_status_all(state)
 	end
 
 	-- Independent, so run concurrently: latency is the slower one, not the sum.
-	spawn({ "git", "status", "--porcelain=v1", "-z", "--untracked-files=all" }, function(result)
+	git.spawn({ "git", "status", "--porcelain=v1", "-z", "--untracked-files=all" }, function(result)
 		status_text = result.code == 0 and (result.stdout or "") or nil
 		part_done()
 	end)
@@ -205,7 +199,7 @@ local function commit_files(state, commit, pathspec)
 		end
 
 		entries = {}
-		for _, line in ipairs(util.git_lines(cmd) or {}) do
+		for _, line in ipairs(git.lines(cmd) or {}) do
 			local added, removed, path = util.parse_numstat_line(line)
 			if path and path ~= "" then
 				local parsed = util.parse_numstat_path(path)
@@ -275,7 +269,7 @@ local function ensure_history_loaded(state, panel_name)
 		cmd[#cmd + 1] = "--"
 		cmd[#cmd + 1] = pathspec
 	end
-	spawn(cmd, function(result)
+	git.spawn(cmd, function(result)
 		if state._history_gen ~= gen then
 			return
 		end
@@ -491,7 +485,7 @@ local function check_head(state)
 		return
 	end
 	state._head_checking = true
-	spawn({ "git", "rev-parse", "HEAD" }, function(result)
+	git.spawn({ "git", "rev-parse", "HEAD" }, function(result)
 		vim.schedule(function()
 			state._head_checking = false
 			local head = result.code == 0 and vim.trim(result.stdout or "") or ""

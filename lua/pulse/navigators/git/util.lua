@@ -1,4 +1,5 @@
 local M = {}
+local git = require("pulse.navigators.git.cmd")
 local uv = vim.uv or vim.loop
 
 -- Untracked files larger than this skip the +N line count instead of being read synchronously.
@@ -31,24 +32,6 @@ function M.status_spans(raw_code)
 		spans[#spans + 1] = { 1, 2, "Removed" }
 	end
 	return spans
-end
-
--- Read-only flags for every git call: no fsmonitor daemon, and no optional index.lock so the panel
--- never blocks a `git add`/`git commit` running in the user's terminal.
-function M.git_argv(cmd)
-	local argv = { "git", "--no-optional-locks", "-c", "core.fsmonitor=false" }
-	for i = 2, #cmd do
-		argv[#argv + 1] = cmd[i]
-	end
-	return argv
-end
-
-function M.git_lines(cmd)
-	if cmd and cmd[1] == "git" then
-		cmd = M.git_argv(cmd)
-	end
-	local lines = vim.fn.systemlist(cmd)
-	return (vim.v.shell_error == 0) and lines or nil
 end
 
 -- Cheap identity of a file's current content (size + mtime); changes on any edit.
@@ -211,11 +194,10 @@ end
 
 function M.history_pathspec(state, panel_name)
 	if panel_name == "git_file_history" and state.context and state.context.kind == "file" then
-		local rel = vim.fn.fnamemodify(state.context.path, ":.")
-		return (rel ~= "" and rel ~= ".") and rel or nil
+		return git.relative(state.context.path)
 	end
 	if state.scope_prefix then
-		return state.scope_prefix:gsub("/$", "")
+		return (state.scope_prefix:gsub("/$", ""))
 	end
 	return nil
 end

@@ -2,6 +2,7 @@ local M = {}
 M.__index = M
 local window = require("pulse.ui.window")
 local uv = vim.uv or vim.loop
+local git = require("pulse.navigators.git.cmd")
 
 local MAX_PREVIEW_BYTES = 1024 * 1024
 
@@ -62,8 +63,8 @@ function M.read_git_blob_lines(rev, path)
 		return {}, true
 	end
 	local target = rev .. ":" .. path
-	local size_out = vim.fn.system({ "git", "-c", "core.fsmonitor=false", "cat-file", "-s", target })
-	local size = (vim.v.shell_error == 0) and tonumber(vim.trim(size_out)) or nil
+	local size_out, found = git.system({ "git", "cat-file", "-s", target })
+	local size = found and tonumber(vim.trim(size_out)) or nil
 	if not size then
 		-- No such blob at that rev (new/untracked file); skip the `git show` that would only fail too.
 		return {}, true
@@ -71,8 +72,8 @@ function M.read_git_blob_lines(rev, path)
 	if size > MAX_PREVIEW_BYTES then
 		return too_large(size), false
 	end
-	local raw = vim.fn.system({ "git", "-c", "core.fsmonitor=false", "--no-pager", "show", target })
-	if vim.v.shell_error ~= 0 then
+	local raw, ok = git.system({ "git", "--no-pager", "show", target })
+	if not ok then
 		return {}, true
 	end
 	local placeholder = classify(size, raw)

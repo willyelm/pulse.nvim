@@ -3,6 +3,7 @@ local context = require("pulse.context")
 local sync = require("pulse.sync")
 local git_view = require("pulse.navigators.git.view")
 local items = require("pulse.navigators.git.items")
+local git = require("pulse.navigators.git.cmd")
 local util = require("pulse.navigators.git.util")
 local notify = require("pulse.navigators.util").notify
 
@@ -12,7 +13,7 @@ local STATUS_KIND = { A = "new file", M = "modified", D = "deleted", R = "rename
 
 -- Mirrors a real `git commit` template (blank subject + staged file comments).
 local function commit_template(state)
-	local branch = (util.git_lines({ "git", "rev-parse", "--abbrev-ref", "HEAD" }) or {})[1] or "HEAD"
+	local branch = (git.lines({ "git", "rev-parse", "--abbrev-ref", "HEAD" }) or {})[1] or "HEAD"
 	local lines = {
 		"",
 		"# Please enter the commit message for your changes. Lines starting",
@@ -125,7 +126,7 @@ M.actions = {
 			if confirm ~= 1 then
 				return
 			end
-			vim.fn.system({ "git", "restore", "--staged", "--worktree", "--", item.path })
+			git.system({ "git", "restore", "--staged", "--worktree", "--", item.path })
 			items.invalidate_status(ctx.state)
 			ctx.refresh()
 		end,
@@ -148,9 +149,9 @@ M.actions = {
 			if not item then
 				return
 			end
-			local cmd = is_staged(item) and { "git", "restore", "--staged", "--", item.path }
+			local args = is_staged(item) and { "git", "restore", "--staged", "--", item.path }
 				or { "git", "add", "--", item.path }
-			if not util.git_lines(cmd) then
+			if not git.lines(args) then
 				notify((is_staged(item) and "unstage" or "stage") .. " failed", vim.log.levels.ERROR)
 			end
 			items.invalidate_status(ctx.state)
@@ -175,8 +176,8 @@ M.actions = {
 						notify("empty commit message, aborting", vim.log.levels.WARN)
 						return
 					end
-					local out = vim.fn.system({ "git", "-c", "core.fsmonitor=false", "commit", "-F", "-" }, message)
-					if vim.v.shell_error ~= 0 then
+					local out, ok = git.system({ "git", "commit", "-F", "-" }, message)
+					if not ok then
 						notify("commit failed: " .. vim.trim(out or ""), vim.log.levels.ERROR)
 						return
 					end
@@ -202,6 +203,8 @@ M.view_item = git_view.view_item
 
 function M.init(ctx)
 	local scoped = ctx and ctx.context
+	-- Root-relative like git's own paths; nil for the repo root itself or a folder outside the repo.
+	local scope_dir = scoped and scoped.kind == "folder" and git.relative(scoped.path) or nil
 	local state = {
 		history_files = {},
 		history_all = {},
@@ -210,7 +213,7 @@ function M.init(ctx)
 		status_all = {},
 		status_key = nil,
 		context = (scoped and scoped.kind == "folder" and context.folder(scoped.path)) or nil,
-		scope_prefix = (scoped and scoped.kind == "folder" and (vim.fn.fnamemodify(scoped.path, ":.") .. "/")) or nil,
+		scope_prefix = scope_dir and (scope_dir .. "/") or nil,
 		_on_update = ctx and ctx.on_update or nil,
 	}
 	-- A different directory can mean a different repo; everything else only dirties status (history is

@@ -1,5 +1,6 @@
 local diff_ui = require("pulse.ui.diff")
 local view = require("pulse.panel_view")
+local git = require("pulse.navigators.git.cmd")
 local util = require("pulse.navigators.git.util")
 
 local M = {}
@@ -14,11 +15,11 @@ local function read_head_file(path)
 end
 
 local function git_patch_for(path)
-	local diff = util.git_lines({ "git", "--no-pager", "diff", "--", path })
+	local diff = git.lines({ "git", "--no-pager", "diff", "--", path })
 	if diff and #diff > 0 then
 		return diff
 	end
-	diff = util.git_lines({ "git", "--no-pager", "diff", "--cached", "--", path })
+	diff = git.lines({ "git", "--no-pager", "diff", "--cached", "--", path })
 	if diff and #diff > 0 then
 		return diff
 	end
@@ -60,7 +61,7 @@ function M.view_item(item)
 			end)
 		end
 		return cached("commit:" .. tostring(item.commit) .. ":" .. tostring(item.history_path or ""), function()
-			local info = util.git_lines({
+			local info = git.lines({
 				"git",
 				"--no-pager",
 				"show",
