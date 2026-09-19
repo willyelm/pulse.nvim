@@ -382,19 +382,12 @@ local function history_rows(state, query, panel_name)
 			filtered[#filtered + 1] = item
 		end
 	end
-	if panel_name == "git_file_history" then
-		state.history_rows_key = cache_key
-		state.history_rows_cache = filtered
-		return filtered
-	end
 	if panel_name == "git_project_history" then
 		local out = {}
 		for _, item in ipairs(grouped_commits(filtered)) do
 			out[#out + 1] = item
 			if item.kind == "git_commit" and state.expanded[item.commit] then
-				for _, child in ipairs(commit_files(state, item.commit, item.history_path)) do
-					out[#out + 1] = child
-				end
+				vim.list_extend(out, commit_files(state, item.commit, item.history_path))
 			end
 		end
 		filtered = out

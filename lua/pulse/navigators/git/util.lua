@@ -112,7 +112,6 @@ function M.parse_numstat_path(path)
 			path = normalized,
 			old_path = nil,
 			label = vim.fn.fnamemodify(normalized, ":t"),
-			right = nil,
 		}
 	end
 
@@ -131,7 +130,6 @@ function M.parse_numstat_path(path)
 		path = new_path,
 		old_path = old_path,
 		label = vim.fn.fnamemodify(new_path, ":t"),
-		right = nil,
 	}
 end
 
