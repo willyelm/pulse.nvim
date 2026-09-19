@@ -64,6 +64,7 @@ local function parse_status_z(text, scope_prefix)
 				code = vim.trim(entry.raw_code),
 				raw_code = entry.raw_code,
 				path = path,
+				orig_path = entry.orig,
 				label = path,
 				-- path is root-relative (git's identity for it); filename is what the filesystem and jump need.
 				filename = root and (root .. "/" .. path) or path,

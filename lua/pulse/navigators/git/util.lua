@@ -80,7 +80,7 @@ end
 
 -- Parses `git status --porcelain=v1 -z` into { { raw_code, path } } with repo-root-relative, unquoted paths
 -- (unlike the line format, which quotes spaces and non-ASCII). Renames/copies carry an extra "orig\0" field,
--- which is skipped.
+-- returned as `orig`.
 function M.parse_status_z(text)
 	local entries = {}
 	local fields = vim.split(text or "", "\0", { plain = true, trimempty = true })
@@ -88,9 +88,15 @@ function M.parse_status_z(text)
 	while i <= #fields do
 		local raw_code = fields[i]:sub(1, 2)
 		local path = M.normalize_status_path(fields[i]:sub(4))
-		i = i + (raw_code:find("[RC]") and 2 or 1)
+		local orig = nil
+		if raw_code:find("[RC]") then
+			orig = fields[i + 1] and M.normalize_status_path(fields[i + 1])
+			i = i + 2
+		else
+			i = i + 1
+		end
 		if path ~= "" then
-			entries[#entries + 1] = { raw_code = raw_code, path = path }
+			entries[#entries + 1] = { raw_code = raw_code, path = path, orig = orig }
 		end
 	end
 	return entries

@@ -48,6 +48,35 @@ local function strip_commit_message(text)
 	return table.concat(out, "\n")
 end
 
+-- <C-r> is named for the git command it runs: `clean` for untracked files, `rm` for files newly added to the
+-- index (git has no other way to drop them), and `restore` for everything else, deleted files included.
+local function revert_kind(item)
+	if item.code == "??" then
+		return "clean"
+	end
+	if item.raw_code:sub(1, 1) == "A" then
+		return "remove"
+	end
+	return "restore"
+end
+
+local function revert_args(item, kind)
+	if kind == "clean" then
+		-- Unlike rm, clean refuses anything git tracks.
+		return { "git", "clean", "-f", "--", item.path }
+	end
+	if kind == "remove" then
+		return { "git", "rm", "-f", "--", item.path }
+	end
+	local args = { "git", "restore", "--staged", "--worktree", "--" }
+	-- A rename is restored from both ends; restoring only the new path would delete the file outright.
+	if item.raw_code:sub(1, 1) == "R" and item.orig_path then
+		args[#args + 1] = item.orig_path
+	end
+	args[#args + 1] = item.path
+	return args
+end
+
 M.name = "git"
 M.icon = "󰊢"
 M.actions = {
@@ -112,23 +141,30 @@ M.actions = {
 	},
 	{
 		key = "<C-r>",
-		name = "restore",
+		name = function(ctx)
+			local item = ctx and ctx.item
+			return item and item.kind == "git_status" and revert_kind(item) or nil
+		end,
 		when = function(ctx)
 			local item = ctx and ctx.item
-			return ctx and ctx.panel and ctx.panel.name == "git_status" and item and item.code ~= "??"
+			return ctx and ctx.panel and ctx.panel.name == "git_status" and item and item.kind == "git_status"
 		end,
 		run = function(ctx)
 			local item = ctx and ctx.item
 			if not item then
 				return
 			end
-			local confirm = vim.fn.confirm("Restore " .. item.path .. "?", "&Yes\n&No", 2)
-			if confirm ~= 1 then
-				return
+			local kind = revert_kind(item)
+			-- Restoring a purely deleted file can't lose anything, so it doesn't ask.
+			if kind ~= "restore" or item.code ~= "D" then
+				local verb = kind:sub(1, 1):upper() .. kind:sub(2)
+				if vim.fn.confirm(verb .. " " .. item.path .. "?", "&Yes\n&No", 2) ~= 1 then
+					return
+				end
 			end
-			local out, ok = git.system({ "git", "restore", "--staged", "--worktree", "--", item.path })
+			local out, ok = git.system(revert_args(item, kind))
 			if not ok then
-				notify("restore failed: " .. vim.trim(out or ""), vim.log.levels.ERROR)
+				notify(kind .. " failed: " .. vim.trim(out or ""), vim.log.levels.ERROR)
 			end
 			items.invalidate_status(ctx.state)
 			ctx.refresh()
