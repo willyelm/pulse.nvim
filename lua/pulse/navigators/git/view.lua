@@ -42,6 +42,12 @@ local function read_blob_lines(rev, path)
 	return lines, true
 end
 
+-- From the name alone; no need to read the file (which may not even exist in this revision).
+local function filetype_for(path)
+	local ft = vim.filetype.match({ filename = path or "" })
+	return (ft and ft ~= "") and ft or "text"
+end
+
 local function git_patch_for(path)
 	local diff = git.lines({ "git", "--no-pager", "diff", "--", path })
 	if diff and #diff > 0 then
@@ -84,8 +90,7 @@ function M.view_item(item)
 					return as_view(new_lines)
 				end
 				local lines, highlights, focus_row = diff_ui.from_lines(old_lines, new_lines, { context = 3 })
-				local _, filetype = view.file_snippet(new_path, 1)
-				return as_view(lines, highlights, focus_row, filetype)
+				return as_view(lines, highlights, focus_row, filetype_for(new_path))
 			end)
 		end
 		return cached("commit:" .. tostring(item.commit) .. ":" .. tostring(item.history_path or ""), function()
@@ -147,8 +152,7 @@ function M.view_item(item)
 			result = { as_view(git_patch_for(path)) }
 		else
 			local lines, highlights, focus_row = diff_ui.from_lines(old_lines, new_lines, { context = 3 })
-			local _, filetype = view.file_snippet(path, 1)
-			result = { as_view(lines, highlights, focus_row, filetype) }
+			result = { as_view(lines, highlights, focus_row, filetype_for(path)) }
 		end
 	end
 	if vim.tbl_count(STATUS_CACHE) >= STATUS_CACHE_MAX then
