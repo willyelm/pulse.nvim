@@ -89,14 +89,15 @@ function M.view_item(item)
 		end)
 	end
 
-	local path = item.path or item.filename
+	local path = item.path -- root-relative, for git
+	local file = item.filename or path -- absolute, for the filesystem
 	-- Every input of the HEAD-vs-worktree diff: status, HEAD-relative counts, and the file's own content stamp.
 	local key = table.concat({
 		tostring(path),
 		tostring(item.raw_code or item.code or ""),
 		tostring(item.added or 0),
 		tostring(item.removed or 0),
-		util.file_stamp(path),
+		util.file_stamp(file),
 	}, "\0")
 	local hit = STATUS_CACHE[key]
 	if hit then
@@ -111,7 +112,7 @@ function M.view_item(item)
 	if not old_ok then
 		result = { as_view(old_lines) }
 	else
-		local new_lines, new_ok = view.read_file_lines(path)
+		local new_lines, new_ok = view.read_file_lines(file)
 		if not new_ok then
 			result = { as_view(new_lines) }
 		elseif #old_lines == 0 and #new_lines == 0 then

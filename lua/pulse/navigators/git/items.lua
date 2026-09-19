@@ -56,6 +56,7 @@ end
 -- renames/copies carry an extra "orig\0" field that is skipped.
 local function parse_status_z(text, scope_prefix)
 	local items = {}
+	local root = git.root()
 	local fields = vim.split(text or "", "\0", { plain = true, trimempty = true })
 	local i = 1
 	while i <= #fields do
@@ -70,7 +71,8 @@ local function parse_status_z(text, scope_prefix)
 				raw_code = raw_code,
 				path = path,
 				label = path,
-				filename = path,
+				-- path is root-relative (git's identity for it); filename is what the filesystem and jump need.
+				filename = root and (root .. "/" .. path) or path,
 			}
 		end
 	end
@@ -87,7 +89,7 @@ local function decorate_status_items(items, stats)
 		local added, removed = stat and stat.added or 0, stat and stat.removed or 0
 		if item.code == "??" and added == 0 and budget > 0 then
 			budget = budget - 1
-			added = util.line_count(item.path)
+			added = util.line_count(item.filename)
 		end
 		item.added, item.removed = added, removed
 		item.display_right = table.concat(vim.tbl_filter(function(v)
@@ -131,7 +133,7 @@ end
 local function status_signature(items)
 	local parts = {}
 	for i, item in ipairs(items) do
-		parts[i] = table.concat({ item.raw_code, item.path, item.added, item.removed, util.file_stamp(item.path) }, "\t")
+		parts[i] = table.concat({ item.raw_code, item.path, item.added, item.removed, util.file_stamp(item.filename) }, "\t")
 	end
 	return table.concat(parts, "\n")
 end
