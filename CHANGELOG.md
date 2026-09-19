@@ -11,6 +11,40 @@
 
 
 
+
+## [0.11.0] - 2026-09-19
+
+### New
+
+- show git's error when history or status fails to load
+- show the full message and timestamp in the commit preview
+- show target path in add prompt
+
+### Changed
+
+- fix(ui): render diffs correctly around appended, inserted and deleted lines
+- fix(git): follow the panel's project directory instead of nvim's cwd
+- perf(git): skip the vim.fn call when stamping absolute paths
+- fix(git): restore filetype detection for commit file diffs
+- fix(git): keep git's stderr out of parsed output and time out stuck calls
+- refactor(git): remove dead fields and a duplicate cache assignment
+- refactor(display): share the addition and deletion highlights
+- refactor(files): share the open and preview labels
+- refactor(git): classify the enter action once
+- refactor(navigators): share the jump and preview actions
+- fix(git): name the revert action after git and handle new files and renames
+- fix(files): read git status from the repo root so subdirectories and worktrees work
+- perf(git): skip the numstat on idle polls when nothing changed
+- fix(git): report restore failures
+- fix(git): detect diff preview filetype from the file name
+- refactor(git): move the diff blob reader next to its only user
+- fix(git): use absolute paths for status rows so open and preview work from subdirectories
+- fix(git): run git from the repo root so any cwd works
+- fix: format API doc
+- refactor(git): rename Git Status panel to Git
+- fix(git): keep status and history in sync with git
+- fix(git): keep diff preview current and accurate
+
 ## [0.10.1] - 2026-07-04
 
 ### Changed
@@ -116,13 +150,4 @@
 ### Changed
 
 - fix: corrected line counter in git panel
-
-## [0.6.2] - 2026-03-24
-
-### Changed
-
-- fix: support fullscreen with shift+enter
-- fix: improve performance and add virtualized items
-- fix: improve ignored path scanning
-- fix: delete input on command execution
 
