@@ -190,7 +190,7 @@ M.actions = {
 }
 
 M.panels = {
-	{ start = "~", name = "git_status", label = "Git Status", contexts = { "workspace", "folder" } },
+	{ start = "~", name = "git_status", label = "Git", contexts = { "workspace", "folder" } },
 	{ start = "~", name = "git_project_history", label = "History", contexts = { "workspace", "folder" } },
 	{ start = "~", name = "git_file_history", label = "History", contexts = { "buffer" } },
 }

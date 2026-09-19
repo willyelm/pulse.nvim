@@ -76,7 +76,7 @@ You can configure which navigators to load and their config options.
 
 - `files` - Project files and opened buffers
 - `commands` - Vim commands
-- `git` - Git status and project and file history
+- `git` - Git changes (status, diff, stage, commit, restore) and project and file history
 - `diagnostics` - LSP diagnostics
 - `code_actions` - Code actions (current buffer)
 - `symbols` - Symbols (current buffer)
