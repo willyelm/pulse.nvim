@@ -13,6 +13,24 @@
 
 
 
+
+## [0.13.0] - 2026-09-20
+
+### New
+
+- make the fullscreen key configurable and default it to <C-f>
+- order the panels by how Neovim is usually used
+- add a marks navigator for your A-Z and a-z marks
+
+### Changed
+
+- perf(files): count search results without building every row
+- perf(git): fetch more history only when the viewport nears the end
+- perf: build slow previews once the selection rests instead of on every keypress
+- perf: count and locate rows without walking the whole list on every keypress
+- fix: skip the debounced refresh when the panel is already closed
+- fix: keep the cursor in place when the panel closes and land jumps on the exact column
+
 ## [0.12.0] - 2026-09-20
 
 ### New
@@ -133,22 +151,4 @@
 ### Changed
 
 - chore: update docs and new demo gif
-
-## [0.7.0] - 2026-03-24
-
-### New
-
-- enable showing workspace dir as config
-
-### Changed
-
-- fix: add space between scope and input text
-- fix(git): enable folder toggle on first expand
-- fix: compact single file paths
-- fix: refresh git panels on project status changes
-- fix: remove file name highlight
-- fix: move ui logic to ui module
-- fix: respec filter config on search
-- fix: merge symbols workspace into a single navigator
-- fix: remove flickering preview on panel load
 
