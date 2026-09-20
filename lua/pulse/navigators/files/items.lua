@@ -371,6 +371,10 @@ local function collapse_scanned_folder(state, entry)
 end
 
 local function count_selectable(items)
+	-- A provider that already knows its total (the search results do) answers without building every row.
+	if type(items) == "table" and type(items.selectable_total) == "function" then
+		return items:selectable_total()
+	end
 	local total = 0
 	local count = type(items) == "table" and type(items.count) == "function" and items:count() or #(items or {})
 	for i = 1, count do
@@ -710,6 +714,11 @@ local function build_search_items(state, ignored_map)
 	function provider:count()
 		local total = #(state.search_folders or {}) + #(state.search_paths or {})
 		return total + (has_parent and 1 or 0)
+	end
+
+	-- Everything except the ".." row.
+	function provider:selectable_total()
+		return #(state.search_folders or {}) + #(state.search_paths or {})
 	end
 
 	function provider:get(index)
