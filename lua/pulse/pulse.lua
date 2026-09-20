@@ -478,12 +478,27 @@ local function should_show_view(view_cfg, item)
 	return item and ((type(view_cfg) == "function" and view_cfg(item) == true) or view_cfg == true)
 end
 
-local function view_spec(item, mod)
+-- A preview slower than this (say, one that runs git) is not built on every keypress.
+local SLOW_PREVIEW_MS = 4
+local PREVIEW_DELAY_MS = 30
+local preview_later
+
+-- While the selection is being moved and the last preview was slow to build, the previous one stays up and the
+-- new one is built once the selection rests for a moment, so holding a key down never waits on it.
+local function view_spec(item, mod, moving)
 	if not item or not mod or type(mod.view_item) ~= "function" then
 		return 0, nil
 	end
+	local last = state.last_view
+	if moving and last and last.ms > SLOW_PREVIEW_MS then
+		preview_later()
+		return last.height, last.spec
+	end
+	local started = vim.uv.hrtime()
 	local lines, ft, highlights, line_numbers, focus_row = mod.view_item(item)
-	return math.max(#(lines or {}), 1), { lines, ft, highlights, line_numbers, focus_row }
+	local height, spec = math.max(#(lines or {}), 1), { lines, ft, highlights, line_numbers, focus_row }
+	state.last_view = { height = height, spec = spec, ms = (vim.uv.hrtime() - started) / 1e6 }
+	return height, spec
 end
 
 local function split_body_height(total, list_height, view_height)
@@ -586,7 +601,7 @@ local function prompt_ui(mod, navigator, query, active_panel, found, total_text)
 	}
 end
 
-local function compute_body_layout(stats, mod, panels, active_panel)
+local function compute_body_layout(stats, mod, panels, active_panel, moving)
 	local selected = current_item()
 	local item = selected or stats.first
 	local show_panels = active_panel ~= nil and panel.header_item(panels, active_panel.name or nil) ~= nil
@@ -612,7 +627,7 @@ local function compute_body_layout(stats, mod, panels, active_panel)
 	local view_height, spec = 0, nil
 
 	if should_show_view(mod and mod.view, item) then
-		view_height, spec = view_spec(item, mod)
+		view_height, spec = view_spec(item, mod, moving)
 		list_height, view_height = split_body_height(total_height, list_height, view_height)
 	elseif state.fullscreen then
 		list_height = total_height
@@ -664,10 +679,13 @@ local function render_current_view(body, menu, opts)
 		ordered
 	)
 	if state.view and state.view.win and vim.api.nvim_win_is_valid(state.view.win) then
-		if body.view_spec then
-			state.view:set(unpack(body.view_spec))
-		else
-			state.view:set({}, "text", {}, nil, 1)
+		if body.view_spec ~= state.rendered_spec or not body.view_spec then
+			if body.view_spec then
+				state.view:set(unpack(body.view_spec))
+			else
+				state.view:set({}, "text", {}, nil, 1)
+			end
+			state.rendered_spec = body.view_spec
 		end
 	end
 	if not opts.keep_scroll then
@@ -682,9 +700,24 @@ local function move_selection(delta)
 	end
 	update_active()
 	render_current_view(
-		compute_body_layout(state.current.stats, state.current.mod, state.current.panels, state.current.panel_entry),
+		compute_body_layout(state.current.stats, state.current.mod, state.current.panels, state.current.panel_entry, true),
 		state.current.menu
 	)
+end
+
+-- Builds the preview for whatever is selected once movement has paused; any newer move supersedes it.
+preview_later = function()
+	state.preview_seq = (state.preview_seq or 0) + 1
+	local seq = state.preview_seq
+	vim.defer_fn(function()
+		if seq ~= state.preview_seq or not is_visible() or state.prompt then
+			return
+		end
+		render_current_view(
+			compute_body_layout(state.current.stats, state.current.mod, state.current.panels, state.current.panel_entry),
+			state.current.menu
+		)
+	end, PREVIEW_DELAY_MS)
 end
 
 local function scroll_list(delta)
@@ -1042,7 +1075,7 @@ local function click_tab_action()
 	state.list:set_selected(state.list:item_index_for_row(mouse.line) or state.list.selected)
 	update_active()
 	render_current_view(
-		compute_body_layout(state.current.stats, state.current.mod, state.current.panels, state.current.panel_entry),
+		compute_body_layout(state.current.stats, state.current.mod, state.current.panels, state.current.panel_entry, true),
 		state.current.menu
 	)
 	apply_tab_action()
@@ -1189,6 +1222,7 @@ local function show(opts)
 		state.context = preserved_context
 	end
 	state.states = preserved_files and { files = preserved_files } or {}
+	state.last_view, state.rendered_spec = nil, nil
 
 	local ok, err = state.session:mount(refresh)
 	if not ok then
