@@ -408,7 +408,12 @@ local function history_rows(state, query, panel_name)
 end
 
 local function history_items(state, query, panel_name)
-	ensure_history_loaded(state, panel_name)
+	-- Only the first page is requested up front (or again after the panel or scope changes). Later pages are
+	-- fetched by provider:get when the viewport nears the end; asking here would chain page after page, since
+	-- every arriving page triggers another refresh.
+	if state.history_key ~= history_cache_key(state, panel_name) or #(state.history_all or {}) == 0 then
+		ensure_history_loaded(state, panel_name)
+	end
 	local provider = {}
 
 	function provider:count()
