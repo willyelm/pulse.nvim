@@ -769,7 +769,8 @@ local function apply_view_model(vm)
 end
 
 refresh = function()
-	if state.prompt then
+	-- The prompt's debounced change callback can land after the panel was closed.
+	if state.prompt or not is_visible() then
 		return
 	end
 	local vm, redirected = compute_view_model()
