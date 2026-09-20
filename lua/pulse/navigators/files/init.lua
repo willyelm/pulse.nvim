@@ -115,6 +115,8 @@ function M.init(ctx)
 			root = project_root,
 			opts = items.navigator_opts(DEFAULT_OPTS, ctx and ctx.opts),
 			opened = items.collect_opened_files(),
+			-- The buffer the panel was opened from; the Buffers panel lists it last.
+			source_bufnr = type(ctx) == "table" and ctx.bufnr or nil,
 			ignored = nil,
 			git_status = nil,
 		expanded = {},

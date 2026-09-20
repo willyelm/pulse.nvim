@@ -131,7 +131,8 @@ end
 
 local function display_file(item)
 	local name = item.label or file_name(item.path)
-	local right = item.display_right or file_type(item.path)
+	local type_name = item.display_right or file_type(item.path)
+	local right = item.modified and (type_name .. " +") or type_name
 	local indent = string.rep("  ", tonumber(item.depth) or 0)
 	local icon = nil
 	local left, matches
@@ -154,13 +155,23 @@ local function display_file(item)
 		end
 	end
 	local name_start = item.no_icon and #indent or (#indent + #(icon or "") + 1)
-	if item.display_right == nil and not item.ignored and vim.fn.hlexists(right) == 1 and name ~= "" then
-		matches[#matches + 1] = { name_start, #left, right }
+	if item.display_right == nil and not item.ignored and vim.fn.hlexists(type_name) == 1 and name ~= "" then
+		matches[#matches + 1] = { name_start, #left, type_name }
 	end
 	local out = row(left, right, left_group, (#matches > 0) and matches or nil)
 	out.right_group = right_group
 	out.right_matches = item.right_matches
 	return out
+end
+
+-- A buffer that isn't a file: terminals and plugin/scratch buffers listed by `:ls`.
+local function display_buffer(item)
+	local right = item.modified and ((item.display_right or "") .. " +") or (item.display_right or "")
+	if item.no_icon then
+		return row(item.label, right, false)
+	end
+	local icon = item.terminal and "\239\132\160" or "\239\128\150"
+	return format_icon_item(icon, item.label, right, nil)
 end
 
 local function display_folder(item)
@@ -300,6 +311,7 @@ local RENDERERS = {
 	code_action = display_code_action,
 	file = display_file,
 	folder = display_folder,
+	buffer = display_buffer,
 	live_grep = display_grep,
 	fuzzy_search = display_grep,
 	git_status = display_git_status,

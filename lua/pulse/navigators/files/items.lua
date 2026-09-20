@@ -105,12 +105,6 @@ local function search_ignore_names(opts)
 	return out
 end
 
-local function filtered_paths(paths, opts)
-	return vim.tbl_filter(function(path)
-		return not is_filtered(path, opts)
-	end, paths or {})
-end
-
 local function status_tokens(code)
 	if not code or code == "" then
 		return {}
@@ -449,6 +443,74 @@ end
 
 local function file_item(opts, path, label, depth, ignored, is_open, code)
 	return item("file", path, label, depth, ignored, opts, vim.tbl_extend("force", { is_open = is_open }, display_meta(status_tokens(code or (ignored and "!" or nil)))))
+end
+
+-- A buffer that isn't a file (terminal, [No Name], plugin buffers). Switching is by buffer number: opening
+-- its name with :edit would start a new terminal, not go to this one.
+local function buffer_item(opts, info, label, right, extra)
+	local bufnr = info.bufnr
+	return item("buffer", nil, label, 0, false, opts, vim.tbl_extend("force", {
+		bufnr = bufnr,
+		display_right = right,
+		execute = function()
+			if not vim.api.nvim_buf_is_valid(bufnr) then
+				require("pulse.navigators.util").notify("that buffer no longer exists")
+				return false
+			end
+			vim.api.nvim_set_current_buf(bufnr)
+			return true
+		end,
+	}, extra or {}))
+end
+
+-- What a terminal is running: the title the program set, or else its command (Neovim's default title is
+-- the buffer's own `term://...` name, which says nothing).
+local function terminal_label(bufnr, name)
+	local title = vim.b[bufnr].term_title
+	if type(title) == "string" and title ~= "" and not title:find("^term://") then
+		return title
+	end
+	local cmd = name:match("^term://.-//%d+:(.*)$") or name
+	local program, args = cmd:match("^(%S+)%s*(.*)$")
+	return vim.fn.fnamemodify(program or cmd, ":t") .. (args and args ~= "" and (" " .. args) or "")
+end
+
+-- Rows for the Buffers panel, the way other pickers do it: every listed buffer (what `:ls` shows), most
+-- recently used first, with the buffer the panel was opened from last so the previous one is on top.
+-- Files, saved or not, are file rows; everything else is a buffer row.
+local function buffer_rows(state)
+	local infos = vim.fn.getbufinfo({ buflisted = 1 })
+	table.sort(infos, function(a, b)
+		if a.lastused ~= b.lastused then
+			return a.lastused > b.lastused
+		end
+		return a.bufnr > b.bufnr
+	end)
+	local rows, current = {}, nil
+	for _, info in ipairs(infos) do
+		local buftype = vim.bo[info.bufnr].buftype
+		local row
+		if buftype == "terminal" then
+			row = buffer_item(state.opts, info, terminal_label(info.bufnr, info.name), "terminal #" .. info.bufnr, { terminal = true })
+		elseif buftype == "" and info.name ~= "" then
+			if not is_filtered(info.name, state.opts) then
+				row = file_item(state.opts, info.name, relative_path(state.root, info.name), 0, false, true, nil)
+				row.bufnr = info.bufnr
+			end
+		else
+			row = buffer_item(state.opts, info, info.name ~= "" and vim.fn.fnamemodify(info.name, ":t") or "[No Name]", "#" .. info.bufnr)
+		end
+		if row then
+			row.modified = info.changed == 1
+			if info.bufnr == state.source_bufnr then
+				current = row
+			else
+				rows[#rows + 1] = row
+			end
+		end
+	end
+	rows[#rows + 1] = current
+	return rows
 end
 
 local function parent_item(state)
@@ -931,36 +993,30 @@ function M.items(state, query, panel_name)
 	if state.context and state.context.kind == "file" then
 		return {}
 	end
+	if panel_name == "buffers" then
+		local rows = buffer_rows(state)
+		local q = vim.trim(query or "")
+		if q == "" then
+			return rows
+		end
+		local match = pulse.make_matcher(q, { ignore_case = true, plain = true })
+		return vim.tbl_filter(function(row)
+			return match((row.path or "") .. " " .. row.label)
+		end, rows)
+	end
 	-- tree_view = false always runs the flat search pipeline, even with an empty query,
 	-- since it has no browsing/tree mode to fall back to (an empty query just matches everything).
 	local always_flat = panel_name == "files_all" and state.opts.tree_view == false
 	if not always_flat and (not query or query == "") then
-			state.search_query = nil
-			state.search_results = nil
-			state.search_paths = nil
-			state.search_folders = nil
-			state._search_seen_paths = nil
-			state._search_seen_folders = nil
-			state._search_match_gen = (state._search_match_gen or 0) + 1
-				stop_search_job(state)
-				if panel_name == "files_all" then
-					return lazy_tree_rows(state)
-				end
-			local paths = filtered_paths(M.collect_opened_files(), state.opts)
-			local open_map = opened_set(state)
-			local items = {}
-			for _, path in ipairs(paths) do
-				items[#items + 1] = file_item(
-					state.opts,
-					path,
-					relative_path(state.root, path),
-					0,
-					false,
-					open_map[path] == true or open_map[normalize_path(path)] == true,
-					nil
-				)
-			end
-			return items
+		state.search_query = nil
+		state.search_results = nil
+		state.search_paths = nil
+		state.search_folders = nil
+		state._search_seen_paths = nil
+		state._search_seen_folders = nil
+		state._search_match_gen = (state._search_match_gen or 0) + 1
+		stop_search_job(state)
+		return lazy_tree_rows(state)
 	end
 	warm_search_query(state, vim.trim(query or ""))
 	return state.search_results or {}
@@ -977,12 +1033,7 @@ function M.total_count(state, panel_name)
 	if panel_name == "files_all" then
 		return count_selectable(lazy_tree_rows(state))
 	end
-	if state.search_query and state.search_results then
-		local count = count_selectable(state.search_results)
-		return { count = count, plus = state.search_limited == true }
-	end
-	local paths = filtered_paths(M.collect_opened_files(), state.opts)
-	return #paths
+	return #buffer_rows(state)
 end
 
 return M

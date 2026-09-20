@@ -179,13 +179,15 @@ function M.delete(ctx)
 end
 
 function M.close_buffer(ctx)
-	local src = selected_path(ctx)
-	if not src then
+	local item = ctx and ctx.item
+	if not item then
 		return true
 	end
-	local bufnr = vim.fn.bufnr(src)
+	-- Buffer rows (terminals and other non-file buffers) carry their number; file rows are found by path.
+	local src = selected_path(ctx)
+	local bufnr = item.bufnr or (src and vim.fn.bufnr(src)) or -1
 	if bufnr < 1 then
-		notify("no open buffer for " .. vim.fn.fnamemodify(src, ":t"), vim.log.levels.ERROR)
+		notify("no open buffer for " .. tostring(item.label), vim.log.levels.ERROR)
 		return true
 	end
 	if vim.bo[bufnr].modified and vim.fn.confirm("Buffer has unsaved changes. Close anyway?", "&Yes\n&No", 2) ~= 1 then
@@ -323,7 +325,7 @@ end
 
 function M.mode_actions(ctx, toggle_folder)
 	local item = ctx and ctx.item
-	local editable = item and (item.kind == "file" or item.kind == "folder") and not item.scope_parent
+	local editable = item and (item.kind == "file" or item.kind == "folder" or item.kind == "buffer") and not item.scope_parent
 	local is_buffers = ctx and ctx.panel and ctx.panel.name == "buffers"
 	local actions = {
 		{
