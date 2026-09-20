@@ -365,10 +365,21 @@ end
 
 hide = function()
 	if is_visible() then
+		local win = state.source_win
+		local valid = win and vim.api.nvim_win_is_valid(win)
+		local buf = valid and vim.api.nvim_win_get_buf(win) or nil
+		local cursor = valid and vim.api.nvim_win_get_cursor(win) or nil
 		pcall(vim.cmd, "stopinsert")
 		state.session:hide()
-		if state.source_win and vim.api.nvim_win_is_valid(state.source_win) then
-			vim.api.nvim_set_current_win(state.source_win)
+		if valid then
+			vim.api.nvim_set_current_win(win)
+			-- The prompt's insert mode only ends after this returns, and Neovim then moves the cursor one column
+			-- left in whichever window is current: this one. Put it back where it was (or where a jump put it).
+			vim.schedule(function()
+				if vim.api.nvim_win_is_valid(win) and vim.api.nvim_win_get_buf(win) == buf then
+					pcall(vim.api.nvim_win_set_cursor, win, cursor)
+				end
+			end)
 		end
 	end
 end
