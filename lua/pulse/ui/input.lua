@@ -71,7 +71,6 @@ function M.new(opts)
   self.on_change = opts.on_change
   self.debounce_ms = opts.debounce_ms or 0
   self.on_submit = opts.on_submit
-  self.on_shift_enter = opts.on_shift_enter
   self.on_escape = opts.on_escape
   self.on_down = opts.on_down
   self.on_up = opts.on_up
@@ -131,9 +130,6 @@ function M.new(opts)
   if self.on_submit then
     keymaps[#keymaps + 1] = { "<CR>", function() call(self.on_submit, self:get_value()) end }
   end
-  if self.on_shift_enter then
-    keymaps[#keymaps + 1] = { "<S-CR>", function() call(self.on_shift_enter, self:get_value()) end }
-  end
   if self.on_tab then
     keymaps[#keymaps + 1] = { "<Tab>", function() call(self.on_tab) end }
   end
@@ -151,6 +147,19 @@ function M.new(opts)
 
   configure_window(self.win)
   return self
+end
+
+-- Binds `lhs` (or nothing, when false) to `fn`, replacing what `name` was bound to, so a key changed in
+-- setup() takes effect the next time the panel opens.
+function M:bind_key(name, lhs, fn)
+  self._keys = self._keys or {}
+  if self._keys[name] then
+    pcall(vim.keymap.del, { "i", "n" }, self._keys[name], { buffer = self.buf })
+  end
+  self._keys[name] = lhs or nil
+  if lhs then
+    vim.keymap.set({ "i", "n" }, lhs, fn, { buffer = self.buf, noremap = true, silent = true })
+  end
 end
 
 function M:set_win(win)

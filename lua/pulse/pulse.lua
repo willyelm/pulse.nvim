@@ -1161,7 +1161,6 @@ local function bind_widgets()
 			prompt = " " .. ((files_navigator and files_navigator.icon) or "") .. " ",
 			debounce_ms = 50,
 			on_change = refresh,
-			on_shift_enter = toggle_fullscreen,
 			on_escape = function()
 				-- Regaining input focus mid-prompt cancels it instead of hiding.
 				if state.prompt then
@@ -1233,6 +1232,7 @@ local function show(opts)
 	local last_dims = state.session.layout.last_dims or {}
 	state.session.layout:apply(last_dims.body or 10, last_dims.context or 0, { show_panels = last_dims.panels == true })
 	bind_widgets()
+	state.input:bind_key("fullscreen", state.navigator_opts.keys.fullscreen, toggle_fullscreen)
 
 	if state.navigator_opts.initial_prompt and state.navigator_opts.initial_prompt ~= "" then
 		state.input:set_value(state.navigator_opts.initial_prompt, { move_cursor_end = true })

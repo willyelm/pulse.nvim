@@ -63,8 +63,11 @@ require("pulse").setup({
   height = 0.90,
   border = "rounded",
   workspace_label = false, -- Show workspace dir in main input
+  keys = { fullscreen = "<C-f>" }, -- toggle fullscreen; another key, or false for none
 })
 ```
+
+`keys.fullscreen` is handled inside Pulse's input, so it can't be bound from your own mappings.
 
 ## Navigators
 

@@ -6,6 +6,8 @@ local M = {
 		height = 0.75,
 		border = "rounded",
 		workspace_label = false,
+		-- Handled inside the panel's input, so it can't be bound from your own mappings. A key, or false for none.
+		keys = { fullscreen = "<C-f>" },
 		-- Tab order follows how Neovim is usually used: the everyday navigation primitives first, then the
 		-- rest. The order of the panels a context shows comes from this list.
 		navigators = {
