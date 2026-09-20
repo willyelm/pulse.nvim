@@ -12,6 +12,13 @@
 
 
 
+
+## [0.12.0] - 2026-09-20
+
+### New
+
+- list every buffer in the Buffers panel, most recently used first
+
 ## [0.11.0] - 2026-09-19
 
 ### New
@@ -144,10 +151,4 @@
 - fix: respec filter config on search
 - fix: merge symbols workspace into a single navigator
 - fix: remove flickering preview on panel load
-
-## [0.6.3] - 2026-03-24
-
-### Changed
-
-- fix: corrected line counter in git panel
 
