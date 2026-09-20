@@ -402,12 +402,12 @@ end
 hide = function()
 	if is_visible() then
 		local win = state.source_win
-		local valid = win and vim.api.nvim_win_is_valid(win)
-		local buf = valid and vim.api.nvim_win_get_buf(win) or nil
-		local cursor = valid and vim.api.nvim_win_get_cursor(win) or nil
+		local buf = win and vim.api.nvim_win_is_valid(win) and vim.api.nvim_win_get_buf(win) or nil
+		local cursor = buf and vim.api.nvim_win_get_cursor(win) or nil
 		pcall(vim.cmd, "stopinsert")
 		state.session:hide()
-		if valid then
+		-- Checked again: closing the panel also closes the source window if it was one of the panel's own.
+		if buf and vim.api.nvim_win_is_valid(win) then
 			vim.api.nvim_set_current_win(win)
 			-- The prompt's insert mode only ends after this returns, and Neovim then moves the cursor one column
 			-- left in whichever window is current: this one. Put it back where it was (or where a jump put it).
@@ -1201,6 +1201,11 @@ end
 
 local function show(opts)
 	panel.setup_hl()
+	-- Opened while the panel is already up (a mapping fired from its list window, say): close it first, so the
+	-- window recorded as the source below is the user's and not one of the panel's.
+	if is_visible() then
+		hide()
+	end
 	state.registry = config.registry()
 	state.modules = config.options.navigators or {}
 	state.navigator_opts = session_mod.normalize_opts(vim.tbl_deep_extend("force", config.options or {}, opts or {}))
