@@ -82,59 +82,95 @@ local function item_key(item)
 	end
 end
 
-local function item_source_count(items)
+local function source_count(items)
 	if type(items) == "table" and type(items.count) == "function" then
 		return math.max(tonumber(items:count()) or 0, 0)
 	end
 	return #(items or {})
 end
 
-local function item_source_get(items, index)
+local function source_get(items, index)
 	index = tonumber(index) or 0
 	if index < 1 then
 		return nil
 	end
-	if type(items) == "table" then
-		if type(items.get) == "function" then
-			return items:get(index)
-		end
+	if type(items) == "table" and type(items.get) == "function" then
+		return items:get(index)
 	end
 	return items and items[index] or nil
 end
 
-local function analyse_items(items, selected_key)
-	local stats = {
-		count = 0,
-		first = nil,
-		first_index = nil,
-		selected_index = nil,
-	}
-	for i = 1, item_source_count(items) do
-		local item = item_source_get(items, i)
+local function is_provider(items)
+	return type(items) == "table" and type(items.count) == "function"
+end
+
+-- Selectable rows. A provider that has header rows says how many it has; other providers are taken to have
+-- none, so nothing is built just to count it; a plain array already exists, so it is counted directly.
+local function selectable_count(items)
+	if is_provider(items) then
+		return type(items.selectable_count) == "function" and items:selectable_count() or source_count(items)
+	end
+	local n = 0
+	for _, item in ipairs(items or {}) do
 		if not is_header(item) then
-			stats.count = stats.count + 1
-			if not stats.first then
-				stats.first = item
-				stats.first_index = i
-			end
-			if selected_key and stats.selected_index == nil and item_key(item) == selected_key then
-				stats.selected_index = i
-			end
+			n = n + 1
 		end
 	end
-	return stats
+	return n
+end
+
+local function first_selectable(items)
+	for i = 1, source_count(items) do
+		if not is_header(source_get(items, i)) then
+			return i, source_get(items, i)
+		end
+	end
+end
+
+-- Index of the row with `key`, searching outward from `hint` (where it was before), so the usual case of an
+-- unchanged list costs one lookup. Providers build rows on demand, so they are only searched near `hint`.
+local function locate(items, key, hint)
+	local n = source_count(items)
+	local limit = is_provider(items) and 400 or n
+	hint = math.min(math.max(hint or 1, 1), math.max(n, 1))
+	for d = 0, limit do
+		local below, above = hint - d, hint + d
+		if below >= 1 and item_key(source_get(items, below)) == key then
+			return below
+		end
+		if d > 0 and above <= n and item_key(source_get(items, above)) == key then
+			return above
+		end
+		if below < 1 and above > n then
+			break
+		end
+	end
+	return nil
 end
 
 local function is_visible()
 	return state.session and state.session:is_visible()
 end
 
-local function schedule_refresh()
-	vim.schedule(function()
+-- One refresh queued at a time. Data updates from navigators pass a short delay so a burst of them (pages
+-- arriving one after another) is drawn once instead of once each.
+local refresh_queued = false
+local function schedule_refresh(delay_ms)
+	if refresh_queued then
+		return
+	end
+	refresh_queued = true
+	local function run()
+		refresh_queued = false
 		if is_visible() then
 			refresh()
 		end
-	end)
+	end
+	if delay_ms then
+		vim.defer_fn(run, delay_ms)
+	else
+		vim.schedule(run)
+	end
 end
 
 local function schedule_focus_input()
@@ -418,7 +454,7 @@ local function navigator_state(mode_name)
 			if not is_visible() then
 				return
 			end
-			schedule_refresh()
+			schedule_refresh(20)
 		end,
 		-- Lets a navigator poll only while its state is current and its panel is the one on screen.
 		is_alive = function()
@@ -550,14 +586,21 @@ local function prompt_ui(mod, navigator, query, active_panel, found, total_text)
 	}
 end
 
-local function compute_body_layout(items, stats, mod, panels, active_panel)
-	local item = current_item() or stats.first
+local function compute_body_layout(stats, mod, panels, active_panel)
+	local selected = current_item()
+	local item = selected or stats.first
 	local show_panels = active_panel ~= nil and panel.header_item(panels, active_panel.name or nil) ~= nil
 	local panel_rows = show_panels and 2 or 0
-	local actions, ordered = panel_actions(item)
+	-- Evaluated once per render and reused for the action bar and the keymaps. Without a selection the bar
+	-- reserves room for the first row's actions but shows only what the (empty) selection allows.
+	local actions, ordered = panel_actions(selected)
+	local layout_actions, layout_ordered = actions, ordered
+	if not selected and item then
+		layout_actions, layout_ordered = panel_actions(item)
+	end
 	local action_rows = 0
-	for _, lhs in ipairs(ordered) do
-		if actions[lhs] and actions[lhs].enabled then
+	for _, lhs in ipairs(layout_ordered) do
+		if layout_actions[lhs] and layout_actions[lhs].enabled then
 			action_rows = 2
 			break
 		end
@@ -580,6 +623,8 @@ local function compute_body_layout(items, stats, mod, panels, active_panel)
 		list_height = list_height,
 		view_height = view_height,
 		view_spec = spec,
+		actions = actions,
+		ordered = ordered,
 	}
 end
 
@@ -588,7 +633,7 @@ local function render_current_view(body, menu, opts)
 	local action_runs, action_labels, ordered = {}, {}, {}
 	-- Hide the list's action bar while prompting (frozen selection).
 	if not state.prompt then
-		local actions, all = panel_actions()
+		local actions, all = body.actions or {}, body.ordered or {}
 		for _, lhs in ipairs(all) do
 			local entry = actions[lhs]
 			if entry and entry.enabled then
@@ -636,9 +681,8 @@ local function move_selection(delta)
 		return
 	end
 	update_active()
-	local stats = analyse_items(state.items)
 	render_current_view(
-		compute_body_layout(state.items, stats, state.current.mod, state.current.panels, state.current.panel_entry),
+		compute_body_layout(state.current.stats, state.current.mod, state.current.panels, state.current.panel_entry),
 		state.current.menu
 	)
 end
@@ -699,7 +743,8 @@ local function compute_view_model()
 	local mode_switched = mode_name ~= state.current.mode_name
 	local selected = item_key(current_item())
 	local items = mod.items(navigator, query, active_panel_name)
-	local stats = analyse_items(items, selected)
+	local first_index, first = first_selectable(items)
+	local stats = { count = selectable_count(items), first_index = first_index, first = first }
 	local found = stats.count
 	local total = found
 	local total_plus = false
@@ -742,13 +787,14 @@ local function apply_view_model(vm)
 	state.current.panel_entry = vm.panel_entry
 	state.current.panels = vm.panels
 	state.current.menu = vm.menu
+	state.current.stats = vm.item_stats
 	state.items = vm.items
 	state.pending_initial_panel = nil
 
 	state.list:set_items(vm.items)
 	state.list:set_allow_empty_selection(vm.mod and vm.mod.allow_empty_selection == true)
 	if state.pending_selected_key and not (vm.mod and vm.mod.allow_empty_selection == true) then
-		state.list:set_selected(analyse_items(vm.items, state.pending_selected_key).selected_index or state.list.selected)
+		state.list:set_selected(locate(vm.items, state.pending_selected_key, state.list.selected) or state.list.selected)
 		state.pending_selected_key = nil
 	elseif query_changed then
 		state.list.viewport_top = 1
@@ -756,7 +802,7 @@ local function apply_view_model(vm)
 	elseif vm.mode_switched then
 		state.list:set_selected((vm.mod and vm.mod.allow_empty_selection == true) and 0 or 1)
 	elseif vm.selected_key then
-		state.list:set_selected(vm.item_stats.selected_index or state.list.selected)
+		state.list:set_selected(locate(vm.items, vm.selected_key, state.list.selected) or state.list.selected)
 	end
 	if is_header(state.list:selected_item()) then
 		state.list:move(1, is_header)
@@ -764,8 +810,9 @@ local function apply_view_model(vm)
 
 	state.input:set_prompt(vm.prompt_ui.prompt, { move_cursor_end = true })
 	state.input:set_addons(vm.prompt_ui.addons)
-	sync_panel_action_keymaps()
-	render_current_view(compute_body_layout(vm.items, vm.item_stats, vm.mod, vm.panels, vm.panel_entry), vm.menu)
+	local body = compute_body_layout(vm.item_stats, vm.mod, vm.panels, vm.panel_entry)
+	sync_panel_action_keymaps(body.actions, body.ordered)
+	render_current_view(body, vm.menu)
 end
 
 refresh = function()
@@ -930,11 +977,10 @@ local function apply_tab_action()
 	run_panel_action("<Tab>")
 end
 
-sync_panel_action_keymaps = function()
+sync_panel_action_keymaps = function(enabled, next)
 	if not state.input or not state.list then
 		return
 	end
-	local enabled, next = panel_actions()
 	local next_keys = {}
 	for _, lhs in ipairs(next) do
 		if enabled[lhs] and type(enabled[lhs].run) == "function" then
@@ -995,9 +1041,8 @@ local function click_tab_action()
 
 	state.list:set_selected(state.list:item_index_for_row(mouse.line) or state.list.selected)
 	update_active()
-	local stats = analyse_items(state.items)
 	render_current_view(
-		compute_body_layout(state.items, stats, state.current.mod, state.current.panels, state.current.panel_entry),
+		compute_body_layout(state.current.stats, state.current.mod, state.current.panels, state.current.panel_entry),
 		state.current.menu
 	)
 	apply_tab_action()

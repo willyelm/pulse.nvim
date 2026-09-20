@@ -126,11 +126,16 @@ function M:_normalise_selection()
 	self.selected = clamp(self.selected or min_sel, min_sel, self:item_count())
 end
 
+-- Counted once per set_items: a provider's count() can be costly and does not change between refreshes.
 function M:item_count()
-	if is_provider(self.source) then
-		return math.max(tonumber(self.source:count()) or 0, 0)
+	if self._count == nil then
+		if is_provider(self.source) then
+			self._count = math.max(tonumber(self.source:count()) or 0, 0)
+		else
+			self._count = #self.items
+		end
 	end
-	return #self.items
+	return self._count
 end
 
 function M:item_at(index)
@@ -252,6 +257,7 @@ function M:render(width)
 end
 
 function M:set_items(items)
+	self._count = nil
 	self.source = items or {}
 	self.items = is_provider(self.source) and {} or self.source
 	local count = self:item_count()
@@ -315,12 +321,13 @@ function M:set_allow_empty_selection(allow)
 	self:_normalise_selection()
 end
 
-function M:_header_row_for(index)
+-- Only a header within `span` rows above matters (it has to stay on screen with its group).
+function M:_header_row_for(index, span)
 	index = tonumber(index) or 0
 	if index < 1 or index > self:item_count() then
 		return nil
 	end
-	for i = index - 1, 1, -1 do
+	for i = index - 1, math.max(index - (span or index), 1), -1 do
 		local item = self:item_at(i)
 		if item and item.kind == "header" then
 			return i
@@ -366,7 +373,7 @@ function M:ensure_visible()
 	local topline = 1
 	if content_rows > height then
 		topline = clamp(row - math.floor(height / 2), 1, max_top)
-		local header_row = self:_header_row_for(row)
+		local header_row = self:_header_row_for(row, height)
 		if header_row and topline > header_row and (row - header_row) < height then
 			topline = header_row
 		end

@@ -419,6 +419,17 @@ local function history_items(state, query, panel_name)
 		return row_count
 	end
 
+	-- Day headers are not selectable; the trailing loading/error row is.
+	function provider:selectable_count()
+		local n = (state.history_has_more or state._history_loading or state.history_error) and 1 or 0
+		for _, item in ipairs(history_rows(state, query, panel_name)) do
+			if item.kind ~= "header" then
+				n = n + 1
+			end
+		end
+		return n
+	end
+
 	function provider:get(index)
 		index = tonumber(index) or 0
 		if index < 1 then
