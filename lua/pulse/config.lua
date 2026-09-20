@@ -6,16 +6,18 @@ local M = {
 		height = 0.75,
 		border = "rounded",
 		workspace_label = false,
+		-- Tab order follows how Neovim is usually used: the everyday navigation primitives first, then the
+		-- rest. The order of the panels a context shows comes from this list.
 		navigators = {
 			"files",
+			"marks",
 			"commands",
 			"git",
-			"diagnostics",
-			"code_actions",
-			"symbols",
 			"live_grep",
 			"fuzzy_search",
-			"marks",
+			"symbols",
+			"diagnostics",
+			"code_actions",
 		},
 	},
 }

@@ -14,15 +14,15 @@ between navigator modes:
 | Prefix      | Mode                          |
 | ----------- | ----------------------------- |
 | (no prefix) | files                         |
+| `'`         | marks (yours: A-Z and a-z)    |
 | `:`         | commands                      |
 | `~`         | git                           |
-| `!`         | diagnostics                   |
-| `@`         | symbols (current buffer)      |
-| `#`         | workspace symbols             |
 | `$`         | live grep                     |
 | `?`         | fuzzy search (current buffer) |
+| `@`         | symbols (current buffer)      |
+| `#`         | workspace symbols             |
+| `!`         | diagnostics                   |
 | `>`         | code actions (current buffer) |
-| `'`         | marks (yours: A-Z and a-z)    |
 
 For more on the design motivation, see:
 
@@ -76,15 +76,15 @@ You can configure which navigators to load and their config options.
 **Default navigators** (all loaded if not specified):
 
 - `files` - Project files and opened buffers
+- `marks` - Your marks (`A`-`Z`, plus `a`-`z` in the current buffer); `<C-x>` deletes one
 - `commands` - Vim commands
 - `git` - Git changes (status, diff, stage, commit, restore) and project and file history
-- `diagnostics` - LSP diagnostics
-- `code_actions` - Code actions (current buffer)
-- `symbols` - Symbols (current buffer)
-- `workspace_symbols` - Workspace symbols
 - `live_grep` - Search with ripgrep
 - `fuzzy_search` - Fuzzy search (current buffer)
-- `marks` - Your marks (`A`-`Z`, plus `a`-`z` in the current buffer); `<C-x>` deletes one
+- `symbols` - Symbols (current buffer)
+- `workspace_symbols` - Workspace symbols
+- `diagnostics` - LSP diagnostics
+- `code_actions` - Code actions (current buffer)
 
 To load a specific set only:
 
@@ -178,15 +178,15 @@ vim.g.loaded_netrwPlugin = 1
 
 - `:Pulse`
 - `:Pulse files`
+- `:Pulse marks`
 - `:Pulse commands`
 - `:Pulse git`
-- `:Pulse diagnostics`
-- `:Pulse code_actions`
-- `:Pulse symbols`
-- `:Pulse workspace_symbols`
 - `:Pulse live_grep`
 - `:Pulse fuzzy_search`
-- `:Pulse marks`
+- `:Pulse symbols`
+- `:Pulse workspace_symbols`
+- `:Pulse diagnostics`
+- `:Pulse code_actions`
 
 ## Input + Navigation
 
