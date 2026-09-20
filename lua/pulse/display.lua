@@ -301,6 +301,12 @@ local function display_symbol(item)
 	return row(string.format("%s%s %s", indent, icon, item.symbol or ""), kind, false, (hl and { { #indent, #indent + #icon, hl } } or nil))
 end
 
+-- A mark you set: the slot letter and the line it points at, with where it is on the right.
+local function display_mark(item)
+	local where = string.format("%s:%d", vim.fn.fnamemodify(item.filename, ":~:."), item.lnum or 1)
+	return row(string.format("%s  %s", item.slot, item.text), where, false, { { 0, #item.slot, "Special" } })
+end
+
 local function display_loading(item)
 	return row(item.label or "Loading...", "", "Comment")
 end
@@ -312,6 +318,7 @@ local RENDERERS = {
 	file = display_file,
 	folder = display_folder,
 	buffer = display_buffer,
+	mark = display_mark,
 	live_grep = display_grep,
 	fuzzy_search = display_grep,
 	git_status = display_git_status,

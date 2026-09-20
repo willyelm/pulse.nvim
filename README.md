@@ -22,6 +22,7 @@ between navigator modes:
 | `$`         | live grep                     |
 | `?`         | fuzzy search (current buffer) |
 | `>`         | code actions (current buffer) |
+| `'`         | marks (yours: A-Z and a-z)    |
 
 For more on the design motivation, see:
 
@@ -83,6 +84,7 @@ You can configure which navigators to load and their config options.
 - `workspace_symbols` - Workspace symbols
 - `live_grep` - Search with ripgrep
 - `fuzzy_search` - Fuzzy search (current buffer)
+- `marks` - Your marks (`A`-`Z`, plus `a`-`z` in the current buffer); `<C-x>` deletes one
 
 To load a specific set only:
 
@@ -184,6 +186,7 @@ vim.g.loaded_netrwPlugin = 1
 - `:Pulse workspace_symbols`
 - `:Pulse live_grep`
 - `:Pulse fuzzy_search`
+- `:Pulse marks`
 
 ## Input + Navigation
 
@@ -200,6 +203,7 @@ vim.g.loaded_netrwPlugin = 1
   - symbols/workspace symbols: jump to location (navigator stays open)
   - live grep/fuzzy search: open/jump to location (navigator stays open)
   - diagnostics: jump to location (navigator stays open)
+  - marks: jump to the mark (navigator stays open)
   - commands: replace input with selected command
   - git: preview/jump depending on the current git panel item
 - `<CR>`: submit/open and close navigator

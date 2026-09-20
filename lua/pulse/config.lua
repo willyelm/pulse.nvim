@@ -15,6 +15,7 @@ local M = {
 			"symbols",
 			"live_grep",
 			"fuzzy_search",
+			"marks",
 		},
 	},
 }
