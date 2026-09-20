@@ -956,6 +956,7 @@ local function ensure_prompt_buf()
 		return state.prompt_buf
 	end
 	local buf = vim.api.nvim_create_buf(false, true)
+	vim.bo[buf].modifiable = true -- whatever the global default is, this buffer is where the message gets typed
 	vim.keymap.set({ "i", "n" }, "<Esc>", function() end_prompt(buf, false) end, { buffer = buf, noremap = true, silent = true })
 	vim.keymap.set({ "i", "n" }, "<CR>", function() end_prompt(buf, true) end, { buffer = buf, noremap = true, silent = true })
 	local function insert_newline()
