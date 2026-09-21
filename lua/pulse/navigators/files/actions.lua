@@ -8,6 +8,11 @@ local notify = require("pulse.navigators.util").notify
 -- How long a copied or cut row stays marked.
 local MARK_MS = 3000
 
+-- Forward slashes, no trailing slash (git reports folders as "dir/"): one spelling of a path on every platform.
+local function normalize(path)
+	return path and vim.fs.normalize(path, { expand_env = false })
+end
+
 local function selected_path(ctx)
 	local item = ctx and ctx.item
 	if not (ctx and ctx.state and item and item.path) then
@@ -16,8 +21,7 @@ local function selected_path(ctx)
 	if item.scope_parent then
 		return nil
 	end
-	-- git reports folders as "dir/"; every caller wants the bare path
-	return (items.absolute_path(ctx.state.root, item.path):gsub("(.)/+$", "%1"))
+	return normalize(items.absolute_path(ctx.state.root, item.path))
 end
 
 local function target_dir(ctx)
@@ -29,9 +33,9 @@ local function target_dir(ctx)
 		return vim.fn.fnamemodify(path, ":h")
 	end
 	if ctx and ctx.state and ctx.state.context and ctx.state.context.kind == "folder" then
-		return ctx.state.context.path
+		return normalize(ctx.state.context.path)
 	end
-	return ctx and ctx.state and ctx.state.root or nil
+	return ctx and ctx.state and normalize(ctx.state.root) or nil
 end
 
 local function ensure_parent(path)
@@ -197,6 +201,56 @@ function M.stage_transfer(ctx, kind)
 	return true
 end
 
+-- Copies a file, a folder with everything in it, or a symlink (as a link), with libuv rather than cp so it
+-- behaves the same everywhere. Returns true, or nil and the reason.
+local function copy_tree(src, dest)
+	local stat, err = vim.uv.fs_lstat(src)
+	if not stat then
+		return nil, err
+	end
+	if stat.type == "link" then
+		local target, lerr = vim.uv.fs_readlink(src)
+		return target and vim.uv.fs_symlink(target, dest) or nil, lerr
+	elseif stat.type ~= "directory" then
+		return vim.uv.fs_copyfile(src, dest)
+	end
+	local made, merr = vim.uv.fs_mkdir(dest, 493)
+	if not made then
+		return nil, merr
+	end
+	local dir = vim.uv.fs_scandir(src)
+	local name = dir and vim.uv.fs_scandir_next(dir)
+	while name do
+		local ok, cerr = copy_tree(src .. "/" .. name, dest .. "/" .. name)
+		if not ok then
+			return nil, cerr
+		end
+		name = vim.uv.fs_scandir_next(dir)
+	end
+	return true
+end
+
+-- All of it or none of it: a copy that fails leaves nothing half-made behind.
+local function copy_all(src, dest)
+	local ok, err = copy_tree(src, dest)
+	if not ok then
+		vim.fn.delete(dest, "rf")
+	end
+	return ok, err
+end
+
+-- A rename when the filesystem allows it; across devices, a copy followed by removing the original.
+local function move_tree(src, dest)
+	if vim.uv.fs_rename(src, dest) then
+		return true
+	end
+	local ok, err = copy_all(src, dest)
+	if ok and vim.fn.delete(src, "rf") ~= 0 then
+		return nil, "copied, but could not remove the original " .. src -- both are kept, so nothing is lost
+	end
+	return ok, err
+end
+
 function M.paste(ctx)
 	local transfer = clipboard.get()
 	if not transfer then
@@ -221,9 +275,9 @@ function M.paste(ctx)
 		notify("target already exists", vim.log.levels.ERROR)
 		return true
 	end
-	local out = vim.fn.system(transfer.kind == "cut" and { "mv", src, dest } or { "cp", "-R", src, dest })
-	if vim.v.shell_error ~= 0 then
-		notify("paste failed: " .. vim.trim(out), vim.log.levels.ERROR)
+	local ok, err = (transfer.kind == "cut" and move_tree or copy_all)(src, dest)
+	if not ok then
+		notify("paste failed: " .. tostring(err), vim.log.levels.ERROR)
 		return true
 	end
 	transfer.marked = false
