@@ -14,6 +14,15 @@
 
 
 
+
+## [0.13.1] - 2026-09-21
+
+### Changed
+
+- fix(files): paste folders, and mark the copied or cut row until it is pasted
+- fix: keep the prompt buffer writable whatever the global default is
+- fix: close the panel without an error when its source window is gone
+
 ## [0.13.0] - 2026-09-20
 
 ### New
@@ -145,10 +154,4 @@
 ### Changed
 
 - chore: fix broken link in readme
-
-## [0.7.1] - 2026-03-26
-
-### Changed
-
-- chore: update docs and new demo gif
 
