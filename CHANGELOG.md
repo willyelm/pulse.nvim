@@ -15,6 +15,14 @@
 
 
 
+
+## [0.13.2] - 2026-09-21
+
+### Changed
+
+- fix(files): copy, cut and paste without cp or mv so they work on Windows
+- refactor: use Neovim's own input, confirm and commit buffer instead of the custom prompt
+
 ## [0.13.1] - 2026-09-21
 
 ### Changed
@@ -148,10 +156,4 @@
 ### Changed
 
 - chore: move motivation section inside "What" title
-
-## [0.7.2] - 2026-03-26
-
-### Changed
-
-- chore: fix broken link in readme
 
