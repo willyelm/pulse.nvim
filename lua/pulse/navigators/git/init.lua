@@ -48,6 +48,63 @@ local function strip_commit_message(text)
 	return table.concat(out, "\n")
 end
 
+-- Edits the commit message in an ordinary buffer, like `git commit` would: `:w` commits, `:q` aborts, and an empty
+-- message aborts too. `done` runs once the buffer is gone, however it went.
+local function edit_commit_message(template, done)
+	-- One at a time: an editor that is still open (say the panel was opened over it) is where to go back to.
+	local open = vim.fn.bufnr("^COMMIT_EDITMSG$")
+	if open > 0 then
+		local win = vim.fn.win_findbuf(open)[1]
+		if win then
+			vim.api.nvim_set_current_win(win)
+			return
+		end
+		vim.api.nvim_buf_delete(open, { force = true })
+	end
+	vim.cmd("botright 15new")
+	local buf = vim.api.nvim_get_current_buf()
+	vim.bo[buf].buftype = "acwrite"
+	vim.bo[buf].bufhidden = "wipe"
+	vim.bo[buf].swapfile = false
+	vim.bo[buf].filetype = "gitcommit"
+	vim.api.nvim_buf_set_name(buf, "COMMIT_EDITMSG")
+	vim.api.nvim_buf_set_lines(buf, 0, -1, false, template)
+	vim.bo[buf].modified = false
+	vim.api.nvim_win_set_cursor(0, { 1, 0 })
+	-- Later, so the panel's own leaving of insert mode is over first.
+	vim.schedule(function()
+		if vim.api.nvim_get_current_buf() == buf then
+			vim.cmd("startinsert")
+		end
+	end)
+	local function close()
+		vim.schedule(function()
+			if vim.api.nvim_buf_is_valid(buf) then
+				vim.api.nvim_buf_delete(buf, { force = true })
+			end
+		end)
+	end
+	vim.api.nvim_create_autocmd("BufWriteCmd", {
+		buffer = buf,
+		callback = function()
+			local message = strip_commit_message(table.concat(vim.api.nvim_buf_get_lines(buf, 0, -1, false), "\n"))
+			if message == "" then
+				notify("empty commit message, aborting", vim.log.levels.WARN)
+				close()
+				return
+			end
+			local out, ok = git.system({ "git", "commit", "-F", "-" }, message)
+			if not ok then
+				notify("commit failed: " .. vim.trim(out or ""), vim.log.levels.ERROR)
+				return
+			end
+			vim.bo[buf].modified = false
+			close()
+		end,
+	})
+	vim.api.nvim_create_autocmd("BufWipeout", { buffer = buf, once = true, callback = function() done() end })
+end
+
 -- <C-r> is named for the git command it runs: `clean` for untracked files, `rm` for files newly added to the
 -- index (git has no other way to drop them), and `restore` for everything else, deleted files included.
 local function revert_kind(item)
@@ -190,26 +247,10 @@ M.actions = {
 			return ctx and ctx.panel and ctx.panel.name == "git_status"
 		end,
 		run = function(ctx)
-			require("pulse.pulse").prompt({
-				title = "commit",
-				action_label = "commit",
-				value = commit_template(ctx.state),
-				comment_prefix = "#",
-				on_submit = function(text)
-					local message = strip_commit_message(text)
-					if message == "" then
-						notify("empty commit message, aborting", vim.log.levels.WARN)
-						return
-					end
-					local out, ok = git.system({ "git", "commit", "-F", "-" }, message)
-					if not ok then
-						notify("commit failed: " .. vim.trim(out or ""), vim.log.levels.ERROR)
-						return
-					end
-					items.invalidate_status(ctx.state)
-					ctx.refresh()
-				end,
-			})
+			local template = commit_template(ctx.state)
+			ctx.suspend(function(resume)
+				edit_commit_message(template, resume)
+			end)
 			return false
 		end,
 	},

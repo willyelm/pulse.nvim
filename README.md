@@ -78,10 +78,10 @@ You can configure which navigators to load and their config options.
 
 **Default navigators** (all loaded if not specified):
 
-- `files` - Project files and opened buffers
+- `files` - Project files and opened buffers; `<C-a>` add, `<C-r>` rename, `<C-d>` delete, `<C-c>`/`<C-x>` copy/cut and `<C-v>` paste (add and rename ask with `vim.ui.input`, delete with `confirm()`)
 - `marks` - Your marks (`A`-`Z`, plus `a`-`z` in the current buffer); `<C-x>` deletes one
 - `commands` - Vim commands
-- `git` - Git changes (status, diff, stage, commit, restore) and project and file history
+- `git` - Git changes (status, diff, stage, commit, restore) and project and file history; `<C-c>` opens the commit message as a normal `gitcommit` buffer (`:w` commits, `:q` aborts) and the panel comes back after
 - `live_grep` - Search with ripgrep
 - `fuzzy_search` - Fuzzy search (current buffer)
 - `symbols` - Symbols (current buffer)

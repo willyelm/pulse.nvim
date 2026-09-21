@@ -52,12 +52,20 @@ local function refresh_actions(ctx)
 	end
 end
 
-local function prompt(opts)
-	require("pulse.pulse").prompt(opts)
+-- Asks for a path with Neovim's own input (`vim.ui.input`, file completion included); nothing happens on cancel
+-- or an unchanged value. The panel takes its focus back either way.
+local function ask_path(ctx, label, default, on_submit)
+	vim.ui.input({ prompt = label .. ": ", default = default, completion = "file" }, function(value)
+		value = vim.trim(value or "")
+		if value ~= "" and value ~= default then
+			on_submit(value)
+		end
+		ctx.focus()
+	end)
 	return false
 end
 
--- Path as shown in prompts: relative to the workspace root, absolute when outside it, "" for the root itself.
+-- Path as shown when asking: relative to the workspace root, absolute when outside it, "" for the root itself.
 local function display_path(root, path)
 	if not (root and root ~= "") then
 		return path
@@ -71,12 +79,6 @@ local function display_path(root, path)
 	return path
 end
 
--- Root plus the workspace-relative path to prefill for a rename/delete prompt.
-local function relpath_defaults(ctx, src)
-	local root = ctx.state and ctx.state.root
-	return root, display_path(root, src)
-end
-
 -- Prefills the target folder's workspace-relative path so the destination is visible and editable in place.
 function M.add(ctx)
 	local dest_dir = target_dir(ctx)
@@ -86,30 +88,21 @@ function M.add(ctx)
 	local root = ctx.state and ctx.state.root
 	local dir = display_path(root, dest_dir)
 	local current = (dir ~= "") and (dir:gsub("/$", "") .. "/") or ""
-	return prompt({
-		title = "add",
-		action_label = "add",
-		value = current,
-		on_submit = function(value)
-			value = vim.trim(value or "")
-			if value == "" or value == current then
-				return
-			end
-			local dest = root and items.absolute_path(root, value) or (dest_dir .. "/" .. value)
-			local ok
-			if value:sub(-1) == "/" then
-				vim.fn.mkdir(dest, "p")
-				ok = vim.fn.isdirectory(dest) == 1
-			else
-				ensure_parent(dest)
-				ok = not path_taken(dest) and vim.fn.writefile({}, dest) == 0
-			end
-			if not ok then
-				notify("create failed or target already exists", vim.log.levels.ERROR)
-			end
-			refresh_actions(ctx)
-		end,
-	})
+	return ask_path(ctx, "Add (end with / for a folder)", current, function(value)
+		local dest = root and items.absolute_path(root, value) or (dest_dir .. "/" .. value)
+		local ok
+		if value:sub(-1) == "/" then
+			vim.fn.mkdir(dest, "p")
+			ok = vim.fn.isdirectory(dest) == 1
+		else
+			ensure_parent(dest)
+			ok = not path_taken(dest) and vim.fn.writefile({}, dest) == 0
+		end
+		if not ok then
+			notify("create failed or target already exists", vim.log.levels.ERROR)
+		end
+		refresh_actions(ctx)
+	end)
 end
 
 -- Prefills the workspace-relative path so editing the directory moves it too.
@@ -118,33 +111,24 @@ function M.rename(ctx)
 	if not src then
 		return true
 	end
-	local root, current = relpath_defaults(ctx, src)
-	return prompt({
-		title = "rename",
-		action_label = "rename",
-		value = current,
-		on_submit = function(value)
-			value = vim.trim(value or "")
-			if value == "" or value == current then
-				return
+	local root = ctx.state and ctx.state.root
+	return ask_path(ctx, "Rename", display_path(root, src), function(value)
+		local dest = (root and items.absolute_path(root, value) or (vim.fn.fnamemodify(src, ":h") .. "/" .. value))
+		dest = vim.fn.fnamemodify(dest, ":p"):gsub("/$", "")
+		if path_taken(dest) then
+			notify("target already exists", vim.log.levels.ERROR)
+		else
+			ensure_parent(dest)
+			if vim.fn.rename(src, dest) ~= 0 then
+				notify("rename failed", vim.log.levels.ERROR)
+			elseif ctx.context and ctx.context.kind == "file" and ctx.context.path == src then
+				ctx.set_context(context.file(dest, vim.fn.bufnr(vim.fn.fnamemodify(dest, ":p"))))
+			elseif ctx.context and ctx.context.kind == "folder" and ctx.context.path == src then
+				ctx.set_context(context.folder(dest))
 			end
-			local dest = (root and items.absolute_path(root, value) or (vim.fn.fnamemodify(src, ":h") .. "/" .. value))
-			dest = vim.fn.fnamemodify(dest, ":p"):gsub("/$", "")
-			if path_taken(dest) then
-				notify("target already exists", vim.log.levels.ERROR)
-			else
-				ensure_parent(dest)
-				if vim.fn.rename(src, dest) ~= 0 then
-					notify("rename failed", vim.log.levels.ERROR)
-				elseif ctx.context and ctx.context.kind == "file" and ctx.context.path == src then
-					ctx.set_context(context.file(dest, vim.fn.bufnr(vim.fn.fnamemodify(dest, ":p"))))
-				elseif ctx.context and ctx.context.kind == "folder" and ctx.context.path == src then
-					ctx.set_context(context.folder(dest))
-				end
-			end
-			refresh_actions(ctx)
-		end,
-	})
+		end
+		refresh_actions(ctx)
+	end)
 end
 
 function M.delete(ctx)
@@ -152,33 +136,19 @@ function M.delete(ctx)
 	if not src then
 		return true
 	end
-	-- Editable path lets a folder-delete be redirected to one entry inside it.
-	local root, current = relpath_defaults(ctx, src)
-	return prompt({
-		title = "delete",
-		action_label = "delete",
-		value = current,
-		on_submit = function(value)
-			value = vim.trim(value or "")
-			if value == "" then
-				return
-			end
-			local target = root and items.absolute_path(root, value) or src
-			if not path_taken(target) then
-				notify("not found: " .. value, vim.log.levels.ERROR)
-				return
-			end
-			if vim.fn.delete(target, "rf") ~= 0 then
-				notify("delete failed", vim.log.levels.ERROR)
-				return
-			end
-			if ctx.context and ctx.context.path == target then
-				ctx.clear_context()
-			else
-				refresh_actions(ctx)
-			end
-		end,
-	})
+	local shown = display_path(ctx.state and ctx.state.root, src)
+	local what = vim.fn.isdirectory(src) == 1 and (shown .. "/ and everything in it") or shown
+	if vim.fn.confirm("Delete " .. what .. "?", "&Yes\n&No", 2) ~= 1 then
+		return true
+	end
+	if vim.fn.delete(src, "rf") ~= 0 then
+		notify("delete failed", vim.log.levels.ERROR)
+	elseif ctx.context and ctx.context.path == src then
+		ctx.clear_context()
+	else
+		refresh_actions(ctx)
+	end
+	return true
 end
 
 function M.close_buffer(ctx)

@@ -42,8 +42,6 @@ local state = {
 	bound_action_keys = {},
 	selected_items = {},
 	pending_selected_key = nil,
-	prompt = nil,
-	prompt_buf = nil,
 }
 
 local refresh
@@ -310,6 +308,7 @@ local function action_ctx(item)
 			end,
 		clear_prefix = clear_prefix,
 		close = hide,
+		suspend = function(run) M.suspend(run) end,
 		jump = jump_in_source,
 		preview = preview_in_source,
 		set_query = function(value, opts)
@@ -646,18 +645,15 @@ end
 local function render_current_view(body, menu, opts)
 	opts = opts or {}
 	local action_runs, action_labels, ordered = {}, {}, {}
-	-- Hide the list's action bar while prompting (frozen selection).
-	if not state.prompt then
-		local actions, all = body.actions or {}, body.ordered or {}
-		-- Keys follow the selection too: what a row allows (or what was just copied) decides which are bound.
-		sync_panel_action_keymaps(actions, all)
-		for _, lhs in ipairs(all) do
-			local entry = actions[lhs]
-			if entry and entry.enabled then
-				action_runs[lhs] = entry.run
-				action_labels[lhs] = entry.label
-				ordered[#ordered + 1] = lhs
-			end
+	local actions, all = body.actions or {}, body.ordered or {}
+	-- Keys follow the selection too: what a row allows (or what was just copied) decides which are bound.
+	sync_panel_action_keymaps(actions, all)
+	for _, lhs in ipairs(all) do
+		local entry = actions[lhs]
+		if entry and entry.enabled then
+			action_runs[lhs] = entry.run
+			action_labels[lhs] = entry.label
+			ordered[#ordered + 1] = lhs
 		end
 	end
 	state.list:set_max_visible(body.list_height)
@@ -670,7 +666,6 @@ local function render_current_view(body, menu, opts)
 		actions = state.session.actions,
 		show_panels = body.show_panels,
 		show_actions = #ordered > 0,
-		divider_title = state.prompt and state.prompt.title or nil,
 	})
 	panel.render(state.session.panels, state.session.panels_ns, menu)
 	action_menu.render(
@@ -712,7 +707,7 @@ preview_later = function()
 	state.preview_seq = (state.preview_seq or 0) + 1
 	local seq = state.preview_seq
 	vim.defer_fn(function()
-		if seq ~= state.preview_seq or not is_visible() or state.prompt then
+		if seq ~= state.preview_seq or not is_visible() then
 			return
 		end
 		render_current_view(
@@ -850,8 +845,8 @@ local function apply_view_model(vm)
 end
 
 refresh = function()
-	-- The prompt's debounced change callback can land after the panel was closed.
-	if state.prompt or not is_visible() then
+	-- The input's debounced change callback can land after the panel was closed.
+	if not is_visible() then
 		return
 	end
 	local vm, redirected = compute_view_model()
@@ -889,115 +884,7 @@ local function switch_panel(direction)
 	return true
 end
 
-local PROMPT_NS = vim.api.nvim_create_namespace("pulse_view_prompt")
-
-local COMMENT_NS = vim.api.nvim_create_namespace("pulse_view_prompt_comment")
-
--- Grays out `prefix`-led comment lines; called once, extmarks track them as the buffer is edited.
-local function highlight_comment_lines(buf, prefix)
-	vim.api.nvim_buf_clear_namespace(buf, COMMENT_NS, 0, -1)
-	if not prefix or prefix == "" then
-		return
-	end
-	local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
-	for i, line in ipairs(lines) do
-		if line:sub(1, #prefix) == prefix then
-			pcall(vim.api.nvim_buf_set_extmark, buf, COMMENT_NS, i - 1, 0, { end_col = #line, hl_group = "Comment" })
-		end
-	end
-end
-
--- Virtual hint line under the buffer's last line, re-applied on every edit.
-local function apply_prompt_decorations(buf, action_label, width, multiline)
-	vim.api.nvim_buf_clear_namespace(buf, PROMPT_NS, 0, -1)
-	local entries = { { key = "<Esc>", label = "cancel" } }
-	if multiline then
-		entries[#entries + 1] = { key = "<S-CR>", label = "newline" }
-	end
-	entries[#entries + 1] = { key = "<CR>", label = action_label or "confirm" }
-	local text, spans = action_menu.build_line(entries)
-	local chunks, pos = {}, 0
-	local left_pad = math.max((width or 0) - 2 - #text, 0) + 1
-	chunks[1] = { string.rep(" ", left_pad) }
-	for _, s in ipairs(spans) do
-		if s.start_col > pos then
-			chunks[#chunks + 1] = { text:sub(pos + 1, s.start_col) }
-		end
-		chunks[#chunks + 1] = { text:sub(s.start_col + 1, s.end_col), s.hl }
-		pos = s.end_col
-	end
-	if pos < #text then
-		chunks[#chunks + 1] = { text:sub(pos + 1) }
-	end
-	local last = vim.api.nvim_buf_line_count(buf) - 1
-	vim.api.nvim_buf_set_extmark(buf, PROMPT_NS, last, 0, { virt_lines = { chunks } })
-end
-
-local function end_prompt(buf, submit)
-	local prompt = state.prompt
-	if not prompt then
-		return
-	end
-	local value = submit and table.concat(vim.api.nvim_buf_get_lines(buf, 0, -1, false), "\n") or nil
-	local on_done = submit and prompt.on_submit or prompt.on_cancel
-	state.prompt = nil
-	if state.view and state.view.win and vim.api.nvim_win_is_valid(state.view.win) and state.view.buf then
-		pcall(vim.api.nvim_win_set_buf, state.view.win, state.view.buf)
-	end
-	refresh()
-	schedule_focus_input()
-	if on_done then
-		on_done(value)
-	end
-end
-
--- Generic editable scratch buffer. <CR> submits, <S-CR>/<C-CR> insert a literal newline.
-local function ensure_prompt_buf()
-	if state.prompt_buf and vim.api.nvim_buf_is_valid(state.prompt_buf) then
-		return state.prompt_buf
-	end
-	local buf = vim.api.nvim_create_buf(false, true)
-	vim.bo[buf].modifiable = true -- whatever the global default is, this buffer is where the message gets typed
-	vim.keymap.set({ "i", "n" }, "<Esc>", function() end_prompt(buf, false) end, { buffer = buf, noremap = true, silent = true })
-	vim.keymap.set({ "i", "n" }, "<CR>", function() end_prompt(buf, true) end, { buffer = buf, noremap = true, silent = true })
-	local function insert_newline()
-		vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("<CR>", true, false, true), "n", false)
-	end
-	vim.keymap.set("i", "<S-CR>", insert_newline, { buffer = buf, noremap = true, silent = true })
-	vim.keymap.set("i", "<C-CR>", insert_newline, { buffer = buf, noremap = true, silent = true })
-	vim.api.nvim_create_autocmd({ "TextChanged", "TextChangedI" }, {
-		buffer = buf,
-		callback = function()
-			local p = state.prompt
-			if p then
-				apply_prompt_decorations(buf, p.action_label, p.width, p.multiline)
-			end
-		end,
-	})
-	state.prompt_buf = buf
-	return buf
-end
-
--- Sizes list/context for a prompt, reusing compute_body_layout's own split helper.
-local function render_prompt(content_height)
-	if not state.prompt then
-		return
-	end
-	local total_height = math.max(layout.resolve_max_height(current_box_opts().height) - 2, 1)
-	local list_height, view_height = split_body_height(total_height, total_height, math.min(content_height, total_height - 1))
-	render_current_view({
-		show_panels = false,
-		list_height = list_height,
-		view_height = view_height,
-		view_spec = nil,
-	}, nil, { keep_scroll = true })
-end
-
 local function run_panel_action(lhs)
-	if state.prompt then
-		-- Prompt buffer owns <CR>/<Esc>; swallow anything else here.
-		return true
-	end
 	local entry = (panel_actions())[lhs]
 	if entry and entry.enabled and type(entry.run) == "function" then
 		if entry.run(action_ctx()) ~= false then
@@ -1163,13 +1050,7 @@ local function bind_widgets()
 			prompt = " " .. ((files_navigator and files_navigator.icon) or "") .. " ",
 			debounce_ms = 50,
 			on_change = refresh,
-			on_escape = function()
-				-- Regaining input focus mid-prompt cancels it instead of hiding.
-				if state.prompt then
-					return end_prompt(state.prompt_buf, false)
-				end
-				hide()
-			end,
+			on_escape = hide,
 			on_down = function() move_selection(1) end,
 			on_up = function() move_selection(-1) end,
 			on_left = function() return move_panel_from_input(-1) end,
@@ -1264,41 +1145,21 @@ function M.toggle(opts)
 	end
 end
 
--- Turns the preview pane into a one-off prompt; value as a table of lines enables multi-line editing.
-function M.prompt(opts)
+-- Closes the panel for something that needs the whole screen (an editor buffer, say) and hands `run` a function
+-- that brings the panel back the way it was, on the same panel and query.
+function M.suspend(run)
 	if not is_visible() then
 		return
 	end
-	opts = opts or {}
-	local multiline = type(opts.value) == "table"
-	local lines = multiline and opts.value or { opts.value or "" }
-	local buf = ensure_prompt_buf()
-	vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
-	highlight_comment_lines(buf, opts.comment_prefix)
-	state.prompt = {
-		on_submit = opts.on_submit,
-		on_cancel = opts.on_cancel,
-		title = opts.title or "",
-		action_label = opts.action_label,
-		multiline = multiline,
-	}
-	-- Forces the context window to exist before we take it over.
-	render_prompt(#lines + 1)
-	if not (state.view and state.view.win and vim.api.nvim_win_is_valid(state.view.win)) then
-		vim.notify("Pulse: prompt has no context window to take over", vim.log.levels.ERROR)
-		state.prompt = nil
-		return
-	end
-	vim.api.nvim_win_set_buf(state.view.win, buf)
-	state.prompt.width = vim.api.nvim_win_get_width(state.view.win)
-	apply_prompt_decorations(buf, opts.action_label, state.prompt.width, multiline)
-	-- Queued key input, not :startinsert! -- matches the manual keypress that works.
-	vim.schedule(function()
-		if not (state.prompt and state.view and state.view.win and vim.api.nvim_win_is_valid(state.view.win)) then
-			return
-		end
-		vim.api.nvim_set_current_win(state.view.win)
-		vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("A", true, false, true), "n", false)
+	local reopen = vim.tbl_extend("force", state.navigator_opts, {
+		initial_prompt = state.input:get_value(),
+		initial_panel = state.current.panel,
+	})
+	hide()
+	run(function()
+		vim.schedule(function()
+			show(reopen)
+		end)
 	end)
 end
 
