@@ -192,6 +192,15 @@ local function display_folder(item)
 	return out
 end
 
+-- Files and folders that were copied or cut say so for a moment (see clipboard).
+local function mark_staged(item, out)
+	local kind = require("pulse.clipboard").kind_of(item.path)
+	if kind then
+		out.right, out.right_group, out.right_matches = kind == "copy" and "copied" or "cut", "PulseAction", nil
+	end
+	return out
+end
+
 local function display_grep(item)
 	local raw = item.text or ""
 	-- match_cols is relative to the untrimmed raw text; shift by what vim.trim strips below.
@@ -315,8 +324,8 @@ local RENDERERS = {
 	header = display_header,
 	command = display_command,
 	code_action = display_code_action,
-	file = display_file,
-	folder = display_folder,
+	file = function(item) return mark_staged(item, display_file(item)) end,
+	folder = function(item) return mark_staged(item, display_folder(item)) end,
 	buffer = display_buffer,
 	mark = display_mark,
 	live_grep = display_grep,

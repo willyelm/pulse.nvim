@@ -250,6 +250,7 @@ Pulse mostly uses native Neovim highlight groups for color:
 
 Pulse-specific groups are only used where it needs custom UI treatment:
 
+- `PulseAction` - The copied or cut label on a file or folder (links to `Keyword` by default)
 - `PulseDiffAdd`
 - `PulseDiffDelete`
 - `PulseDiffNAdd` - Secondary background for added lines in diff

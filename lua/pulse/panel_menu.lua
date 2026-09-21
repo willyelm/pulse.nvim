@@ -82,6 +82,7 @@ end
 function M.setup_hl()
 	pcall(vim.api.nvim_set_hl, 0, "PulseNormal", { default = true })
 	pcall(vim.api.nvim_set_hl, 0, "PulseActive", { bold = true, default = true })
+	pcall(vim.api.nvim_set_hl, 0, "PulseAction", { link = "Keyword", default = true })
 end
 
 function M.block_text(label)

@@ -649,6 +649,8 @@ local function render_current_view(body, menu, opts)
 	-- Hide the list's action bar while prompting (frozen selection).
 	if not state.prompt then
 		local actions, all = body.actions or {}, body.ordered or {}
+		-- Keys follow the selection too: what a row allows (or what was just copied) decides which are bound.
+		sync_panel_action_keymaps(actions, all)
 		for _, lhs in ipairs(all) do
 			local entry = actions[lhs]
 			if entry and entry.enabled then
@@ -844,7 +846,6 @@ local function apply_view_model(vm)
 	state.input:set_prompt(vm.prompt_ui.prompt, { move_cursor_end = true })
 	state.input:set_addons(vm.prompt_ui.addons)
 	local body = compute_body_layout(vm.item_stats, vm.mod, vm.panels, vm.panel_entry)
-	sync_panel_action_keymaps(body.actions, body.ordered)
 	render_current_view(body, vm.menu)
 end
 

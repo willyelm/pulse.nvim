@@ -2,9 +2,11 @@ local M = {}
 
 local context = require("pulse.context")
 local items = require("pulse.navigators.files.items")
+local clipboard = require("pulse.clipboard")
 local notify = require("pulse.navigators.util").notify
 
-local transfer
+-- How long a copied or cut row stays marked.
+local MARK_MS = 3000
 
 local function selected_path(ctx)
 	local item = ctx and ctx.item
@@ -14,7 +16,8 @@ local function selected_path(ctx)
 	if item.scope_parent then
 		return nil
 	end
-	return items.absolute_path(ctx.state.root, item.path)
+	-- git reports folders as "dir/"; every caller wants the bare path
+	return (items.absolute_path(ctx.state.root, item.path):gsub("(.)/+$", "%1"))
 end
 
 local function target_dir(ctx)
@@ -39,7 +42,7 @@ local function ensure_parent(path)
 end
 
 local function path_taken(path)
-	return vim.fn.filereadable(path) == 1 or vim.fn.isdirectory(path) == 1
+	return vim.uv.fs_lstat(path) ~= nil
 end
 
 local function refresh_actions(ctx)
@@ -215,41 +218,47 @@ function M.stage_transfer(ctx, kind)
 	if not src then
 		return true
 	end
-	transfer = { kind = kind, path = src }
+	local entry = clipboard.stage(kind, src, ctx.item.path)
+	vim.defer_fn(function()
+		entry.marked = false
+		ctx.refresh()
+	end, MARK_MS)
+	ctx.refresh()
 	return true
 end
 
 function M.paste(ctx)
-	if not (transfer and transfer.path and transfer.kind) then
+	local transfer = clipboard.get()
+	if not transfer then
+		return true
+	end
+	local src = transfer.path
+	if not path_taken(src) then
+		clipboard.clear()
+		notify("nothing to paste: " .. vim.fn.fnamemodify(src, ":t") .. " no longer exists", vim.log.levels.ERROR)
 		return true
 	end
 	local dest_dir = target_dir(ctx)
 	if not dest_dir or dest_dir == "" then
 		return true
 	end
-	local dest = dest_dir .. "/" .. vim.fn.fnamemodify(transfer.path, ":t")
-	if dest == transfer.path or path_taken(dest) then
-		if dest ~= transfer.path then
-			notify("target already exists", vim.log.levels.ERROR)
-		end
+	if vim.startswith(dest_dir .. "/", src .. "/") then
+		notify("cannot paste a folder into itself", vim.log.levels.ERROR)
 		return true
 	end
-	ensure_parent(dest)
-	local ok
-	if transfer.kind == "cut" then
-		ok = vim.fn.rename(transfer.path, dest) == 0
-	else
-		local cmd = (vim.fn.isdirectory(transfer.path) == 1) and { "cp", "-R", transfer.path, dest }
-			or { "cp", transfer.path, dest }
-		vim.fn.system(cmd)
-		ok = vim.v.shell_error == 0
-	end
-	if not ok then
-		notify("paste failed", vim.log.levels.ERROR)
+	local dest = dest_dir .. "/" .. vim.fn.fnamemodify(src, ":t")
+	if path_taken(dest) then
+		notify("target already exists", vim.log.levels.ERROR)
 		return true
 	end
+	local out = vim.fn.system(transfer.kind == "cut" and { "mv", src, dest } or { "cp", "-R", src, dest })
+	if vim.v.shell_error ~= 0 then
+		notify("paste failed: " .. vim.trim(out), vim.log.levels.ERROR)
+		return true
+	end
+	transfer.marked = false
 	if transfer.kind == "cut" then
-		transfer = nil
+		clipboard.clear()
 	end
 	refresh_actions(ctx)
 	return true
@@ -364,7 +373,7 @@ function M.mode_actions(ctx, toggle_folder)
 		actions[#actions + 1] = { key = "<C-x>", name = "cut", run = function(next) return M.stage_transfer(next, "cut") end }
 		actions[#actions + 1] = { key = "<C-c>", name = "copy", run = function(next) return M.stage_transfer(next, "copy") end }
 	end
-	if transfer and transfer.path then
+	if clipboard.get() then
 		actions[#actions + 1] = { key = "<C-v>", name = "paste", run = M.paste }
 	end
 	return actions
