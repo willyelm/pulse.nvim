@@ -79,7 +79,52 @@ local function cached(key, producer)
 	return unpack(value)
 end
 
+-- "What's new" on a branch relative to HEAD: how many commits either side, then one aggregate diffstat
+-- against where the branch split off (the same comparison a GitHub/GitLab merge request diffs against, not
+-- a per-commit log). Nothing to compare for the branch you're already on.
+function M.branch_summary(item)
+	return cached("branch:" .. tostring(item.commit), function()
+		if item.current then
+			return as_view({ "Branch: " .. tostring(item.name), "", "This is the current branch." })
+		end
+		local counts_out, counts_ok = git.system({ "git", "rev-list", "--left-right", "--count", "HEAD..." .. item.commit })
+		local behind, ahead = "0", "0"
+		if counts_ok then
+			behind, ahead = counts_out:match("^(%d+)%s+(%d+)")
+		end
+		local header = {
+			"Branch: " .. tostring(item.name),
+			string.format("%s ahead, %s behind HEAD", ahead or "0", behind or "0"),
+			"",
+		}
+		if tonumber(ahead or "0", 10) == 0 then
+			header[#header + 1] = "Nothing new: every commit on this branch is already on HEAD."
+			return as_view(header)
+		end
+		local base_out, base_ok = git.system({ "git", "merge-base", "HEAD", item.commit })
+		local base = base_ok and vim.trim(base_out) or nil
+		if not base or base == "" then
+			header[#header + 1] = "No common history with HEAD."
+			return as_view(header)
+		end
+		local stat_out, stat_ok = git.system({ "git", "--no-pager", "diff", "--stat", base, item.commit })
+		if not stat_ok then
+			header[#header + 1] = "No git diff: " .. tostring(stat_out)
+			return as_view(header)
+		end
+		local lines = vim.split(stat_out, "\n", { plain = true, trimempty = false })
+		if lines[#lines] == "" then
+			lines[#lines] = nil
+		end
+		vim.list_extend(header, lines)
+		return as_view(header)
+	end)
+end
+
 function M.view_item(item)
+	if item.kind == "git_branch" then
+		return M.branch_summary(item)
+	end
 	if item.kind == "git_commit" or item.kind == "git_commit_file" then
 		if item.kind == "git_commit_file" or (item.history_kind == "file" and item.history_path) then
 			local new_path = item.history_path or item.path

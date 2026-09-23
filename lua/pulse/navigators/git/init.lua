@@ -138,16 +138,19 @@ end
 -- only), or open a changed file. Nil disables it (headers, file-history commits, loading rows).
 local function enter_kind(ctx)
 	local item = ctx and ctx.item
+	local panel_name = ctx and ctx.panel and ctx.panel.name
 	if not item then
 		return nil
 	end
-	if ctx.panel and ctx.panel.name == "git_project_history" then
-		if item.kind == "git_commit" then
-			return "commit"
-		end
-		if item.kind == "folder" then
-			return "folder"
-		end
+	if panel_name == "git_project_history" and item.kind == "git_commit" then
+		return "commit"
+	end
+	-- A branch's own changed-files tree (once expanded) folds the same way project history's does.
+	if (panel_name == "git_project_history" or panel_name == "git_branches") and item.kind == "folder" then
+		return "folder"
+	end
+	if panel_name == "git_branches" and item.kind == "git_branch" then
+		return "branch"
 	end
 	return item.kind == "git_status" and "open" or nil
 end
@@ -162,6 +165,9 @@ M.actions = {
 			if kind == "commit" then
 				return ctx.state.expanded[ctx.item.commit] and "hide files" or "show files"
 			end
+			if kind == "branch" then
+				return ctx.state.expanded[items.branch_key(ctx.item.name)] and "hide changes" or "show changes"
+			end
 			return kind and (kind == "folder" and "toggle" or "open") or nil
 		end,
 		when = function(ctx)
@@ -174,6 +180,10 @@ M.actions = {
 				ctx.refresh()
 			elseif kind == "folder" and item.tree_key then
 				ctx.state.expanded[item.tree_key] = not item.expanded
+				ctx.refresh()
+			elseif kind == "branch" then
+				local key = items.branch_key(item.name)
+				ctx.state.expanded[key] = not ctx.state.expanded[key]
 				ctx.refresh()
 			else
 				ctx.jump(item)
@@ -264,7 +274,8 @@ M.panels = {
 }
 
 M.view = function(item)
-	return item and (item.kind == "git_commit" or item.code == "??" or ((item.added or 0) + (item.removed or 0) > 0))
+	return item
+		and (item.kind == "git_commit" or item.kind == "git_branch" or item.code == "??" or ((item.added or 0) + (item.removed or 0) > 0))
 end
 M.view_item = git_view.view_item
 
