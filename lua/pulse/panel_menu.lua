@@ -96,6 +96,11 @@ function M.context_type(ctx)
 	if ctx.kind == "folder" then
 		return "folder"
 	end
+	-- Its own bucket, not "buffer": a branch scope narrows to git's own panels, not every buffer-scoped one
+	-- (symbols, diagnostics, live_grep...).
+	if ctx.kind == "branch" then
+		return "branch"
+	end
 	return "buffer"
 end
 

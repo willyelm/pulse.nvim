@@ -135,24 +135,54 @@ local function revert_args(item, kind)
 end
 
 -- What <CR> does on the highlighted row: unfold a commit's files or a folder in that tree (project history
--- only), or open a changed file. Nil disables it (headers, file-history commits, loading rows).
+-- only), or open a changed file. Nil disables it (headers, file-history commits, loading rows, branches --
+-- <CR> on those checks out instead, handled separately below).
 local function enter_kind(ctx)
 	local item = ctx and ctx.item
 	local panel_name = ctx and ctx.panel and ctx.panel.name
 	if not item then
 		return nil
 	end
-	if panel_name == "git_project_history" and item.kind == "git_commit" then
+	-- History content, whether reached via the History panel or a branch scoped into the Branches panel.
+	local showing_history = panel_name == "git_project_history" or panel_name == "git_branches"
+	if showing_history and item.kind == "git_commit" then
 		return "commit"
 	end
-	-- A branch's own changed-files tree (once expanded) folds the same way project history's does.
-	if (panel_name == "git_project_history" or panel_name == "git_branches") and item.kind == "folder" then
+	if showing_history and item.kind == "folder" then
 		return "folder"
 	end
-	if panel_name == "git_branches" and item.kind == "git_branch" then
-		return "branch"
+	if showing_history and item.kind == "git_history_back" then
+		return "back"
 	end
 	return item.kind == "git_status" and "open" or nil
+end
+
+-- <C-o>'s old job, now <CR>'s: switch to a local branch, or track a remote one, creating the local branch
+-- the first time (the same thing plain `git checkout <name>` does for an unambiguous remote name).
+local function checkout_branch(ctx)
+	local item = ctx.item
+	local args
+	if item.scope == "local" then
+		args = { "git", "checkout", item.name }
+	else
+		local local_name = item.name:match("^[^/]+/(.+)$") or item.name
+		local _, exists = git.system({ "git", "rev-parse", "--verify", "--quiet", local_name })
+		args = exists and { "git", "checkout", local_name } or { "git", "checkout", "-b", local_name, "--track", item.name }
+	end
+	local out, ok = git.system(args)
+	if not ok then
+		notify("checkout failed: " .. vim.trim(out or ""), vim.log.levels.ERROR)
+		return
+	end
+	items.invalidate(ctx.state)
+	ctx.refresh()
+end
+
+-- Unambiguous by item kind alone: a git_branch row only ever appears in the unscoped branch list, never in
+-- the (same-panel) scoped history it can lead to.
+local function is_branch_row(ctx)
+	local item = ctx and ctx.item
+	return item and item.kind == "git_branch"
 end
 
 M.name = "git"
@@ -161,19 +191,28 @@ M.actions = {
 	{
 		key = "<CR>",
 		name = function(ctx)
+			if is_branch_row(ctx) then
+				return not ctx.item.current and "checkout" or nil
+			end
 			local kind = enter_kind(ctx)
 			if kind == "commit" then
 				return ctx.state.expanded[ctx.item.commit] and "hide files" or "show files"
 			end
-			if kind == "branch" then
-				return ctx.state.expanded[items.branch_key(ctx.item.name)] and "hide changes" or "show changes"
+			if kind == "back" then
+				return "back"
 			end
 			return kind and (kind == "folder" and "toggle" or "open") or nil
 		end,
 		when = function(ctx)
+			if is_branch_row(ctx) then
+				return not ctx.item.current
+			end
 			return enter_kind(ctx) ~= nil
 		end,
 		run = function(ctx)
+			if is_branch_row(ctx) then
+				return checkout_branch(ctx)
+			end
 			local kind, item = enter_kind(ctx), ctx.item
 			if kind == "commit" then
 				ctx.state.expanded[item.commit] = not ctx.state.expanded[item.commit]
@@ -181,10 +220,12 @@ M.actions = {
 			elseif kind == "folder" and item.tree_key then
 				ctx.state.expanded[item.tree_key] = not item.expanded
 				ctx.refresh()
-			elseif kind == "branch" then
-				local key = items.branch_key(item.name)
-				ctx.state.expanded[key] = not ctx.state.expanded[key]
-				ctx.refresh()
+			elseif kind == "back" then
+				-- Not clear_context(): that resets to the global default panel (Files). This stays put --
+				-- same panel, same navigator -- and just drops the scope, exactly like Files' own ".." does
+				-- when going up still leaves you inside a folder (ctx.set_context(parent)); there is no
+				-- "parent" here, just unscoped.
+				ctx.set_context(nil)
 			else
 				ctx.jump(item)
 				ctx.close()
@@ -225,6 +266,9 @@ M.actions = {
 	{
 		key = "<Tab>",
 		name = function(ctx)
+			if is_branch_row(ctx) then
+				return "history"
+			end
 			local item = ctx and ctx.item
 			if not (item and item.kind == "git_status") then
 				return nil
@@ -232,10 +276,19 @@ M.actions = {
 			return is_staged(item) and "unstage" or "stage"
 		end,
 		when = function(ctx)
+			if is_branch_row(ctx) then
+				return true
+			end
 			local item = ctx and ctx.item
 			return ctx and ctx.panel and ctx.panel.name == "git_status" and item and item.kind == "git_status"
 		end,
 		run = function(ctx)
+			if is_branch_row(ctx) then
+				-- Same shape as opening a folder in Files: labels the input, narrows the panels to just
+				-- what applies (here, only History, scoped to this branch's own commits).
+				ctx.enter_context(context.branch(ctx.item.name))
+				return
+			end
 			local item = ctx and ctx.item
 			if not item then
 				return
@@ -264,40 +317,13 @@ M.actions = {
 			return false
 		end,
 	},
-	{
-		key = "<C-o>",
-		name = "checkout",
-		when = function(ctx)
-			local item = ctx and ctx.item
-			return ctx and ctx.panel and ctx.panel.name == "git_branches" and item and item.kind == "git_branch" and not item.current
-		end,
-		run = function(ctx)
-			local item = ctx.item
-			local args
-			if item.scope == "local" then
-				args = { "git", "checkout", item.name }
-			else
-				-- A remote branch checks out to a local branch of the same name (minus the remote prefix),
-				-- tracking it: reused if it already exists, created the first time, same as plain
-				-- `git checkout <name>` does for an unambiguous remote name.
-				local local_name = item.name:match("^[^/]+/(.+)$") or item.name
-				local _, exists = git.system({ "git", "rev-parse", "--verify", "--quiet", local_name })
-				args = exists and { "git", "checkout", local_name } or { "git", "checkout", "-b", local_name, "--track", item.name }
-			end
-			local out, ok = git.system(args)
-			if not ok then
-				notify("checkout failed: " .. vim.trim(out or ""), vim.log.levels.ERROR)
-				return
-			end
-			items.invalidate(ctx.state)
-			ctx.refresh()
-		end,
-	},
 }
 
 M.panels = {
 	{ start = "~", name = "git_status", label = "Git", contexts = { "workspace", "folder" } },
-	{ start = "~", name = "git_branches", label = "Branches", contexts = { "workspace", "folder" } },
+	-- Also valid under "branch": the same panel shows either branch list or the scoped branch's own history
+	-- (never switches panels for this, same as how Files' own panel handles both root and a folder).
+	{ start = "~", name = "git_branches", label = "Branches", contexts = { "workspace", "folder", "branch" } },
 	{ start = "~", name = "git_project_history", label = "History", contexts = { "workspace", "folder" } },
 	{ start = "~", name = "git_file_history", label = "History", contexts = { "buffer" } },
 }
@@ -321,8 +347,12 @@ function M.init(ctx)
 		history_key = nil,
 		status_all = {},
 		status_key = nil,
-		context = (scoped and scoped.kind == "folder" and context.folder(scoped.path)) or nil,
+		context = (scoped and scoped.kind == "folder" and context.folder(scoped.path))
+			or (scoped and scoped.kind == "branch" and context.branch(scoped.name))
+			or nil,
 		scope_prefix = scope_dir and (scope_dir .. "/") or nil,
+		-- Project history browses this branch's own commits instead of HEAD's when set.
+		log_target = scoped and scoped.kind == "branch" and scoped.name or nil,
 		_on_update = ctx and ctx.on_update or nil,
 	}
 	-- A different directory can mean a different repo; everything else only dirties status (history is
@@ -363,14 +393,15 @@ end
 
 function M.total_count(state)
 	local panel_name = state.current_panel
-	local source = panel_name == "git_status" and state.status_all
-		or panel_name == "git_branches" and state.branches_all
-		or state.history_all
-	local count = #(source or {})
-	return {
-		count = count,
-		plus = panel_name ~= "git_status" and panel_name ~= "git_branches" and state.history_has_more == false and count >= 5000,
-	}
+	if panel_name == "git_status" then
+		return { count = #(state.status_all or {}), plus = false }
+	end
+	-- Same panel, two possible contents: the branch list, or (scoped) that branch's own history.
+	if panel_name == "git_branches" and not (state.log_target and state.log_target ~= "") then
+		return { count = #(state.branches_all or {}), plus = false }
+	end
+	local count = #(state.history_all or {})
+	return { count = count, plus = state.history_has_more == false and count >= 5000 }
 end
 
 return M

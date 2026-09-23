@@ -50,6 +50,18 @@ function M.folder(path)
   }
 end
 
+function M.branch(name)
+  if not name or name == "" then
+    return nil
+  end
+  return {
+    kind = "branch",
+    name = name,
+    label = name,
+    icon = "",
+  }
+end
+
 function M.workspace(path)
   path = normalize_path(path)
   if not path then
@@ -81,7 +93,7 @@ function M.key(scope)
   end
   return table.concat({
     tostring(scope.kind or ""),
-    tostring(scope.path or ""),
+    tostring(scope.path or scope.name or ""),
     tostring(scope.bufnr or ""),
   }, ":")
 end

@@ -276,6 +276,11 @@ local function display_git_commit(item)
 	return row(string.format("%s %s", icon, text), right, false)
 end
 
+-- The row at the top of a branch-scoped History: same shape as Files' "..", a real row, not a hidden key.
+local function display_history_back(item)
+	return row(string.format(" back (was browsing %s)", item.label or ""), "", "Comment")
+end
+
 -- The checked-out branch shows "current" instead of its date, in Title color, in place of a text marker.
 local function display_git_branch(item)
 	local out = row(string.format(" %s", item.label or item.name or ""), item.current and "current" or (item.display_right or ""), item.current and "Title" or false)
@@ -340,6 +345,7 @@ local RENDERERS = {
 	git_status = display_git_status,
 	git_commit = display_git_commit,
 	git_branch = display_git_branch,
+	git_history_back = display_history_back,
 	git_commit_file = display_git_commit_file,
 	diagnostic = display_diagnostic,
 	symbol = display_symbol,

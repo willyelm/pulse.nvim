@@ -11,7 +11,8 @@ local HISTORY_LIMIT = 5000
 
 local function history_cache_key(state, panel_name)
 	local pathspec = util.history_pathspec(state, panel_name)
-	return panel_name .. "|" .. tostring(pathspec or ""), pathspec
+	local target = panel_name == "git_project_history" and state.log_target or nil
+	return panel_name .. "|" .. tostring(pathspec or "") .. "|" .. tostring(target or ""), pathspec
 end
 
 local function parse_history_output(text, panel_name, pathspec)
@@ -247,8 +248,7 @@ local function warm_status_all(state, quiet)
 end
 
 -- Turns numstat lines into a file tree, cached in `cache` by `key`; `tip`/`parent` become the rows' own
--- commit/parent so the generic per-file diff preview (git/view.lua) works on them unchanged, whether they
--- came from one commit or (see branch_diff_tree below) the merge-base-to-tip range of a whole branch.
+-- commit/parent so the generic per-file diff preview (git/view.lua) works on them unchanged.
 local function numstat_tree(state, cache, key, tip, parent, lines_fn)
 	local entries = cache[key]
 	if not entries then
@@ -301,34 +301,6 @@ local function commit_files(state, commit, pathspec)
 	end)
 end
 
--- The commit both HEAD and the branch grew from; the file list and diffs compare against this instead of
--- HEAD directly, so unrelated changes made on HEAD after they diverged don't show up as noise (the same
--- range a GitHub/GitLab merge request diffs against). Cached per branch name until invalidate_branches.
-local function branch_base(state, name)
-	state.branch_base = state.branch_base or {}
-	local cached_val = state.branch_base[name]
-	if cached_val ~= nil then
-		return cached_val ~= "" and cached_val or nil
-	end
-	local lines = git.lines({ "git", "merge-base", "HEAD", name })
-	local base = (lines and lines[1]) or ""
-	state.branch_base[name] = base
-	return base ~= "" and base or nil
-end
-
--- The aggregate "Files changed" diff of a branch against where it split from HEAD: one row per file, the
--- net change, not one row per commit that touched it.
-local function branch_diff_tree(state, name, tip)
-	local base = branch_base(state, name)
-	if not base then
-		return nil
-	end
-	state.branch_diff_files = state.branch_diff_files or {}
-	return numstat_tree(state, state.branch_diff_files, name, tip, base, function()
-		return git.lines({ "git", "--no-pager", "diff", "--numstat", base, tip })
-	end)
-end
-
 local function ensure_history_loaded(state, panel_name)
 	local cache_key, pathspec = history_cache_key(state, panel_name)
 	if state.history_key ~= cache_key then
@@ -359,6 +331,9 @@ local function ensure_history_loaded(state, panel_name)
 		"--skip",
 		tostring(#(state.history_all or {})),
 	}
+	if panel_name == "git_project_history" and state.log_target and state.log_target ~= "" then
+		cmd[#cmd + 1] = state.log_target
+	end
 	if pathspec then
 		cmd[#cmd + 1] = "--"
 		cmd[#cmd + 1] = pathspec
@@ -415,6 +390,7 @@ local function history_rows(state, query, panel_name)
 		vim.trim(query or ""),
 		tostring(#(state.history_all or {})),
 		expanded_signature(state.expanded),
+		tostring(state.log_target or ""),
 	}, "|")
 	if state.history_rows_key == cache_key and state.history_rows_cache then
 		return state.history_rows_cache
@@ -430,6 +406,10 @@ local function history_rows(state, query, panel_name)
 	end
 	if panel_name == "git_project_history" then
 		local out = {}
+		-- Same shape as Files' ".." row: a real, selectable row at the top, not just a hidden shortcut.
+		if state.log_target and state.log_target ~= "" then
+			out[#out + 1] = { kind = "git_history_back", label = state.log_target, scope_parent = true }
+		end
 		for _, item in ipairs(grouped_commits(filtered)) do
 			out[#out + 1] = item
 			if item.kind == "git_commit" and state.expanded[item.commit] then
@@ -648,12 +628,6 @@ local function grouped_branches(items)
 	return grouped
 end
 
--- Distinguishes a branch's own expand state from a commit's (a commit hash never contains ":").
-local function branch_key(name)
-	return "branch:" .. tostring(name)
-end
-M.branch_key = branch_key
-
 local function branch_items(state, query)
 	ensure_branches_loaded(state)
 	local q = vim.trim(query or "")
@@ -664,25 +638,7 @@ local function branch_items(state, query)
 			matched[#matched + 1] = item
 		end
 	end
-	local grouped = grouped_branches(matched)
-	local filtered = {}
-	for _, item in ipairs(grouped) do
-		filtered[#filtered + 1] = item
-		if item.kind == "git_branch" and state.expanded[branch_key(item.name)] then
-			if item.current then
-				filtered[#filtered + 1] = { kind = "loading", label = "This is the current branch." }
-			else
-				local tree = branch_diff_tree(state, item.name, item.commit)
-				if not tree then
-					filtered[#filtered + 1] = { kind = "loading", label = "no common history with HEAD" }
-				elseif #tree == 0 then
-					filtered[#filtered + 1] = { kind = "loading", label = "Nothing new: every commit is already on HEAD." }
-				else
-					vim.list_extend(filtered, tree)
-				end
-			end
-		end
-	end
+	local filtered = grouped_branches(matched)
 	if #filtered == 0 then
 		if state.branches_error then
 			filtered = { { kind = "loading", label = "git for-each-ref failed: " .. state.branches_error } }
@@ -710,6 +666,10 @@ function M.items(state, query, panel_name)
 		return history_items(state, query, panel_name)
 	end
 	if panel_name == "git_branches" then
+		-- Scoped to a branch: the same panel shows that branch's own history instead of the branch list.
+		if state.log_target and state.log_target ~= "" then
+			return history_items(state, query, "git_project_history")
+		end
 		return branch_items(state, query)
 	end
 	return status_items(state, query)
@@ -732,9 +692,6 @@ function M.invalidate_branches(state)
 	state._branches_loading = false
 	state.branches_error = nil
 	state._branches_gen = (state._branches_gen or 0) + 1
-	-- A different directory, a checkout, or a new commit can all move what a branch is compared against.
-	state.branch_base = nil
-	state.branch_diff_files = nil
 end
 
 function M.invalidate_history(state)
