@@ -81,7 +81,7 @@ You can configure which navigators to load and their config options.
 - `files` - Project files and opened buffers; `<C-a>` add, `<C-r>` rename, `<C-d>` delete, `<C-c>`/`<C-x>` copy/cut and `<C-v>` paste (add and rename ask with `vim.ui.input`, delete with `confirm()`)
 - `marks` - Your marks (`A`-`Z`, plus `a`-`z` in the current buffer); `<C-x>` deletes one
 - `commands` - Vim commands
-- `git` - Git changes (status, diff, stage, commit, restore), local and remote branches, and project and file history; `<C-c>` opens the commit message as a normal `gitcommit` buffer (`:w` commits, `:q` aborts) and the panel comes back after; on a branch, `<Tab>` and `<CR>` show its aggregate diff against where it split off HEAD (a diffstat, then the changed files themselves, both like a GitHub/GitLab merge request diff rather than a per-commit log), and `<C-o>` checks it out (a remote branch tracks it, creating the local branch the first time)
+- `git` - Git changes (status, diff, stage, commit, restore), local and remote branches, and project and file history; `<C-c>` opens the commit message as a normal `gitcommit` buffer (`:w` commits, `:q` aborts) and the panel comes back after; on a branch, `<CR>` checks it out (a remote branch tracks it, creating the local branch the first time; a remote branch identical to its local copy isn't listed at all) and `<Tab>` enters its own history as a scoped view -- same as opening a folder in Files: the input gets a label, every other panel hides, and a row at the top takes you back
 - `live_grep` - Search with ripgrep
 - `fuzzy_search` - Fuzzy search (current buffer)
 - `symbols` - Symbols (current buffer)
