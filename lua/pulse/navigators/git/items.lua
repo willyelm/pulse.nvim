@@ -511,11 +511,127 @@ local function status_items(state, query)
 	return provider
 end
 
+local LOCAL_PREFIX, REMOTE_PREFIX = "refs/heads/", "refs/remotes/"
+
+local function parse_branches(text)
+	local out = {}
+	for _, line in ipairs(vim.split(text or "", "\n", { plain = true, trimempty = true })) do
+		local head, refname, hash, ts, subject = line:match("^(.-)\t(.-)\t(.-)\t(.-)\t(.*)$")
+		if refname then
+			local kind, name
+			if refname:sub(1, #LOCAL_PREFIX) == LOCAL_PREFIX then
+				kind, name = "local", refname:sub(#LOCAL_PREFIX + 1)
+			elseif refname:sub(1, #REMOTE_PREFIX) == REMOTE_PREFIX and not refname:match("/HEAD$") then
+				kind, name = "remote", refname:sub(#REMOTE_PREFIX + 1)
+			end
+			if kind then
+				out[#out + 1] = {
+					kind = "git_branch",
+					scope = kind,
+					name = name,
+					label = name,
+					commit = hash,
+					current = head == "*",
+					timestamp = tonumber(ts) or 0,
+					subject = subject,
+					display_right = util.relative_time(ts),
+				}
+			end
+		end
+	end
+	return out
+end
+
+-- One cheap call lists every branch; per-branch cost (ahead/behind, diffstat) is paid lazily, only for the
+-- branch you preview (git/view.lua), so this stays fast even with hundreds of branches.
+local function ensure_branches_loaded(state)
+	if state.branches_all ~= nil or state._branches_loading then
+		return
+	end
+	state._branches_loading = true
+	local gen = (state._branches_gen or 0) + 1
+	state._branches_gen = gen
+	git.spawn({
+		"git",
+		"for-each-ref",
+		"--sort=-committerdate",
+		"--format=%(HEAD)%09%(refname)%09%(objectname:short)%09%(committerdate:unix)%09%(subject)",
+		"refs/heads",
+		"refs/remotes",
+	}, function(result)
+		if state._branches_gen ~= gen then
+			return
+		end
+		state._branches_loading = false
+		state.branches_error = result.code ~= 0 and failure_text(result) or nil
+		state.branches_all = result.code == 0 and parse_branches(result.stdout) or {}
+		if state._on_update then
+			vim.schedule(state._on_update)
+		end
+	end)
+end
+
+-- "local" branches first, then "remote"; either group is left out when it's empty.
+local function grouped_branches(items)
+	local locals, remotes = {}, {}
+	for _, item in ipairs(items) do
+		if item.scope == "local" then
+			locals[#locals + 1] = item
+		else
+			remotes[#remotes + 1] = item
+		end
+	end
+	local grouped = {}
+	if #locals > 0 then
+		grouped[#grouped + 1] = { kind = "header", label = "local" }
+		vim.list_extend(grouped, locals)
+	end
+	if #remotes > 0 then
+		grouped[#grouped + 1] = { kind = "header", label = "remote" }
+		vim.list_extend(grouped, remotes)
+	end
+	return grouped
+end
+
+local function branch_items(state, query)
+	ensure_branches_loaded(state)
+	local q = vim.trim(query or "")
+	local match = pulse.make_matcher(q, { ignore_case = true, plain = true })
+	local matched = {}
+	for _, item in ipairs(state.branches_all or {}) do
+		if match(item.name) then
+			matched[#matched + 1] = item
+		end
+	end
+	local filtered = grouped_branches(matched)
+	if #filtered == 0 then
+		if state.branches_error then
+			filtered = { { kind = "loading", label = "git for-each-ref failed: " .. state.branches_error } }
+		elseif state.branches_all == nil then
+			filtered = { { kind = "loading", label = "Loading..." } }
+		end
+	end
+	local provider = {}
+
+	function provider:count()
+		return #filtered
+	end
+
+	function provider:get(index)
+		return filtered[index]
+	end
+
+	return provider
+end
+
 function M.items(state, query, panel_name)
 	panel_name = panel_name or "git_status"
 	state.current_panel = panel_name
 	if panel_name == "git_project_history" or panel_name == "git_file_history" then
 		return history_items(state, query, panel_name)
+	end
+	if panel_name == "git_branches" then
+		return branch_items(state, query)
 	end
 	return status_items(state, query)
 end
@@ -526,6 +642,17 @@ function M.invalidate(state)
 	end
 	M.invalidate_history(state)
 	M.invalidate_status(state)
+	M.invalidate_branches(state)
+end
+
+function M.invalidate_branches(state)
+	if not state then
+		return
+	end
+	state.branches_all = nil
+	state._branches_loading = false
+	state.branches_error = nil
+	state._branches_gen = (state._branches_gen or 0) + 1
 end
 
 function M.invalidate_history(state)

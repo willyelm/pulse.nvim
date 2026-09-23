@@ -258,6 +258,7 @@ M.actions = {
 
 M.panels = {
 	{ start = "~", name = "git_status", label = "Git", contexts = { "workspace", "folder" } },
+	{ start = "~", name = "git_branches", label = "Branches", contexts = { "workspace", "folder" } },
 	{ start = "~", name = "git_project_history", label = "History", contexts = { "workspace", "folder" } },
 	{ start = "~", name = "git_file_history", label = "History", contexts = { "buffer" } },
 }
@@ -296,7 +297,12 @@ function M.init(ctx)
 	sync.register(state, {
 		group = "PulseGitSync",
 		events = { "FocusGained", "ShellCmdPost", "BufWritePost" },
-		invalidate = items.invalidate_status,
+		-- Branches are cheap to refetch and change on the same occasions status does (a checkout or a new
+		-- branch almost always happens in a terminal split or a shell command).
+		invalidate = function(s)
+			items.invalidate_status(s)
+			items.invalidate_branches(s)
+		end,
 		on_update = state._on_update,
 		exclusive = true,
 	})
@@ -316,10 +322,14 @@ function M.items(state, query, panel_name)
 end
 
 function M.total_count(state)
-	local count = #(state.current_panel == "git_status" and (state.status_all or {}) or (state.history_all or {}))
+	local panel_name = state.current_panel
+	local source = panel_name == "git_status" and state.status_all
+		or panel_name == "git_branches" and state.branches_all
+		or state.history_all
+	local count = #(source or {})
 	return {
 		count = count,
-		plus = state.history_has_more == false and count >= 5000,
+		plus = panel_name ~= "git_status" and panel_name ~= "git_branches" and state.history_has_more == false and count >= 5000,
 	}
 end
 
