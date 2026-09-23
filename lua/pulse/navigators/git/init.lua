@@ -264,6 +264,35 @@ M.actions = {
 			return false
 		end,
 	},
+	{
+		key = "<C-o>",
+		name = "checkout",
+		when = function(ctx)
+			local item = ctx and ctx.item
+			return ctx and ctx.panel and ctx.panel.name == "git_branches" and item and item.kind == "git_branch" and not item.current
+		end,
+		run = function(ctx)
+			local item = ctx.item
+			local args
+			if item.scope == "local" then
+				args = { "git", "checkout", item.name }
+			else
+				-- A remote branch checks out to a local branch of the same name (minus the remote prefix),
+				-- tracking it: reused if it already exists, created the first time, same as plain
+				-- `git checkout <name>` does for an unambiguous remote name.
+				local local_name = item.name:match("^[^/]+/(.+)$") or item.name
+				local _, exists = git.system({ "git", "rev-parse", "--verify", "--quiet", local_name })
+				args = exists and { "git", "checkout", local_name } or { "git", "checkout", "-b", local_name, "--track", item.name }
+			end
+			local out, ok = git.system(args)
+			if not ok then
+				notify("checkout failed: " .. vim.trim(out or ""), vim.log.levels.ERROR)
+				return
+			end
+			items.invalidate(ctx.state)
+			ctx.refresh()
+		end,
+	},
 }
 
 M.panels = {
