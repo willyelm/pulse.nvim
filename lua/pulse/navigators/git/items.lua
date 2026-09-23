@@ -578,6 +578,25 @@ local function parse_branches(text)
 	return out
 end
 
+-- A remote branch at the same commit as its local counterpart has nothing to check out and nothing to
+-- review; it reappears the moment the two diverge (ahead, behind, or the local branch is deleted).
+local function drop_redundant_remotes(branches)
+	local local_commits = {}
+	for _, item in ipairs(branches) do
+		if item.scope == "local" then
+			local_commits[item.name] = item.commit
+		end
+	end
+	local out = {}
+	for _, item in ipairs(branches) do
+		local short = item.scope == "remote" and (item.name:match("^[^/]+/(.+)$") or item.name) or nil
+		if not (short and local_commits[short] == item.commit) then
+			out[#out + 1] = item
+		end
+	end
+	return out
+end
+
 -- One cheap call lists every branch; per-branch cost (ahead/behind, diffstat) is paid lazily, only for the
 -- branch you preview (git/view.lua), so this stays fast even with hundreds of branches.
 local function ensure_branches_loaded(state)
@@ -600,7 +619,7 @@ local function ensure_branches_loaded(state)
 		end
 		state._branches_loading = false
 		state.branches_error = result.code ~= 0 and failure_text(result) or nil
-		state.branches_all = result.code == 0 and parse_branches(result.stdout) or {}
+		state.branches_all = result.code == 0 and drop_redundant_remotes(parse_branches(result.stdout)) or {}
 		if state._on_update then
 			vim.schedule(state._on_update)
 		end
