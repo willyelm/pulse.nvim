@@ -16,6 +16,25 @@
 
 
 
+
+## [0.14.0] - 2026-09-24
+
+### New
+
+- delete a local branch, and stop a confirm+error combo from hanging the panel
+- enter a branch's own history as a scoped context, like Files' folders
+- hide a remote branch once it matches its local copy
+- checkout a local branch, or track a remote one for the first time
+- show and browse a branch's aggregate diff against where it split off
+- list local and remote branches in a new Branches panel
+
+### Changed
+
+- perf: stop symbols from eagerly loading vim.lsp at setup(), not just first use
+- docs: describe deleting a local branch
+- docs: describe entering a branch's history as a scoped context
+- docs: describe the Branches panel's aggregate diff and checkout actions
+
 ## [0.13.2] - 2026-09-21
 
 ### Changed
@@ -150,10 +169,4 @@
 
 - refactor: rename action ctx scope fields to context
 - refactor: rename scope to context and context to panel_view
-
-## [0.7.3] - 2026-03-30
-
-### Changed
-
-- chore: move motivation section inside "What" title
 
