@@ -14,7 +14,6 @@ M.panels = {
 
 M.view = false
 
-local SymbolKind = vim.lsp.protocol.SymbolKind or {}
 local NODE_KINDS = {
 	["function"] = true,
 	method = true,
@@ -26,7 +25,11 @@ local NODE_KINDS = {
 	declaration = true,
 }
 
+-- vim.lsp.protocol touches vim.lsp, which Neovim otherwise lazily loads on first use; reading it at module
+-- load time (every `setup()`, whether or not symbols or LSP are ever used) cost ~5ms on its own.
+local SymbolKind
 local function kind_name(kind)
+	SymbolKind = SymbolKind or vim.lsp.protocol.SymbolKind or {}
 	return (type(kind) == "number" and SymbolKind[kind])
 		or ((type(kind) == "string" and kind ~= "") and kind)
 		or "Symbol"
@@ -135,7 +138,7 @@ local function lsp_workspace_symbols(bufnr, query, cb)
 									symbol = symbol.name,
 									filename = filename,
 									depth = 1,
-									symbol_kind_name = SymbolKind[symbol.kind] or "Symbol",
+									symbol_kind_name = kind_name(symbol.kind),
 									container = symbol.containerName or "",
 									lnum = (start.line or 0) + 1,
 									col = (start.character or 0) + 1,
