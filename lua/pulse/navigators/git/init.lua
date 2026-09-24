@@ -9,6 +9,13 @@ local notify = require("pulse.navigators.util").notify
 
 local is_staged = util.is_staged
 
+-- First line only: git's own error text can run to several lines (hints, hook output...), and passing that
+-- whole block to notify() can trip Neovim's own "Press ENTER to continue" prompt, hanging the panel on
+-- exactly the kind of failure that most needs to stay visible and non-blocking.
+local function git_error(text)
+	return vim.trim(text or ""):match("[^\n]+") or ""
+end
+
 local STATUS_KIND = { A = "new file", M = "modified", D = "deleted", R = "renamed", C = "copied" }
 
 -- Mirrors a real `git commit` template (blank subject + staged file comments).
@@ -95,7 +102,7 @@ local function edit_commit_message(template, done)
 			end
 			local out, ok = git.system({ "git", "commit", "-F", "-" }, message)
 			if not ok then
-				notify("commit failed: " .. vim.trim(out or ""), vim.log.levels.ERROR)
+				notify("commit failed: " .. git_error(out), vim.log.levels.ERROR)
 				return
 			end
 			vim.bo[buf].modified = false
@@ -171,7 +178,7 @@ local function checkout_branch(ctx)
 	end
 	local out, ok = git.system(args)
 	if not ok then
-		notify("checkout failed: " .. vim.trim(out or ""), vim.log.levels.ERROR)
+		notify("checkout failed: " .. git_error(out), vim.log.levels.ERROR)
 		return
 	end
 	items.invalidate(ctx.state)
@@ -257,7 +264,12 @@ M.actions = {
 			end
 			local out, ok = git.system(revert_args(item, kind))
 			if not ok then
-				notify(kind .. " failed: " .. vim.trim(out or ""), vim.log.levels.ERROR)
+				-- Scheduled: an error notify() called straight out of confirm()'s callback triggers Neovim's
+				-- own "Press ENTER to continue" prompt, hanging the panel right when it most needs to stay
+				-- responsive.
+				vim.schedule(function()
+					notify(kind .. " failed: " .. git_error(out), vim.log.levels.ERROR)
+				end)
 			end
 			items.invalidate_status(ctx.state)
 			ctx.refresh()
@@ -297,7 +309,7 @@ M.actions = {
 				or { "git", "add", "--", item.path }
 			local out, ok = git.system(args)
 			if not ok then
-				notify((is_staged(item) and "unstage" or "stage") .. " failed: " .. out, vim.log.levels.ERROR)
+				notify((is_staged(item) and "unstage" or "stage") .. " failed: " .. git_error(out), vim.log.levels.ERROR)
 			end
 			items.invalidate_status(ctx.state)
 			ctx.refresh()
@@ -315,6 +327,31 @@ M.actions = {
 				edit_commit_message(template, resume)
 			end)
 			return false
+		end,
+	},
+	{
+		key = "<C-d>",
+		name = "delete",
+		when = function(ctx)
+			local item = ctx and ctx.item
+			return is_branch_row(ctx) and item.scope == "local" and not item.current
+		end,
+		run = function(ctx)
+			local item = ctx.item
+			if vim.fn.confirm("Delete " .. item.name .. "?", "&Yes\n&No", 2) ~= 1 then
+				return
+			end
+			-- `-d`, not `-D`: git itself refuses an unmerged branch, or one checked out in another worktree.
+			local out, ok = git.system({ "git", "branch", "-d", item.name })
+			if not ok then
+				-- Scheduled: see the note on the same pattern in the revert action above.
+				vim.schedule(function()
+					notify("delete failed: " .. git_error(out), vim.log.levels.ERROR)
+				end)
+				return
+			end
+			items.invalidate_branches(ctx.state)
+			ctx.refresh()
 		end,
 	},
 }
