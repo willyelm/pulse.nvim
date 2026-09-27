@@ -125,11 +125,15 @@ function M.init(ctx)
 		_dirty = false,
 		_opened_dirty = true,
 	}
-	local open_group = vim.api.nvim_create_augroup("PulseFilesOpened" .. tostring(state.root), { clear = false })
-	vim.api.nvim_create_autocmd({ "BufAdd", "BufDelete", "BufEnter", "BufWipeout" }, {
-		group = open_group,
-		callback = function()
-			state._opened_dirty = true
+	-- One shared autocmd tracking only the newest state: a per-open autocmd was never removed, so every
+	-- BufEnter ran one callback per panel ever opened. Registered before PulseFilesSync so it runs first.
+	sync.register(state, {
+		group = "PulseFilesOpened",
+		events = { "BufAdd", "BufDelete", "BufEnter", "BufWipeout" },
+		exclusive = true,
+		when = function(current)
+			current._opened_dirty = true
+			return false
 		end,
 	})
 	sync.register(state, {
