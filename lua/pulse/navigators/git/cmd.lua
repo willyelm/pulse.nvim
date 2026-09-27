@@ -42,6 +42,17 @@ local function repo(dir)
 	dir = #dir > 1 and dir:gsub("/+$", "") or dir
 	local found = REPOS[dir]
 	if found == nil and not vim.in_fast_event() then
+		-- A plain checkout needs no git process (~20ms blocking): a `.git` directory is the git dir itself.
+		-- Worktrees and submodules (`.git` is a file) and GIT_DIR overrides still ask git below.
+		local marker = not (vim.env.GIT_DIR or vim.env.GIT_WORK_TREE) and vim.fs.find(".git", { path = dir, upward = true })[1]
+		local stat = marker and uv.fs_stat(marker)
+		if stat and stat.type == "directory" then
+			local root = uv.fs_realpath(vim.fs.dirname(marker))
+			found = root and { root = root, git_dir = uv.fs_realpath(marker) } or nil
+			REPOS[dir] = found
+		end
+	end
+	if found == nil and not vim.in_fast_event() then
 		local out, ok = run(
 			{ "git", "--no-optional-locks", "-C", dir, "rev-parse", "--show-toplevel", "--absolute-git-dir" },
 			{ timeout = ROOT_TIMEOUT_MS }
