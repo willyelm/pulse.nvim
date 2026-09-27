@@ -83,6 +83,51 @@ function M.setup_hl()
 	pcall(vim.api.nvim_set_hl, 0, "PulseNormal", { default = true })
 	pcall(vim.api.nvim_set_hl, 0, "PulseActive", { bold = true, default = true })
 	pcall(vim.api.nvim_set_hl, 0, "PulseAction", { link = "Keyword", default = true })
+	-- Live grep's replace, diff-style but in its own colors so it never reads as a git change: what goes in
+	-- gray, what replaces it in magenta. All taken from the theme: the gray is the first of its Comment,
+	-- NonText or LineNr colors that really is gray (some themes tint comments purple or blue), the magenta its
+	-- terminal magenta, and the line backgrounds mix each into its Normal background, the way themes derive
+	-- their own DiffAdd. Defaults, so a theme or config can still set any of them.
+	local dark = vim.o.background == "dark"
+	local function fg(name)
+		return vim.api.nvim_get_hl(0, { name = name, link = false }).fg
+	end
+	local function named(color)
+		return vim.api.nvim_get_color_by_name(color)
+	end
+	local base = vim.api.nvim_get_hl(0, { name = "Normal", link = false }).bg or named(dark and "NvimDarkGrey2" or "NvimLightGrey2")
+	local function channels(color)
+		return math.floor(color / 65536) % 256, math.floor(color / 256) % 256, color % 256
+	end
+	local gray
+	for _, name in ipairs({ "Comment", "NonText", "LineNr" }) do
+		local color = fg(name)
+		if color then
+			local r, g, b = channels(color)
+			if math.max(r, g, b) - math.min(r, g, b) <= 40 then
+				gray = color
+				break
+			end
+		end
+	end
+	gray = gray or named(dark and "NvimLightGrey4" or "NvimDarkGrey4")
+	local magenta = named(vim.g.terminal_color_5 or (dark and "NvimLightMagenta" or "NvimDarkMagenta"))
+	local function mix(color, amount)
+		local out = 0
+		local from, to = { channels(base) }, { channels(color) }
+		for i = 1, 3 do
+			out = out * 256 + math.floor(from[i] + (to[i] - from[i]) * amount + 0.5)
+		end
+		return out
+	end
+	local function set(name, spec)
+		spec.default = true
+		pcall(vim.api.nvim_set_hl, 0, name, spec)
+	end
+	set("PulseReplaceOld", { fg = gray, ctermfg = 8 })
+	set("PulseReplaceNew", { fg = magenta, ctermfg = dark and 13 or 5 })
+	set("PulseDiffMatch", { bg = mix(gray, 0.2), ctermbg = dark and 236 or 252 })
+	set("PulseDiffReplace", { bg = mix(magenta, 0.25), ctermbg = dark and 53 or 225 })
 end
 
 function M.block_text(label)
