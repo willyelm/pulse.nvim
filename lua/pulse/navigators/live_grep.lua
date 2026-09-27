@@ -13,11 +13,59 @@ M.panels = {
 
 M.view = true
 
+-- Wide enough that a line's background runs to the edge of the preview, like the git diff preview's.
+local LINE_PAD = string.rep(" ", 160)
+
 function M.view_item(item)
 	if item.kind == "live_grep_file" then
 		return M.view_item(item.first)
 	end
-	return view.file_snippet(item.path or item.filename, item.lnum, item.query, item.match_cols)
+	local path = item.path or item.filename
+	if not item.replacements then
+		return view.file_snippet(path, item.lnum, item.query, item.match_cols)
+	end
+	-- Diff-style, in the file's own context: the matched line on gray, then what it becomes on magenta, with
+	-- the changed spans colored on top.
+	local lines, ft, _, numbers, focus = view.file_snippet(path, item.lnum)
+	if not numbers then
+		return lines, ft, {}, numbers, focus
+	end
+	local highlights = {}
+	local function span(group, row, s, e, priority)
+		highlights[#highlights + 1] = { group = group, row = row, start_col = s, end_col = e, priority = priority }
+	end
+	local old = lines[focus] or ""
+	lines[focus] = old .. LINE_PAD
+	span("PulseDiffMatch", focus - 1, 0, #lines[focus], 150)
+	for _, cols in ipairs(item.match_cols) do
+		span("PulseReplaceOld", focus - 1, cols[1] - 1, cols[2], 200)
+	end
+	-- Rebuilt piece by piece so the replaced spans' new positions are known.
+	local text, new_spans, pos = (item.text:gsub("\r$", "")), {}, 1
+	local new = ""
+	for i, cols in ipairs(item.match_cols) do
+		new = new .. text:sub(pos, cols[1] - 1)
+		local r = item.replacements[i] or ""
+		new_spans[#new_spans + 1] = { #new, #new + #r }
+		new = new .. r
+		pos = cols[2] + 1
+	end
+	new = new .. text:sub(pos)
+	local row = focus
+	for n, part in ipairs(vim.split(new, "\n", { plain = true })) do
+		table.insert(lines, row + 1, part .. LINE_PAD)
+		table.insert(numbers, row + 1, item.lnum)
+		span("PulseDiffReplace", row, 0, #part + #LINE_PAD, 150)
+		-- A replacement with a line break would need its spans re-based per row; it's rare, so only the first
+		-- row's spans are colored.
+		if n == 1 then
+			for _, s in ipairs(new_spans) do
+				span("PulseReplaceNew", row, s[1], math.min(s[2], #part), 200)
+			end
+		end
+		row = row + 1
+	end
+	return lines, ft, highlights, numbers, focus
 end
 
 -- Pulls `-g <glob>` tokens out of the typed text (ripgrep's own --glob syntax; `-g !glob` excludes); what's
