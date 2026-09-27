@@ -67,7 +67,8 @@ require("pulse").setup({
 })
 ```
 
-`keys.fullscreen` is handled inside Pulse's input, so it can't be bound from your own mappings.
+`keys.fullscreen` is handled inside Pulse's input, so it can't be bound from
+your own mappings.
 
 ## Navigators
 
@@ -78,11 +79,24 @@ You can configure which navigators to load and their config options.
 
 **Default navigators** (all loaded if not specified):
 
-- `files` - Project files and opened buffers; `<C-a>` add, `<C-r>` rename, `<C-d>` delete, `<C-c>`/`<C-x>` copy/cut and `<C-v>` paste (add and rename ask with `vim.ui.input`, delete with `confirm()`)
-- `marks` - Your marks (`A`-`Z`, plus `a`-`z` in the current buffer); `<C-x>` deletes one
+- `files` - Project files and opened buffers; `<C-a>` add, `<C-r>` rename,
+  `<C-d>` delete, `<C-c>`/`<C-x>` copy/cut and `<C-v>` paste (add and rename ask
+  with `vim.ui.input`, delete with `confirm()`)
+- `marks` - Your marks (`A`-`Z`, plus `a`-`z` in the current buffer); `<C-x>`
+  deletes one
 - `commands` - Vim commands
-- `git` - Git changes (status, diff, stage, commit, restore), local and remote branches, and project and file history; `<C-c>` opens the commit message as a normal `gitcommit` buffer (`:w` commits, `:q` aborts) and the panel comes back after; on a branch, `<CR>` checks it out (a remote branch tracks it, creating the local branch the first time; a remote branch identical to its local copy isn't listed at all), `<Tab>` enters its own history as a scoped view -- same as opening a folder in Files: the input gets a label, every other panel hides, and a row at the top takes you back -- and `<C-d>` deletes a local branch (`git branch -d`, so an unmerged or checked-out-elsewhere branch is refused, not force-deleted); remote branches can't be deleted from here
-- `live_grep` - Search with ripgrep, filter files with `-g` globs, and search-and-replace across the project (see [Live Grep](#live-grep))
+- `git` - Git changes (status, diff, stage, commit, restore), local and remote
+  branches, and project and file history; `<C-c>` opens the commit message as a
+  normal `gitcommit` buffer (`:w` commits, `:q` aborts) and the panel comes back
+  after; on a branch, `<CR>` checks it out (a remote branch tracks it, creating
+  the local branch the first time; a remote branch identical to its local copy
+  isn't listed at all), `<Tab>` enters its own history as a scoped view -- same
+  as opening a folder in Files: the input gets a label, every other panel hides,
+  and a row at the top takes you back -- and `<C-d>` deletes a local branch
+  (`git branch -d`, so an unmerged or checked-out-elsewhere branch is refused,
+  not force-deleted); remote branches can't be deleted from here
+- `live_grep` - Search with ripgrep, filter files with `-g` globs, and
+  search-and-replace across the project (see [Live Grep](#live-grep))
 - `fuzzy_search` - Fuzzy search (current buffer)
 - `symbols` - Symbols (current buffer)
 - `workspace_symbols` - Workspace symbols
@@ -122,7 +136,8 @@ Current `files` options:
 - `git.enable`
 - `git.ignore`
 - `open_on_directory`
-- `tree_view` (default `true`; set `false` for a flat, Telescope-style file list with no folder browsing)
+- `tree_view` (default `true`; set `false` for a flat, Telescope-style file list
+  with no folder browsing)
 
 ## Files Navigator
 
@@ -187,10 +202,10 @@ smart case (all lowercase ignores case, any uppercase makes it exact).
 Add ripgrep's own `-g` (`--glob`) flag to the query, as many times as needed. A
 glob starting with `!` excludes:
 
-| Query | Searches |
-| --- | --- |
-| `$foo -g *.lua` | only Lua files |
-| `$foo -g !*.test.ts` | everything except test files |
+| Query                              | Searches                      |
+| ---------------------------------- | ----------------------------- |
+| `$foo -g *.lua`                    | only Lua files                |
+| `$foo -g !*.test.ts`               | everything except test files  |
 | `$foo -g src/** -g !src/vendor/**` | `src/`, without `src/vendor/` |
 
 These are globs (`*`, `**`, `?`, `{a,b}`), not regexes, same as VS Code's files
@@ -211,20 +226,21 @@ searching `foo_(\d+)` and replacing with `bar$1` turns `foo_12` into `bar12`.
 
 The keys there only replace:
 
-| Key | Action |
-| --- | --- |
-| `<CR>` on a file | Replace every match in that file |
-| `<CR>` on a match | Replace just that one |
-| `<C-a>` | Replace everything, after a `confirm()` |
+| Key               | Action                                  |
+| ----------------- | --------------------------------------- |
+| `<CR>` on a file  | Replace every match in that file        |
+| `<CR>` on a match | Replace just that one                   |
+| `<C-a>`           | Replace everything, after a `confirm()` |
 
 Replaced rows leave the list, and the next one is selected.
 
 - Files open in Neovim are edited in their buffer, so `u` undoes it, and saved
   unless they already had unsaved edits of their own.
 - Other files are rewritten on disk directly, without loading them.
-- A line that changed since the search is skipped (and reported), never
-  replaced in the wrong place.
-- `-g` filters in the search carry over: only the files it searched are replaced.
+- A line that changed since the search is skipped (and reported), never replaced
+  in the wrong place.
+- `-g` filters in the search carry over: only the files it searched are
+  replaced.
 
 ## Open Pulse
 
@@ -299,14 +315,16 @@ Pulse mostly uses native Neovim highlight groups for color:
 
 Pulse-specific groups are only used where it needs custom UI treatment:
 
-- `PulseAction` - The copied or cut label on a file or folder (links to `Keyword` by default)
+- `PulseAction` - The copied or cut label on a file or folder (links to
+  `Keyword` by default)
 - `PulseDiffAdd`
 - `PulseDiffDelete`
 - `PulseDiffNAdd` - Secondary background for added lines in diff
 - `PulseDiffNDelete` - Secondary background for deleted lines in diff
 - `PulseReplaceOld` - Live grep replace: the text being replaced (gray)
 - `PulseReplaceNew` - Live grep replace: its replacement (magenta)
-- `PulseDiffMatch` - Live grep replace preview: background of the line being replaced
+- `PulseDiffMatch` - Live grep replace preview: background of the line being
+  replaced
 - `PulseDiffReplace` - Live grep replace preview: background of its replacement
 
 The replace colors default to your theme's own gray and magenta, with the
