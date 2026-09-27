@@ -95,8 +95,11 @@ function M.setup(opts)
 	for mode_name, navigator_module in pairs(registry()) do
 		completions[#completions + 1] = mode_name
 		if navigator_module.panels then
-			for _, panel in ipairs(navigator_module.panels) do
-				completions[#completions + 1] = panel.name
+			for _, entry in ipairs(navigator_module.panels) do
+				-- A panel only reachable from inside a navigator (live grep's replace) isn't a command.
+				if not vim.tbl_contains(panel.panel_contexts(entry), "replace") then
+					completions[#completions + 1] = entry.name
+				end
 			end
 		end
 	end

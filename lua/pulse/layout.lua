@@ -32,7 +32,6 @@ function M.new(box)
 		local show_context = context_height > 0
 		local show_panels = refs and refs.show_panels == true
 		local show_actions = refs and refs.show_actions == true
-		local show_replace = refs and refs.show_replace == true
 		local function sync_refs()
 			if refs.list then
 				refs.list.win = self.sections.list and self.sections.list.win or nil
@@ -48,9 +47,6 @@ function M.new(box)
 			if refs.input then
 				refs.input:set_win(self.sections.input and self.sections.input.win or nil)
 			end
-			if refs.replace_input then
-				refs.replace_input:set_win(show_replace and self.sections.replace and self.sections.replace.win or nil)
-			end
 			if refs.context then
 				local buf = show_context and self.sections.context and self.sections.context.buf or nil
 				local win = show_context and self.sections.context and self.sections.context.win or nil
@@ -64,54 +60,30 @@ function M.new(box)
 			and (not show_panels or is_open(self.sections.panels))
 			and (not show_actions or is_open(self.sections.actions))
 			and (not show_context or is_open(self.sections.context))
-			and (not show_replace or is_open(self.sections.replace))
 			and self.last_dims.body == body_height
 			and self.last_dims.context == context_height
 			and self.last_dims.width == width
 			and self.last_dims.panels == show_panels
 			and self.last_dims.actions == show_actions
-			and self.last_dims.replace == show_replace
 		then
 			sync_refs()
 			return
 		end
 
-		local chrome_height = 2
-			+ (show_replace and 1 or 0)
-			+ (show_panels and 2 or 0)
-			+ (show_actions and 2 or 0)
-			+ (show_context and 1 + context_height or 0)
+		local chrome_height = 2 + (show_panels and 2 or 0) + (show_actions and 2 or 0) + (show_context and 1 + context_height or 0)
 		box:update({ height = body_height + chrome_height })
 		width = vim.api.nvim_win_get_width(box.win)
 
 		local specs = {
 			{ name = "input", row = 0, height = 1, focusable = true, winhl = "Normal:NormalFloat" },
+			{ name = "divider", row = 1, height = 1, focusable = false, winhl = "Normal:FloatBorder", divider = true },
 		}
 
-		local divider_row = 1
-		if show_replace then
-			-- Its buffer comes from refs.replace_input (a real ui.input instance, constructed once with its
-			-- own buffer, same as `input`'s); without this, a section created for the first time here would
-			-- get its own fresh scratch buffer instead, leaving the widget's buffer orphaned and never shown.
-			specs[#specs + 1] = {
-				name = "replace",
-				row = 1,
-				height = 1,
-				focusable = true,
-				winhl = "Normal:NormalFloat",
-				buf = refs.replace_input and refs.replace_input.buf or nil,
-			}
-			divider_row = 2
-		else
-			box:close_section("replace")
-		end
-		specs[#specs + 1] = { name = "divider", row = divider_row, height = 1, focusable = false, winhl = "Normal:FloatBorder", divider = true }
-
-		local list_row = divider_row + 1
+		local list_row = 2
 		if show_panels then
-			specs[#specs + 1] = { name = "panels", row = list_row, height = 1, focusable = false, winhl = "Normal:NormalFloat" }
-			specs[#specs + 1] = { name = "panel_divider", row = list_row + 1, height = 1, focusable = false, winhl = "Normal:FloatBorder", divider = true }
-			list_row = list_row + 2
+			specs[#specs + 1] = { name = "panels", row = 2, height = 1, focusable = false, winhl = "Normal:NormalFloat" }
+			specs[#specs + 1] = { name = "panel_divider", row = 3, height = 1, focusable = false, winhl = "Normal:FloatBorder", divider = true }
+			list_row = 4
 		else
 			box:close_section("panels")
 			box:close_section("panel_divider")
@@ -159,7 +131,6 @@ function M.new(box)
 				focusable = s.focusable,
 				enter = false,
 				winhl = s.winhl,
-				buf = s.buf,
 			})
 			if s.divider then
 				draw_divider(section.buf, width)
@@ -174,7 +145,6 @@ function M.new(box)
 			width = width,
 			panels = show_panels,
 			actions = show_actions,
-			replace = show_replace,
 		}
 	end
 

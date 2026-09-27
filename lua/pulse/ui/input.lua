@@ -66,9 +66,7 @@ end
 function M.new(opts)
   local self = setmetatable({}, M)
   self.buf = assert(opts.buf, "input requires a buffer")
-  -- A window isn't required up front: a field that starts hidden (a navigator's own second input, say) is
-  -- bound to a real window later via set_win, same as view.lua's context pane already tolerates.
-  self.win = opts.win
+  self.win = assert(opts.win, "input requires a window")
   self.prompt = opts.prompt or ""
   self.on_change = opts.on_change
   self.debounce_ms = opts.debounce_ms or 0
@@ -236,26 +234,6 @@ function M:focus(insert_mode)
     cursor_to_eol(self.win, self.buf)
     vim.cmd("startinsert!")
   end
-end
-
--- Same as focus(true), except entering insert mode is done by feeding "A" as a literal keypress instead of
--- :startinsert!. Needed when switching here from inside a mapping that itself fired from insert mode on a
--- *different* prompt buffer: :startinsert! is documented to only take effect once the mapping that called it
--- finishes, and by then Neovim's own end-of-insert handling has already run against whichever buffer that
--- mapping actually started in, not this one. A fed keypress has no such delay.
-function M:focus_via_keypress()
-  if not (self.win and vim.api.nvim_win_is_valid(self.win)) then
-    return
-  end
-  -- Explicit, synchronous, before switching (same as hide()'s own window switch): otherwise Neovim may
-  -- still consider itself in insert mode when the fed "A" below is processed, and insert it as a literal
-  -- character instead of running it as the append command.
-  pcall(vim.cmd, "stopinsert")
-  configure_window(self.win)
-  vim.api.nvim_set_current_win(self.win)
-  self:set_addons(self.addons)
-  cursor_to_eol(self.win, self.buf)
-  vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("A", true, false, true), "n", false)
 end
 
 function M:set_addons(addons)

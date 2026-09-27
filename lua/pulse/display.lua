@@ -201,10 +201,45 @@ local function mark_staged(item, out)
 	return out
 end
 
+-- A live_grep row while replacing: each match struck through, followed by what it becomes.
+local function grep_replace_preview(item, raw, leading, indent)
+	local parts, matches, pos, width = { indent }, {}, leading + 1, #indent
+	local function add(text, group)
+		if group and text ~= "" then
+			matches[#matches + 1] = { width, width + #text, group }
+		end
+		parts[#parts + 1] = text
+		width = width + #text
+	end
+	for i, span in ipairs(item.match_cols) do
+		if span[1] >= pos then
+			add(raw:sub(pos, span[1] - 1))
+			add(raw:sub(span[1], span[2]), "PulseReplaceOld")
+			add(((item.replacements[i] or ""):gsub("\n", "⏎")), "PulseReplaceNew")
+			pos = span[2] + 1
+		end
+	end
+	add((raw:sub(pos):gsub("%s+$", "")))
+	return table.concat(parts), matches
+end
+
+-- The row heading a file's matches while replacing: <CR> on it replaces the whole file.
+local function display_grep_file(item)
+	local icon, style = icon_for_item("file", item.path)
+	local out = format_icon_item(icon, item.label or file_name(item.path), string.format("%d match%s", item.count, item.count == 1 and "" or "es"), style)
+	out.left_matches = style and { { 0, #icon, style } } or nil
+	return out
+end
+
 local function display_grep(item)
 	local raw = item.text or ""
 	-- match_cols is relative to the untrimmed raw text; shift by what vim.trim strips below.
 	local leading = item.leading or #(raw:match("^%s*") or "")
+	if item.replacements then
+		-- Listed under its file's row, so only the position is needed on the right.
+		local text, matches = grep_replace_preview(item, raw, leading, "  ")
+		return row(text, string.format("%d:%d", item.lnum or 1, item.col or 1), false, matches)
+	end
 	local line = vim.trim(raw)
 	if line == "" then
 		line = file_name(item.path or item.filename)
@@ -341,6 +376,7 @@ local RENDERERS = {
 	buffer = display_buffer,
 	mark = display_mark,
 	live_grep = display_grep,
+	live_grep_file = display_grep_file,
 	fuzzy_search = display_grep,
 	git_status = display_git_status,
 	git_commit = display_git_commit,
