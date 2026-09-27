@@ -179,6 +179,28 @@ local function schedule_focus_input()
 	end)
 end
 
+-- Synchronous sibling of schedule_focus_input, for switching back to it from another prompt buffer that
+-- itself had insert-mode focus (state.input2's own on_escape/on_up) -- see focus_via_keypress's own note on
+-- why :startinsert! (plain focus(true)) doesn't reliably work for this specific switch.
+local function focus_input_now()
+	if is_visible() and state.input then
+		state.input:focus_via_keypress()
+	end
+end
+
+-- For a navigator's own second field (live_grep's replace box); focusing it is what makes it visible, via the
+-- mod.show_replace predicate compute_body_layout reads. Refreshes right now (so the replace section exists)
+-- and focuses it in the same tick.
+local function focus_replace_now()
+	if not is_visible() then
+		return
+	end
+	refresh()
+	if state.input2 then
+		state.input2:focus_via_keypress()
+	end
+end
+
 local function set_prompt_mode(name)
 	if state.input then
 		state.input:set_value(config.switch_prompt(state.input:get_value(), name), { move_cursor_end = true })
@@ -309,6 +331,7 @@ local function action_ctx(item)
 		clear_prefix = clear_prefix,
 		close = hide,
 		suspend = function(run) M.suspend(run) end,
+		focus_replace = focus_replace_now,
 		jump = jump_in_source,
 		preview = preview_in_source,
 		set_query = function(value, opts)
@@ -605,6 +628,8 @@ local function compute_body_layout(stats, mod, panels, active_panel, moving)
 	local item = selected or stats.first
 	local show_panels = active_panel ~= nil and panel.header_item(panels, active_panel.name or nil) ~= nil
 	local panel_rows = show_panels and 2 or 0
+	local show_replace = mod and type(mod.show_replace) == "function" and mod.show_replace(state.current.state) == true
+	local replace_rows = show_replace and 1 or 0
 	-- Evaluated once per render and reused for the action bar and the keymaps. Without a selection the bar
 	-- reserves room for the first row's actions but shows only what the (empty) selection allows.
 	local actions, ordered = panel_actions(selected)
@@ -619,7 +644,7 @@ local function compute_body_layout(stats, mod, panels, active_panel, moving)
 			break
 		end
 	end
-	local total_height = math.max(layout.resolve_max_height(current_box_opts().height) - 2 - panel_rows - action_rows, 1)
+	local total_height = math.max(layout.resolve_max_height(current_box_opts().height) - 2 - panel_rows - replace_rows - action_rows, 1)
 	local item_total = stats.count
 	local list_need = math.max(item_total == 0 and state.list.min_visible or item_total, state.list.min_visible)
 	local list_height = state.fullscreen and total_height or math.min(list_need, total_height)
@@ -634,6 +659,7 @@ local function compute_body_layout(stats, mod, panels, active_panel, moving)
 
 	return {
 		show_panels = show_panels,
+		show_replace = show_replace,
 		list_height = list_height,
 		view_height = view_height,
 		view_spec = spec,
@@ -662,10 +688,12 @@ local function render_current_view(body, menu, opts)
 		list = state.list,
 		context = state.view,
 		input = state.input,
+		replace_input = state.input2,
 		panels = state.session.panels,
 		actions = state.session.actions,
 		show_panels = body.show_panels,
 		show_actions = #ordered > 0,
+		show_replace = body.show_replace,
 	})
 	panel.render(state.session.panels, state.session.panels_ns, menu)
 	action_menu.render(
@@ -1044,6 +1072,10 @@ local function bind_widgets()
 		})
 
 		local files_navigator = state.registry.files
+		local function replace_shown()
+			local mod, s = state.current.mod, state.current.state
+			return mod and type(mod.show_replace) == "function" and mod.show_replace(s) == true
+		end
 		state.input = ui.input.new({
 			buf = sections.input.buf,
 			win = sections.input.win,
@@ -1051,7 +1083,13 @@ local function bind_widgets()
 			debounce_ms = 50,
 			on_change = refresh,
 			on_escape = hide,
-			on_down = function() move_selection(1) end,
+			on_down = function()
+				if replace_shown() then
+					focus_replace_now()
+				else
+					move_selection(1)
+				end
+			end,
 			on_up = function() move_selection(-1) end,
 			on_left = function() return move_panel_from_input(-1) end,
 			on_right = function() return move_panel_from_input(1) end,
@@ -1072,11 +1110,50 @@ local function bind_widgets()
 				return false
 			end,
 		})
+		-- A navigator's own second field (opt-in via M.show_replace/M.on_replace_*, e.g. live_grep's replace
+		-- box). Starts unbound to any window -- ui.input tolerates that -- and only gets one once shown. Its
+		-- typed text needs no persistence wiring: the prompt buffer itself outlives the section being hidden
+		-- and shown again, same as the search box's own text already does.
+		state.input2 = ui.input.new({
+			buf = (sections.replace and sections.replace.buf) or vim.api.nvim_create_buf(false, true),
+			win = sections.replace and sections.replace.win or nil,
+			prompt = " → ",
+			on_submit = function(value)
+				local mod, s = state.current.mod, state.current.state
+				if mod and type(mod.on_replace_submit) == "function" then
+					-- Hidden first: a replace that edits buffers (:cfdo) must run in the source window, not this float.
+					M.suspend(function(resume)
+						mod.on_replace_submit(s, value)
+						resume()
+					end)
+				end
+			end,
+			on_escape = function()
+				local mod, s = state.current.mod, state.current.state
+				if mod and type(mod.on_replace_close) == "function" then
+					mod.on_replace_close(s)
+				end
+				refresh()
+				focus_input_now()
+			end,
+			on_up = focus_input_now,
+			on_down = function()
+				if not is_visible() then
+					return
+				end
+				-- Synchronous, stopinsert first: same reasoning as focus_via_keypress above.
+				pcall(vim.cmd, "stopinsert")
+				if state.list and state.list.win and vim.api.nvim_win_is_valid(state.list.win) then
+					vim.api.nvim_set_current_win(state.list.win)
+				end
+			end,
+		})
 		setup_keymaps()
 		return
 	end
 
 	state.input:set_win(sections.input.win)
+	state.input2:set_win(sections.replace and sections.replace.win or nil)
 	state.list:set_win(sections.list.win)
 	local ctx_section = sections.context
 	state.view:set_target(ctx_section and ctx_section.buf or nil, ctx_section and ctx_section.win or nil)

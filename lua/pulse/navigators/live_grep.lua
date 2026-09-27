@@ -5,7 +5,6 @@ local context = require("pulse.context")
 
 M.name = "live_grep"
 M.icon = "󰍉"
-M.actions = nav.jump_actions()
 M.panels = {
 	{ start = "$", name = "live_grep", label = "Live Grep", contexts = { "workspace", "folder" } },
 }
@@ -32,6 +31,74 @@ local function parse_query(raw)
 	end
 	return table.concat(rest, " "), globs
 end
+
+-- Search-and-replace, the Neovim way: the quickfix list and `:cfdo`, not a bespoke diff/preview UI. Ripgrep's
+-- regex and Vim's `:s` regex aren't identical -- this works well for literal and simple patterns (the common
+-- case); more advanced regex may need adjusting by hand before committing.
+function M.show_replace(state)
+	return state.replace_mode == true
+end
+
+function M.on_replace_close(state)
+	state.replace_mode = false
+end
+
+-- `/` and `\` need escaping for :s's RHS; `&` would otherwise mean "the whole match".
+local function escape_replacement(text)
+	return (text:gsub("[\\/&]", "\\%0"))
+end
+
+function M.on_replace_submit(state, replacement)
+	local pattern = select(1, parse_query(state.query))
+	local count = #(state.items or {})
+	if pattern == "" or count == 0 then
+		nav.notify("nothing to replace", vim.log.levels.WARN)
+		return
+	end
+	local files = {}
+	local seen = {}
+	for _, item in ipairs(state.items) do
+		if not seen[item.filename] then
+			seen[item.filename] = true
+			files[#files + 1] = item.filename
+		end
+	end
+	if vim.fn.confirm(string.format("Replace %d match%s across %d file%s?", count, count == 1 and "" or "es", #files, #files == 1 and "" or "s"), "&Yes\n&No", 2) ~= 1 then
+		return
+	end
+	vim.fn.setqflist({}, " ", { items = state.items })
+	-- Same case rule as rg's --smart-case; `/` would otherwise end the pattern early.
+	local case = pattern:find("%u") and "\\C" or "\\c"
+	local cmd = string.format("cfdo %%s/%s%s/%s/g | update", case, (pattern:gsub("/", "\\/")), escape_replacement(replacement))
+	-- :cfdo leaves the last edited file in the window; put back what was there.
+	local win, buf = vim.api.nvim_get_current_win(), vim.api.nvim_get_current_buf()
+	local ok, err = pcall(vim.cmd, cmd)
+	if vim.api.nvim_win_is_valid(win) and vim.api.nvim_buf_is_valid(buf) then
+		vim.api.nvim_win_set_buf(win, buf)
+	end
+	-- Scheduled: an error notify() called synchronously here can trip Neovim's own "Press ENTER to continue"
+	-- prompt (see the same fix in the git navigator's revert/delete actions).
+	vim.schedule(function()
+		if ok then
+			nav.notify(string.format("replaced in %d file%s", #files, #files == 1 and "" or "s"), vim.log.levels.INFO)
+		else
+			nav.notify("replace failed: " .. tostring(err), vim.log.levels.ERROR)
+		end
+	end)
+end
+
+M.actions = vim.list_extend(nav.jump_actions(), {
+	{
+		key = "<C-r>",
+		name = "replace",
+		run = function(ctx)
+			ctx.state.replace_mode = true
+			-- Refreshes and focuses the field synchronously, in one go.
+			ctx.focus_replace()
+			return false
+		end,
+	},
+})
 
 local DEBOUNCE_MS = 60
 local RESULT_LIMIT = 5000
@@ -209,6 +276,7 @@ function M.init(ctx)
 		token = 0,
 		stopped = false,
 		update_scheduled = false,
+		replace_mode = false,
 		input_context = (scoped and scoped.kind == "folder" and context.folder(cwd)) or nil,
 	}
 	state.provider = {
