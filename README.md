@@ -82,7 +82,7 @@ You can configure which navigators to load and their config options.
 - `marks` - Your marks (`A`-`Z`, plus `a`-`z` in the current buffer); `<C-x>` deletes one
 - `commands` - Vim commands
 - `git` - Git changes (status, diff, stage, commit, restore), local and remote branches, and project and file history; `<C-c>` opens the commit message as a normal `gitcommit` buffer (`:w` commits, `:q` aborts) and the panel comes back after; on a branch, `<CR>` checks it out (a remote branch tracks it, creating the local branch the first time; a remote branch identical to its local copy isn't listed at all), `<Tab>` enters its own history as a scoped view -- same as opening a folder in Files: the input gets a label, every other panel hides, and a row at the top takes you back -- and `<C-d>` deletes a local branch (`git branch -d`, so an unmerged or checked-out-elsewhere branch is refused, not force-deleted); remote branches can't be deleted from here
-- `live_grep` - Search with ripgrep; `-g <glob>` in the query limits the files searched, same as `rg`'s own flag (`-g !<glob>` excludes); `<C-r>` opens a replace field under the input, and `<CR>` there replaces every match through the quickfix list and `:cfdo` after a `confirm()` (ripgrep's regex and Vim's differ, so it suits literal and simple patterns best)
+- `live_grep` - Search with ripgrep, filter files with `-g` globs, and search-and-replace across the project (see [Live Grep](#live-grep))
 - `fuzzy_search` - Fuzzy search (current buffer)
 - `symbols` - Symbols (current buffer)
 - `workspace_symbols` - Workspace symbols
@@ -177,6 +177,55 @@ vim.g.loaded_netrwPlugin = 1
 }
 ```
 
+## Live Grep
+
+Type `$` followed by what to search for. The search is ripgrep's own regex, with
+smart case (all lowercase ignores case, any uppercase makes it exact).
+
+### Include and exclude files
+
+Add ripgrep's own `-g` (`--glob`) flag to the query, as many times as needed. A
+glob starting with `!` excludes:
+
+| Query | Searches |
+| --- | --- |
+| `$foo -g *.lua` | only Lua files |
+| `$foo -g !*.test.ts` | everything except test files |
+| `$foo -g src/** -g !src/vendor/**` | `src/`, without `src/vendor/` |
+
+These are globs (`*`, `**`, `?`, `{a,b}`), not regexes, same as VS Code's files
+to include and exclude. `-g` is the only flag Pulse reads; anything else is part
+of the search text.
+
+### Replace
+
+With a search typed, `<C-r>` enters replace for it. Same as opening a folder in
+Files, it becomes a scoped view: the search moves into the input's label, every
+other panel hides, and the input takes the replacement. `<BS>` on an empty
+replacement goes back to the search.
+
+Matches are grouped under their file, and every row shows what goes (gray) next
+to what replaces it (magenta). The preview shows the same as a diff, in the
+file's own context. It is ripgrep's own `--replace`, so capture groups work:
+searching `foo_(\d+)` and replacing with `bar$1` turns `foo_12` into `bar12`.
+
+The keys there only replace:
+
+| Key | Action |
+| --- | --- |
+| `<CR>` on a file | Replace every match in that file |
+| `<CR>` on a match | Replace just that one |
+| `<C-a>` | Replace everything, after a `confirm()` |
+
+Replaced rows leave the list, and the next one is selected.
+
+- Files open in Neovim are edited in their buffer, so `u` undoes it, and saved
+  unless they already had unsaved edits of their own.
+- Other files are rewritten on disk directly, without loading them.
+- A line that changed since the search is skipped (and reported), never
+  replaced in the wrong place.
+- `-g` filters in the search carry over: only the files it searched are replaced.
+
 ## Open Pulse
 
 - `:Pulse`
@@ -255,6 +304,14 @@ Pulse-specific groups are only used where it needs custom UI treatment:
 - `PulseDiffDelete`
 - `PulseDiffNAdd` - Secondary background for added lines in diff
 - `PulseDiffNDelete` - Secondary background for deleted lines in diff
+- `PulseReplaceOld` - Live grep replace: the text being replaced (gray)
+- `PulseReplaceNew` - Live grep replace: its replacement (magenta)
+- `PulseDiffMatch` - Live grep replace preview: background of the line being replaced
+- `PulseDiffReplace` - Live grep replace preview: background of its replacement
+
+The replace colors default to your theme's own gray and magenta, with the
+preview backgrounds mixed into its `Normal` background; set them for a theme
+with a transparent background.
 
 Example:
 
