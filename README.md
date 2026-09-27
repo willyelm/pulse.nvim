@@ -82,7 +82,7 @@ You can configure which navigators to load and their config options.
 - `marks` - Your marks (`A`-`Z`, plus `a`-`z` in the current buffer); `<C-x>` deletes one
 - `commands` - Vim commands
 - `git` - Git changes (status, diff, stage, commit, restore), local and remote branches, and project and file history; `<C-c>` opens the commit message as a normal `gitcommit` buffer (`:w` commits, `:q` aborts) and the panel comes back after; on a branch, `<CR>` checks it out (a remote branch tracks it, creating the local branch the first time; a remote branch identical to its local copy isn't listed at all), `<Tab>` enters its own history as a scoped view -- same as opening a folder in Files: the input gets a label, every other panel hides, and a row at the top takes you back -- and `<C-d>` deletes a local branch (`git branch -d`, so an unmerged or checked-out-elsewhere branch is refused, not force-deleted); remote branches can't be deleted from here
-- `live_grep` - Search with ripgrep
+- `live_grep` - Search with ripgrep; `-g <glob>` in the query limits the files searched, same as `rg`'s own flag (`-g !<glob>` excludes); `<C-r>` opens a replace field under the input, and `<CR>` there replaces every match through the quickfix list and `:cfdo` after a `confirm()` (ripgrep's regex and Vim's differ, so it suits literal and simple patterns best)
 - `fuzzy_search` - Fuzzy search (current buffer)
 - `symbols` - Symbols (current buffer)
 - `workspace_symbols` - Workspace symbols
