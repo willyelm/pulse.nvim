@@ -101,6 +101,10 @@ function M.context_type(ctx)
 	if ctx.kind == "branch" then
 		return "branch"
 	end
+	-- Only live grep's own replace panel applies while replacing.
+	if ctx.kind == "replace" then
+		return "replace"
+	end
 	return "buffer"
 end
 

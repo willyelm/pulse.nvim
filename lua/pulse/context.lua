@@ -62,6 +62,27 @@ function M.branch(name)
   }
 end
 
+-- Live grep's replace mode: the search is fixed (shown as the input's label) and the input takes the
+-- replacement. On the way out (<BS> on an empty input) `exit_prompt` and `exit_panel` restore the search,
+-- inside `parent`, the scope it was entered from.
+function M.replace(opts)
+  if not (opts and opts.query and opts.query ~= "") then
+    return nil
+  end
+  return {
+    kind = "replace",
+    name = (opts.cwd or "") .. "\n" .. opts.query,
+    query = opts.query,
+    cwd = opts.cwd,
+    parent = opts.parent,
+    exit_prompt = opts.exit_prompt,
+    exit_panel = opts.exit_panel,
+    label = opts.query,
+    icon = "󰛔",
+    icon_hl = "PulseReplaceNew",
+  }
+end
+
 function M.workspace(path)
   path = normalize_path(path)
   if not path then
