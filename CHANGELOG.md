@@ -18,6 +18,22 @@
 
 
 
+
+## [0.16.0] - 2026-09-27
+
+### New
+
+- preview a replacement as a diff in the file's own context
+- replace in its own context with rg's --replace, grouped by file
+- take live grep's replace colors from the active theme
+- step out of a context back to the query it was entered from
+- add a replace context that only live grep's replace panel shows in
+
+### Changed
+
+- docs: format readme
+- docs: describe live grep's glob filters and search-and-replace
+
 ## [0.15.0] - 2026-09-27
 
 ### New
@@ -173,11 +189,4 @@
 ### Changed
 
 - fix: improve workspace label layout
-
-## [0.7.5] - 2026-05-24
-
-### Changed
-
-- fix: reorder restore action in git
-- docs: add vim pack usage
 
