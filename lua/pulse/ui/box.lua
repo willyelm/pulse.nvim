@@ -126,7 +126,9 @@ function Box:create_section(name, opts)
     vim.api.nvim_set_option_value("winhl", o.winhl, { win = win })
   end
   vim.bo[buf].bufhidden, vim.bo[buf].buflisted, vim.bo[buf].swapfile, vim.bo[buf].modified = "hide", false, false, false
-  if not reused then
+  -- Only a buffer this call actually created itself defaults to "nofile": one the caller handed in via
+  -- opts.buf (a widget's own buffer, already configured -- e.g. a prompt buffer) keeps its own buftype.
+  if not reused and not o.buf then
     vim.bo[buf].buftype = "nofile"
   end
   local s = { win = win, buf = buf, opts = o }
