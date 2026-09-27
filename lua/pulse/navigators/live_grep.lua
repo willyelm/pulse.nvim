@@ -16,6 +16,23 @@ function M.view_item(item)
 	return view.file_snippet(item.path or item.filename, item.lnum, item.query, item.match_cols)
 end
 
+-- Pulls `-g <glob>` tokens out of the typed text (ripgrep's own --glob syntax; `-g !glob` excludes); what's
+-- left is the actual search pattern. No new syntax to learn if you already know `rg`'s own flags.
+local function parse_query(raw)
+	local globs, rest, want_glob = {}, {}, false
+	for token in (raw or ""):gmatch("%S+") do
+		if want_glob then
+			globs[#globs + 1] = token
+			want_glob = false
+		elseif token == "-g" then
+			want_glob = true
+		else
+			rest[#rest + 1] = token
+		end
+	end
+	return table.concat(rest, " "), globs
+end
+
 local DEBOUNCE_MS = 60
 local RESULT_LIMIT = 5000
 local function notify_update(state)
@@ -131,6 +148,7 @@ local function start_search(state, query, token)
 	state.items = {}
 	state.stopped = false
 
+	local pattern, globs = parse_query(query)
 	local cmd = {
 		"rg",
 		"--json",
@@ -141,9 +159,13 @@ local function start_search(state, query, token)
 		"--smart-case",
 		"--max-columns",
 		"300",
-		query,
-		state.cwd or ".",
 	}
+	for _, g in ipairs(globs) do
+		cmd[#cmd + 1] = "--glob"
+		cmd[#cmd + 1] = g
+	end
+	cmd[#cmd + 1] = pattern
+	cmd[#cmd + 1] = state.cwd or "."
 
 	state.job = vim.fn.jobstart(cmd, {
 		stdout_buffered = false,
@@ -154,7 +176,7 @@ local function start_search(state, query, token)
 			if not data or #data == 0 then
 				return
 			end
-			append_lines_chunked(state, data, query, token, 1)
+			append_lines_chunked(state, data, pattern, token, 1)
 		end,
 		on_exit = function(_, code)
 			if token ~= state.token then
