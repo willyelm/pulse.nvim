@@ -243,13 +243,14 @@ local function buffer_only_navigator(navigator)
 		and not panel.supports_context(navigator, "folder")
 end
 
-local function apply_context_change(context_value)
+-- `panel_name` picks the panel to land on; otherwise the context's first visible one.
+local function apply_context_change(context_value, panel_name)
 	vim.schedule(function()
 		if not is_visible() then
 			return
 		end
 		state.context = context_value
-		local target = panel.default_panel(visible_panels(context_value), nil)
+		local target = panel.default_panel(visible_panels(context_value), panel_name)
 		if target then
 			panel.select(state.active_panels, target)
 			set_prompt_mode(target.navigator)
@@ -1099,6 +1100,15 @@ local function bind_widgets()
 					scoped = state.current.mod.input_context(state.current.state, state.context)
 				end
 				local start = state.current.panel_entry and state.current.panel_entry.start or ""
+					-- A context entered from a query (live_grep's replace) steps back out to it, not to an empty prompt.
+					if scoped and scoped.exit_prompt and (value == start or value == "") then
+						-- Scheduled: this runs inside the <BS> expr mapping, where the buffer can't be edited.
+						vim.schedule(function()
+							state.input:set_value(scoped.exit_prompt, { move_cursor_end = true })
+						end)
+						apply_context_change(scoped.parent, scoped.exit_panel)
+						return true
+					end
 					if scoped and scoped.kind ~= "workspace" and start ~= "" and value == start then
 						clear_prefix()
 						return true
