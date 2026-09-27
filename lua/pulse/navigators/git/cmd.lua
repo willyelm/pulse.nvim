@@ -37,7 +37,9 @@ end
 -- once found; once warmed from the main thread it is also safe to call from fast (libuv) callbacks, which
 -- can't run the lookup themselves.
 local function repo(dir)
+	-- `nvim .` hands over "/repo/" while nvim's cwd is "/repo": one key, or the lookup runs twice.
 	dir = dir or project_dir or uv.cwd()
+	dir = #dir > 1 and dir:gsub("/+$", "") or dir
 	local found = REPOS[dir]
 	if found == nil and not vim.in_fast_event() then
 		local out, ok = run(
