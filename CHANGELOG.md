@@ -17,6 +17,24 @@
 
 
 
+
+## [0.15.0] - 2026-09-27
+
+### New
+
+- replace every match through the quickfix list and :cfdo
+- limit the searched files with rg's own -g globs
+- add an optional replace row under the input
+- let an input start without a window and take focus from another prompt
+
+### Changed
+
+- docs: describe live grep's glob filters and replace
+- fix(ui): keep the buftype of a buffer handed to a box section
+- fix(files): stop adding a buffer autocmd every time the Files context changes
+- perf(git): find the repo root from .git on disk instead of a blocking git call
+- fix(git): look up a repo once whether its path ends in a slash or not
+
 ## [0.14.0] - 2026-09-24
 
 ### New
@@ -162,11 +180,4 @@
 
 - fix: reorder restore action in git
 - docs: add vim pack usage
-
-## [0.7.4] - 2026-05-24
-
-### Changed
-
-- refactor: rename action ctx scope fields to context
-- refactor: rename scope to context and context to panel_view
 
