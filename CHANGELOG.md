@@ -19,6 +19,13 @@
 
 
 
+
+## [0.16.1] - 2026-10-05
+
+### Changed
+
+- fix: update neovim version
+
 ## [0.16.0] - 2026-09-27
 
 ### New
@@ -183,10 +190,4 @@
 ### Changed
 
 - fix(git): remove item from list when restore
-
-## [0.7.6] - 2026-05-24
-
-### Changed
-
-- fix: improve workspace label layout
 
