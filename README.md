@@ -31,7 +31,7 @@ For more on the design motivation, see:
 
 ## Requirements
 
-- Neovim `>= 0.10`
+- Neovim `>= 0.12`
 - `ripgrep` (`rg`)
 - `git` (for git panels and previews)
 - `nvim-tree/nvim-web-devicons` (optional, recommended)
