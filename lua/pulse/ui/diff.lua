@@ -1,21 +1,18 @@
 local M = {}
-local function hl(name, fallback)
-  return (vim.fn.hlexists(name) == 1) and name or fallback
+-- The diff palette shared by the preview and the git review tab: a Pulse* group when the theme gives it
+-- colors, else the standard Diff* group. Resolved per call, so a colorscheme loaded after Pulse applies.
+-- (A declared-but-empty group would paint nothing, so it doesn't count.)
+local function pick(name, fallback)
+  return next(vim.api.nvim_get_hl(0, { name = name, link = false })) and name or fallback
 end
-local CONTENT_ADD_HL = hl("DiffAdd", hl("PulseDiffAdd", hl("DiffAdded", "DiffAdd")))
-local CONTENT_DEL_HL = hl("DiffDelete", hl("PulseDiffDelete", "DiffDelete"))
-local NUM_ADD_HL = hl("PulseDiffNAdd", CONTENT_ADD_HL)
-local NUM_DEL_HL = hl("PulseDiffNDelete", CONTENT_DEL_HL)
-local SIGN_ADD_HL = CONTENT_ADD_HL
-local SIGN_DEL_HL = CONTENT_DEL_HL
+function M.groups()
+  local add, delete = pick("PulseDiffAdd", "DiffAdd"), pick("PulseDiffDelete", "DiffDelete")
+  return { add = add, delete = delete, num_add = pick("PulseDiffNAdd", add), num_delete = pick("PulseDiffNDelete", delete) }
+end
 local PRIO_CONTENT = 20
 local PRIO_NUM = 200
 local PRIO_SIGN = 210
 local CONTENT_PAD = 160
-local STYLE_BY_SIGN = {
-  ["+"] = { content = CONTENT_ADD_HL, num = NUM_ADD_HL, sign = SIGN_ADD_HL },
-  ["-"] = { content = CONTENT_DEL_HL, num = NUM_DEL_HL, sign = SIGN_DEL_HL },
-}
 local function norm(lines)
   local out = {}
   for i, v in ipairs(type(lines) == "table" and lines or {}) do
@@ -96,12 +93,17 @@ function M.from_lines(old_lines, new_lines, opts)
   end
   local w_old, w_new = math.max(#tostring(mo), 2), math.max(#tostring(mn), 2)
   local lines, highlights, focus = {}, {}, 1
+  local g = M.groups()
+  local styles = {
+    ["+"] = { content = g.add, num = g.num_add, sign = g.add },
+    ["-"] = { content = g.delete, num = g.num_delete, sign = g.delete },
+  }
 
   for i, r in ipairs(rows) do
     local line = string.format(" %" .. w_old .. "s %" .. w_new .. "s  %s %s", r.old or "", r.new or "", r.sign, r.text or "")
     local row = i - 1
     local num_end_col = w_old + w_new + 3
-    local style = STYLE_BY_SIGN[r.sign]
+    local style = styles[r.sign]
 
     add_hl(highlights, "LineNr", row, 0, num_end_col, PRIO_NUM - 1, "replace")
     if style then
