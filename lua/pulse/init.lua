@@ -69,6 +69,12 @@ local function pulse_command(opts)
 		return
 	end
 
+	-- Not a panel: opens the git review tab (staged vs working copy) on the current file.
+	if name == "git_review" then
+		require("pulse.navigators.git.review").open_current()
+		return
+	end
+
 	local mode_name, panel_name = config.find_by_command(name)
 	local mod = registry()[mode_name]
 	if not mod then
@@ -102,6 +108,9 @@ function M.setup(opts)
 				end
 			end
 		end
+	end
+	if registry().git then
+		completions[#completions + 1] = "git_review"
 	end
 	table.sort(completions)
 
