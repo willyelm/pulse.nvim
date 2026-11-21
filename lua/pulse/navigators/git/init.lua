@@ -142,8 +142,8 @@ local function revert_args(item, kind)
 end
 
 -- What <CR> does on the highlighted row: unfold a commit's files or a folder in that tree (project history
--- only), or open a changed file. Nil disables it (headers, file-history commits, loading rows, branches --
--- <CR> on those checks out instead, handled separately below).
+-- only), or open a side-by-side diff for a changed file. Nil disables it (headers, file-history commits,
+-- loading rows, branches -- <CR> on those checks out instead, handled separately below).
 local function enter_kind(ctx)
 	local item = ctx and ctx.item
 	local panel_name = ctx and ctx.panel and ctx.panel.name
@@ -161,11 +161,11 @@ local function enter_kind(ctx)
 	if showing_history and item.kind == "git_history_back" then
 		return "back"
 	end
-	return item.kind == "git_status" and "open" or nil
+	return item.kind == "git_status" and "diff" or nil
 end
 
--- <C-o>'s old job, now <CR>'s: switch to a local branch, or track a remote one, creating the local branch
--- the first time (the same thing plain `git checkout <name>` does for an unambiguous remote name).
+-- Switch to a local branch, or track a remote one, creating the local branch the first time (the same thing
+-- plain `git checkout <name>` does for an unambiguous remote name).
 local function checkout_branch(ctx)
 	local item = ctx.item
 	local args
@@ -208,7 +208,7 @@ M.actions = {
 			if kind == "back" then
 				return "back"
 			end
-			return kind and (kind == "folder" and "toggle" or "open") or nil
+			return kind and (kind == "folder" and "toggle" or "diff") or nil
 		end,
 		when = function(ctx)
 			if is_branch_row(ctx) then
@@ -233,10 +233,31 @@ M.actions = {
 				-- when going up still leaves you inside a folder (ctx.set_context(parent)); there is no
 				-- "parent" here, just unscoped.
 				ctx.set_context(nil)
-			else
-				ctx.jump(item)
+			elseif kind == "diff" then
+				-- Close first, then open on the next tick so Pulse's float teardown (and its scheduled
+				-- cursor restore) can't fight the new splits.
+				local target = item
 				ctx.close()
+				vim.schedule(function()
+					require("pulse.navigators.git.review").open(target)
+				end)
 			end
+		end,
+	},
+	{
+		key = "<C-o>",
+		name = "open",
+		when = function(ctx)
+			local item = ctx and ctx.item
+			return ctx and ctx.panel and ctx.panel.name == "git_status" and item and item.kind == "git_status"
+		end,
+		run = function(ctx)
+			local item = ctx and ctx.item
+			if not item then
+				return
+			end
+			ctx.jump(item)
+			ctx.close()
 		end,
 	},
 	{
