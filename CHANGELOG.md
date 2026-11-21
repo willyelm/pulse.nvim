@@ -20,6 +20,21 @@
 
 
 
+
+## [0.17.0] - 2026-11-21
+
+### New
+
+- open the review on the current buffer with :Pulse git_review
+- review changes in a side-by-side diff tab you can edit
+
+### Changed
+
+- fix(git): keep the review's diff backgrounds steady across cursor and themes
+- fix(diff): resolve the preview palette per draw and skip empty theme groups
+- docs: list commands, navigator keys and the git review in tables
+- refactor(git): expose read_blob_lines from the git view
+
 ## [0.16.1] - 2026-10-05
 
 ### Changed
@@ -184,10 +199,4 @@
 
 - fix: rename files_open to buffers and improve file preview for binary/big
   files
-
-## [0.7.7] - 2026-05-25
-
-### Changed
-
-- fix(git): remove item from list when restore
 
