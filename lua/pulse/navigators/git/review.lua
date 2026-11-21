@@ -12,15 +12,7 @@ local R = nil
 local KEYS = { "]f", "[f", "<leader>v", "<leader>s", "q" }
 local STATUSCOLUMN = "%!v:lua.require'pulse.navigators.git.review'.statuscolumn()"
 
--- A Pulse* group when the theme defines one (same rule as the diff preview), else the standard Diff* group.
--- Resolved on use, so a colorscheme loaded after Pulse still applies.
-local function colors()
-	local function pick(name, fallback)
-		return vim.fn.hlexists(name) == 1 and name or fallback
-	end
-	local add, delete = pick("PulseDiffAdd", "DiffAdd"), pick("PulseDiffDelete", "DiffDelete")
-	return { add = add, delete = delete, num_add = pick("PulseDiffNAdd", add), num_delete = pick("PulseDiffNDelete", delete) }
-end
+local colors = require("pulse.ui.diff").groups
 
 local function valid_win(win)
 	return win and vim.api.nvim_win_is_valid(win)
@@ -83,6 +75,16 @@ function M.statuscolumn()
 	return string.format("%%#%s#%4d ", group, vim.v.lnum)
 end
 
+-- Changed characters: the number color's background (one step stronger than the line), no fg, so the
+-- text keeps its syntax colors. The theme's DiffText is often a loud fixed color shared by both sides.
+local function define_text_groups()
+	local c = colors()
+	for name, from in pairs({ PulseReviewTextAdd = c.num_add, PulseReviewTextDelete = c.num_delete }) do
+		local bg = vim.api.nvim_get_hl(0, { name = from, link = false }).bg
+		vim.api.nvim_set_hl(0, name, bg and { bg = bg, default = true } or { link = "DiffText", default = true })
+	end
+end
+
 -- The ╱ filler rows: NonText blended most of the way into the background. A theme can override the group.
 local function define_filler()
 	local function get(name)
@@ -116,9 +118,16 @@ local function style(win, left)
 	wo.relativenumber = false
 	wo.wrap = false
 	wo.cursorline = true
+	wo.cursorlineopt = "number" -- a full-line CursorLine would paint over the diff background
 	wo.statuscolumn = STATUSCOLUMN
-	-- Changed characters keep the theme's DiffText; filler rows stay quiet.
-	wo.winhighlight = "DiffAdd:" .. line .. ",DiffChange:" .. line .. ",DiffDelete:PulseReviewFiller"
+	local text = left and "PulseReviewTextDelete" or "PulseReviewTextAdd"
+	wo.winhighlight = table.concat({
+		"DiffAdd:" .. line,
+		"DiffChange:" .. line,
+		"DiffText:" .. text,
+		"DiffTextAdd:" .. text,
+		"DiffDelete:PulseReviewFiller",
+	}, ",")
 end
 
 -- Writing the staged buffer puts exactly its text in the index, so `dp` + `:w` stages one hunk.
@@ -343,6 +352,7 @@ function M.open(item)
 	end
 
 	define_filler()
+	define_text_groups()
 	vim.cmd("tabnew")
 	local right = vim.api.nvim_get_current_win()
 	vim.cmd("leftabove vsplit")
@@ -357,6 +367,20 @@ function M.open(item)
 		diffopt = diffopt,
 		group = vim.api.nvim_create_augroup("PulseGitReview", { clear = true }),
 	}
+	-- A new colorscheme clears the derived groups; rebuild them and restyle the panes.
+	vim.api.nvim_create_autocmd("ColorScheme", {
+		group = R.group,
+		callback = function()
+			define_filler()
+			define_text_groups()
+			for _, win in ipairs({ R.left, R.right }) do
+				if valid_win(win) then
+					style(win, win == R.left)
+				end
+			end
+			render_winbars()
+		end,
+	})
 	-- Closing either pane or the tab by hand ends the review the same way `q` does.
 	vim.api.nvim_create_autocmd("WinClosed", {
 		group = R.group,
