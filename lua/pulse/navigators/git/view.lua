@@ -42,6 +42,8 @@ local function read_blob_lines(rev, path)
 	return lines, true
 end
 
+M.read_blob_lines = read_blob_lines
+
 -- From the name alone; no need to read the file (which may not even exist in this revision).
 local function filetype_for(path)
 	local ft = vim.filetype.match({ filename = path or "" })
